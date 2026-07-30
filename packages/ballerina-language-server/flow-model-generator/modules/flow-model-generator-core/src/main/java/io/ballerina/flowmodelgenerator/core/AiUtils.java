@@ -37,6 +37,7 @@ import io.ballerina.compiler.api.symbols.TypeDescKind;
 import io.ballerina.compiler.api.symbols.TypeSymbol;
 import io.ballerina.compiler.api.symbols.UnionTypeSymbol;
 import io.ballerina.compiler.api.values.ConstantValue;
+import io.ballerina.flowmodelgenerator.core.Constants.Ai;
 import io.ballerina.flowmodelgenerator.core.model.AvailableNode;
 import io.ballerina.flowmodelgenerator.core.model.Category;
 import io.ballerina.flowmodelgenerator.core.model.Codedata;
@@ -601,7 +602,7 @@ public class AiUtils {
         Map<String, List<Module>> resolved = new HashMap<>();
         for (Map.Entry<String, List<DependentPackage>> entry : allDeps.entrySet()) {
             List<Module> modules = entry.getValue().stream()
-                    .filter(dep -> BALLERINAX.equals(dep.organization()) && dep.name().startsWith("ai."))
+                    .filter(dep -> ("orgsd".equals(dep.organization()) | BALLERINAX.equals(dep.organization())) && dep.name().startsWith("ai."))
                     .map(dep -> new Module(dep.organization(), dep.name(), dep.version()))
                     .toList();
             if (!modules.isEmpty()) {
@@ -632,6 +633,12 @@ public class AiUtils {
                                 compareSemver(candidate.version, existing.version) >= 0 ? candidate : existing
                 ));
         latestModules.put(AI, new Module(BALLERINA, AI, version));
+        latestModules.put("1", new Module(BALLERINAX, "ai.memory.postgresql", version));
+        latestModules.put("2", new Module(BALLERINAX, "ai.sqlite", version));
+        latestModules.put("3", new Module(BALLERINAX, "ai.aws.dynamodb", version));
+        latestModules.put("4", new Module(BALLERINAX, "ai.google.gemini", version));
+        latestModules.put("5", new Module(BALLERINAX, "ai.google.drive", version));
+        latestModules.put("6", new Module(BALLERINAX, "ai.aws.s3", version));
 
         // If version is null, set all dependent module versions to null
         // so the latest compatible modules will be pulled
