@@ -35,12 +35,64 @@ import {
     ParameterDef,
     PathParameter,
     Annotation,
+    AnnotationAttachment,
 } from "./library-types";
 
-const ATTACHMENT_POINT_LABELS: Record<string, string> = {
+/**
+ * Dual attachment points, mapped to the token an annotation declaration's `on` clause uses.
+ * These are written bare, on a plain `public annotation ...` declaration.
+ *
+ * <p>The compiler's `OBJECT` point is deliberately absent: current Ballerina has no source form
+ * for it (neither `on object` nor `on object type` parses), so entries carrying it are dropped
+ * rather than rendered as text that does not compile.</p>
+ */
+const DUAL_ATTACHMENT_POINT_LABELS: Record<string, string> = {
+    TYPE: "type",
+    CLASS: "class",
+    FUNCTION: "function",
+    OBJECT_METHOD: "object function",
+    RESOURCE: "service remote function",
+    PARAMETER: "parameter",
+    RETURN: "return",
     SERVICE: "service",
-    OBJECT_METHOD: "service_function",
+    FIELD: "field",
+    OBJECT_FIELD: "object field",
+    RECORD_FIELD: "record field",
 };
+
+/**
+ * Source-only attachment points. These carry a `source` prefix, and any declaration that uses one
+ * must additionally be a `const` declaration — `public const annotation X on source external;`.
+ */
+const SOURCE_ONLY_ATTACHMENT_POINT_LABELS: Record<string, string> = {
+    ANNOTATION: "source annotation",
+    EXTERNAL: "source external",
+    VAR: "source var",
+    CONST: "source const",
+    LISTENER: "source listener",
+    WORKER: "source worker",
+};
+
+interface AttachmentPointLabel {
+    label: string;
+    sourceOnly: boolean;
+}
+
+/**
+ * Resolves a compiler attachment point to its declaration token, or `null` when the point has no
+ * source form.
+ */
+function resolveAttachmentPoint(attachmentPoint: string): AttachmentPointLabel | null {
+    const dual = DUAL_ATTACHMENT_POINT_LABELS[attachmentPoint];
+    if (dual) {
+        return { label: dual, sourceOnly: false };
+    }
+    const sourceOnly = SOURCE_ONLY_ATTACHMENT_POINT_LABELS[attachmentPoint];
+    if (sourceOnly) {
+        return { label: sourceOnly, sourceOnly: true };
+    }
+    return null;
+}
 
 /**
  * Derives a module prefix from a library name.
@@ -118,6 +170,52 @@ function buildSpecialAgentNote(externalLinks: ExternalLinkInfo[]): string {
 }
 
 /**
+ * Renders a single annotation attachment as `@[prefix:]Name [value]`.
+ * The module prefix is derived from the attachment's `module` (e.g. "ballerina/http" -> "http");
+ * when absent, the annotation belongs to the current library and is rendered bare.
+ */
+function renderAttachmentName(annotation: AnnotationAttachment): string {
+    const prefix = annotation.module ? deriveModulePrefix(annotation.module) : "";
+    const qualifiedName = prefix ? `${prefix}:${annotation.name}` : annotation.name;
+    return annotation.value ? `@${qualifiedName} ${annotation.value}` : `@${qualifiedName}`;
+}
+
+/**
+ * Renders annotation attachments as one line each, prefixed with `indent`.
+ *
+ * A `required` binding is marked, because whether an annotation *must* be written is stated only by
+ * the connector's authoring metadata — it cannot be recovered from the annotation declaration or
+ * from any symbol. Unmarked bindings are optional.
+ */
+function renderAttachmentLines(annotations: AnnotationAttachment[] | undefined, indent: string): string[] {
+    if (!annotations || annotations.length === 0) {
+        return [];
+    }
+    return annotations.map((annotation) =>
+        `${indent}${renderAttachmentName(annotation)}${annotation.required ? " // required" : ""}`);
+}
+
+/**
+ * Renders annotation attachments as a block (lines + trailing newline) for string-concatenation
+ * renderers. Returns "" when there are none.
+ */
+function renderAttachmentBlock(annotations: AnnotationAttachment[] | undefined, indent: string): string {
+    const lines = renderAttachmentLines(annotations, indent);
+    return lines.length > 0 ? lines.join("\n") + "\n" : "";
+}
+
+/**
+ * Renders annotation attachments inline (space-separated, trailing space) for a parameter
+ * declaration. Returns "" when there are none.
+ */
+function renderInlineAttachments(annotations: AnnotationAttachment[] | undefined): string {
+    if (!annotations || annotations.length === 0) {
+        return "";
+    }
+    return annotations.map(renderAttachmentName).join(" ") + " ";
+}
+
+/**
  * Renders a description as `#` comment lines.
  */
 function renderDescription(description: string | undefined): string {
@@ -139,6 +237,7 @@ function renderRecord(typeDef: RecordTypeDefinition): string {
     if (typeDef.isDeprecated) {
         lines.push("@deprecated");
     }
+    lines.push(...renderAttachmentLines(typeDef.annotations, ""));
     lines.push(`type ${typeDef.name} record {`);
 
     for (const field of typeDef.fields) {
@@ -148,8 +247,9 @@ function renderRecord(typeDef: RecordTypeDefinition): string {
         const defaultVal = field.default !== undefined ? ` = ${field.default}` : "";
         const fieldDesc = field.description ? `    # ${field.description}\n` : "";
         const fieldDeprecated = field.isDeprecated ? "    @deprecated\n" : "";
+        const fieldAnnotations = renderAttachmentBlock(field.annotations, "    ");
         const agentNote = buildSpecialAgentNote(externalLinks);
-        lines.push(`${fieldDesc}${fieldDeprecated}    ${typeName} ${field.name}${optional}${defaultVal};${agentNote}`);
+        lines.push(`${fieldDesc}${fieldDeprecated}${fieldAnnotations}    ${typeName} ${field.name}${optional}${defaultVal};${agentNote}`);
     }
 
     lines.push("};");
@@ -169,6 +269,7 @@ function renderEnum(typeDef: EnumTypeDefinition): string {
     if (typeDef.isDeprecated) {
         lines.push("@deprecated\n");
     }
+    lines.push(renderAttachmentBlock(typeDef.annotations, ""));
     const members = typeDef.members.map((m) => m.name).join(",\n    ");
     lines.push(`enum ${typeDef.name} {\n    ${members}\n}`);
     return lines.join("");
@@ -180,11 +281,12 @@ function renderEnum(typeDef: EnumTypeDefinition): string {
 function renderUnion(typeDef: UnionTypeDefinition): string {
     const desc = renderDescription(typeDef.description);
     const dep = renderDeprecation(typeDef.isDeprecated);
+    const ann = renderAttachmentBlock(typeDef.annotations, "");
     if (!typeDef.members || typeDef.members.length === 0) {
-        return `${desc}${dep}type ${typeDef.name};`;
+        return `${desc}${dep}${ann}type ${typeDef.name};`;
     }
     const members = typeDef.members.map((m) => m.name).join("|");
-    return `${desc}${dep}type ${typeDef.name} ${members};`;
+    return `${desc}${dep}${ann}type ${typeDef.name} ${members};`;
 }
 
 /**
@@ -193,8 +295,9 @@ function renderUnion(typeDef: UnionTypeDefinition): string {
 function renderConstant(typeDef: ConstantTypeDefinition): string {
     const desc = renderDescription(typeDef.description);
     const dep = renderDeprecation(typeDef.isDeprecated);
+    const ann = renderAttachmentBlock(typeDef.annotations, "");
     const value = typeDef.varType.name === "string" ? `"${typeDef.value}"` : typeDef.value;
-    return `${desc}${dep}const ${typeDef.varType.name} ${typeDef.name} = ${value};`;
+    return `${desc}${dep}${ann}const ${typeDef.varType.name} ${typeDef.name} = ${value};`;
 }
 
 /**
@@ -203,7 +306,8 @@ function renderConstant(typeDef: ConstantTypeDefinition): string {
 function renderClass(typeDef: ClassTypeDefinition): string {
     const desc = renderDescription(typeDef.description);
     const dep = renderDeprecation(typeDef.isDeprecated);
-    return `${desc}${dep}class ${typeDef.name} {\n}`;
+    const ann = renderAttachmentBlock(typeDef.annotations, "");
+    return `${desc}${dep}${ann}class ${typeDef.name} {\n}`;
 }
 
 /**
@@ -257,7 +361,8 @@ function renderParam(param: Parameter): string {
     const typeName = applyPrefixToTypeName(param.type.name, externalLinks);
     const optional = (param as any).optional;
     const defaultVal = (param as any).default !== undefined ? ` = ${(param as any).default}` : "";
-    return `${typeName} ${param.name}${defaultVal}`;
+    const annotations = renderInlineAttachments(param.annotations);
+    return `${annotations}${typeName} ${param.name}${defaultVal}`;
 }
 
 /**
@@ -268,7 +373,8 @@ function renderConstructor(func: RemoteFunction): string {
     const params = func.parameters.map(renderParam).join(", ");
     const returnStr = func.return?.type ? ` returns ${applyPrefixToTypeName(func.return.type.name, allExternalLinks)}` : "";
     const agentNote = buildSpecialAgentNote(allExternalLinks);
-    return `    function init(${params})${returnStr};${agentNote}`;
+    const anns = renderAttachmentBlock(func.annotations, "    ");
+    return `${anns}    function init(${params})${returnStr};${agentNote}`;
 }
 
 /**
@@ -278,10 +384,11 @@ function renderRemoteFunction(func: RemoteFunction, indent: string = "    "): st
     const allExternalLinks = collectFunctionExternalLinks(func.parameters, func.return?.type);
     const desc = func.description ? `${indent}# ${func.description.split("\n").join(`\n${indent}# `)}\n` : "";
     const dep = func.isDeprecated ? `${indent}@deprecated\n` : "";
+    const anns = renderAttachmentBlock(func.annotations, indent);
     const params = func.parameters.map(renderParam).join(", ");
     const returnStr = func.return?.type ? ` returns ${applyPrefixToTypeName(func.return.type.name, allExternalLinks)}` : "";
     const agentNote = buildSpecialAgentNote(allExternalLinks);
-    return `${desc}${dep}${indent}remote function ${func.name}(${params})${returnStr};${agentNote}`;
+    return `${desc}${dep}${anns}${indent}remote function ${func.name}(${params})${returnStr};${agentNote}`;
 }
 
 /**
@@ -291,6 +398,7 @@ function renderResourceFunction(func: ResourceFunction, indent: string = "    ")
     const allExternalLinks = collectFunctionExternalLinks(func.parameters, func.return?.type);
     const desc = func.description ? `${indent}# ${func.description.split("\n").join(`\n${indent}# `)}\n` : "";
     const dep = func.isDeprecated ? `${indent}@deprecated\n` : "";
+    const anns = renderAttachmentBlock(func.annotations, indent);
 
     // Build path string
     const pathSegments = func.paths.map((p) => {
@@ -312,7 +420,7 @@ function renderResourceFunction(func: ResourceFunction, indent: string = "    ")
 
     const returnStr = func.return?.type ? ` returns ${applyPrefixToTypeName(func.return.type.name, allExternalLinks)}` : "";
     const agentNote = buildSpecialAgentNote(allExternalLinks);
-    return `${desc}${dep}${indent}resource function ${func.accessor} ${pathStr}(${params})${returnStr};${agentNote}`;
+    return `${desc}${dep}${anns}${indent}resource function ${func.accessor} ${pathStr}(${params})${returnStr};${agentNote}`;
 }
 
 /**
@@ -322,7 +430,8 @@ function renderClient(client: Client): string {
     const lines: string[] = [];
     const desc = client.description ? renderDescription(client.description) : "";
     const dep = client.isDeprecated ? "@deprecated\n" : "";
-    lines.push(`${desc}${dep}client class ${client.name} {`);
+    const anns = renderAttachmentBlock(client.annotations, "");
+    lines.push(`${desc}${dep}${anns}client class ${client.name} {`);
 
     for (const func of client.functions) {
         if ("type" in func && func.type === "Constructor") {
@@ -370,6 +479,8 @@ function renderStandaloneFunction(func: RemoteFunction): string {
         lines.push("@deprecated");
     }
 
+    lines.push(...renderAttachmentLines(func.annotations, ""));
+
     const params = func.parameters.map(renderParam).join(", ");
     const returnStr = func.return?.type ? ` returns ${applyPrefixToTypeName(func.return.type.name, allExternalLinks)}` : "";
     const agentNote = buildSpecialAgentNote(allExternalLinks);
@@ -380,9 +491,12 @@ function renderStandaloneFunction(func: RemoteFunction): string {
 
 /**
  * Renders a ParameterDef (used in fixed service methods).
+ * Parameter-point annotation bindings are written inline, ahead of the type, exactly as they are
+ * written in source.
  */
 function renderParamDef(param: ParameterDef & { name?: string }): string {
-    return `${param.type.name}${param.name ? " " + param.name : ""}`;
+    const annotations = renderInlineAttachments(param.annotations);
+    return `${annotations}${param.type.name}${param.name ? " " + param.name : ""}`;
 }
 
 /**
@@ -435,18 +549,32 @@ function renderFixedService(service: FixedService): string {
     const serviceTypePrefix = service.name && alias
         ? `${alias}:${service.name} `
         : "";
+    // Service-point annotation bindings precede the `service` keyword, as in source.
+    lines.push(...renderAttachmentLines(service.annotations, ""));
     lines.push(`service ${serviceTypePrefix}on new ${service.listener.name}(${listenerParams}) {`);
 
     for (const method of service.methods ?? []) {
         const desc = method.description ? `    # ${method.description}\n` : "";
         const dep = method.isDeprecated ? "    @deprecated\n" : "";
+        const anns = renderAttachmentBlock(method.annotations, "    ");
         const params = (method.parameters ?? [])
             .map((p) => renderParamDef(p as ParameterDef & { name?: string }))
             .join(", ");
         const returnStr = method.return?.type ? ` returns ${method.return.type.name}` : "";
-        const optionalComment = method.optional ? " // optional" : "";
+        const notes: string[] = [];
+        if (method.optional) {
+            notes.push("optional");
+        }
+        if (method.nameIsUserDefined) {
+            notes.push("method name is chosen by the service author; declare one such method per use");
+        }
+        const repeatable = (method.parameters ?? []).filter((p) => p.repeatable);
+        if (repeatable.length > 0) {
+            notes.push(`repeatable: ${repeatable.map((p) => p.type.name).join(", ")}`);
+        }
+        const noteComment = notes.length > 0 ? ` // ${notes.join("; ")}` : "";
 
-        lines.push(`${desc}${dep}    remote function ${method.name}(${params})${returnStr};${optionalComment}`);
+        lines.push(`${desc}${dep}${anns}    remote function ${method.name}(${params})${returnStr};${noteComment}`);
         lines.push("");
     }
 
@@ -460,18 +588,46 @@ function renderFixedService(service: FixedService): string {
 }
 
 /**
- * Renders a library annotation. Only `SERVICE` and `OBJECT_METHOD` attachment points
- * are supported; entries with other points are skipped by the caller.
+ * Groups catalog entries by annotation name, preserving first-seen order. The catalog carries one
+ * entry per attachment point, whereas Ballerina source declares an annotation once with a
+ * comma-separated `on` list.
  */
-function renderAnnotation(annotation: Annotation): string | null {
-    const point = ATTACHMENT_POINT_LABELS[annotation.attachmentPoint];
-    if (!point) {
+function groupAnnotationsByName(annotations: Annotation[]): Annotation[][] {
+    const groups = new Map<string, Annotation[]>();
+    for (const annotation of annotations) {
+        const group = groups.get(annotation.name);
+        if (group) {
+            group.push(annotation);
+        } else {
+            groups.set(annotation.name, [annotation]);
+        }
+    }
+    return [...groups.values()];
+}
+
+/**
+ * Renders all catalog entries of one annotation as a single
+ * `public annotation ... on <point>[, <point>...];` declaration.
+ * Returns `null` when none of the entries' attachment points have a Ballerina token mapping.
+ */
+function renderAnnotation(entries: Annotation[]): string | null {
+    const resolvedPoints = entries
+        .map((entry) => resolveAttachmentPoint(entry.attachmentPoint))
+        .filter((point): point is AttachmentPointLabel => point !== null);
+    const points = [...new Set(resolvedPoints.map((point) => point.label))];
+    if (points.length === 0) {
         return null;
     }
+    // A declaration that uses any source-only point must be a `const` declaration.
+    const constModifier = resolvedPoints.some((point) => point.sourceOnly) ? "const " : "";
+
+    const annotation = entries[0];
+    const description = entries.find((entry) => entry.description)?.description;
+    const typeConstraint = entries.find((entry) => entry.typeConstraint)?.typeConstraint;
 
     const lines: string[] = [];
-    if (annotation.description) {
-        const descBody = annotation.description
+    if (description) {
+        const descBody = description
             .split("\n")
             .map((l) => `# ${l}`)
             .join("\n");
@@ -480,14 +636,14 @@ function renderAnnotation(annotation: Annotation): string | null {
 
     let typeSlot = "";
     let agentNote = "";
-    if (annotation.typeConstraint) {
-        const externalLinks = collectExternalLinks(annotation.typeConstraint);
-        const typeName = applyPrefixToTypeName(annotation.typeConstraint.name, externalLinks);
+    if (typeConstraint) {
+        const externalLinks = collectExternalLinks(typeConstraint);
+        const typeName = applyPrefixToTypeName(typeConstraint.name, externalLinks);
         typeSlot = `${typeName} `;
         agentNote = buildSpecialAgentNote(externalLinks);
     }
-
-    lines.push(`public annotation ${typeSlot}${annotation.name} on ${point};${agentNote}`);
+    lines.push(`public ${constModifier}annotation ${typeSlot}${annotation.name} on ${points.join(", ")};`
+        + `${agentNote}`);
     return lines.join("\n");
 }
 
@@ -574,7 +730,7 @@ export function toSyntaxString(libraries: Library[]): string {
 
         // Annotation section
         if (lib.annotations && lib.annotations.length > 0) {
-            const renderedAnnotations = lib.annotations
+            const renderedAnnotations = groupAnnotationsByName(lib.annotations)
                 .map(renderAnnotation)
                 .filter((rendered): rendered is string => rendered !== null);
             if (renderedAnnotations.length > 0) {

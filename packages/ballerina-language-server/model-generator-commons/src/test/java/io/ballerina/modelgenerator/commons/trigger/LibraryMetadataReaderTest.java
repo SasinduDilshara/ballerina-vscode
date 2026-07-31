@@ -23,6 +23,9 @@ import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 /**
  * Tests {@link LibraryMetadataReader}'s three public reads: {@link LibraryMetadataReader#getTriggerMetadataModel}
  * and {@link LibraryMetadataReader#getTriggerUISchemaModel} (a connector's own shipped
@@ -32,10 +35,66 @@ import org.testng.annotations.Test;
  * is entirely internal to this class, so these tests only ever go through {@link ModuleInfo}-keyed
  * calls -- never a resolved {@code Path} -- mirroring how a caller (e.g. {@code ConnectorModelReader})
  * is expected to use it.
+ *
+ * <p>{@link LibraryMetadataReader#resolveTriggerMetadataModel} is the composed read: the connector's
+ * own document first, the bundled copy second.</p>
  */
 public class LibraryMetadataReaderTest {
 
     private static final LibraryMetadataReader READER = LibraryMetadataReader.getInstance();
+
+    // ---- resolveTriggerMetadataModel: connector's own document first, bundled second -------------
+
+    /**
+     * With a package root that ships no {@code resources/trigger-metadata.json}, resolution falls
+     * through to the bundled copy. The scratch directory stands in for any such package.
+     */
+    @Test
+    public void testResolveFallsBackToTheBundledCopy() throws Exception {
+        Path emptyRoot = Files.createTempDirectory("no-trigger-metadata");
+        ModuleInfo moduleInfo = new ModuleInfo("ballerinax", "kafka", "kafka", null);
+        TriggerMetadataModel model =
+                READER.resolveTriggerMetadataModel(emptyRoot, moduleInfo).orElseThrow();
+        Assert.assertFalse(model.serviceTypes().isEmpty(), "Expected the bundled kafka document");
+    }
+
+    /**
+     * A connector that ships its own document wins over the bundled copy of the same module, so a
+     * connector describing itself is served without waiting for an LS release.
+     */
+    @Test
+    public void testConnectorsOwnDocumentWinsOverTheBundledCopy() throws Exception {
+        Path root = Files.createTempDirectory("own-trigger-metadata");
+        Path resources = Files.createDirectories(root.resolve("resources"));
+        // A minimal document that is unmistakably not the bundled kafka one.
+        Files.writeString(resources.resolve("trigger-metadata.json"), """
+                {
+                  "listeners": [{"type": {"name": "OwnListener"}}],
+                  "serviceTypes": [{"id": "own", "type": {"name": "OwnService"}}],
+                  "annotations": []
+                }
+                """);
+
+        ModuleInfo moduleInfo = new ModuleInfo("ballerinax", "kafka", "kafka", null);
+        TriggerMetadataModel model = READER.resolveTriggerMetadataModel(root, moduleInfo).orElseThrow();
+        Assert.assertEquals(model.serviceTypes().get(0).type().name(), "OwnService",
+                "The connector's own document must take precedence over the bundled kafka one");
+        Assert.assertEquals(model.listeners().get(0).type().name(), "OwnListener");
+
+        // The bundled read on its own is unaffected -- the tiers stay independent.
+        Assert.assertNotEquals(READER.getPackagedTriggerMetadataModel(moduleInfo).orElseThrow()
+                .serviceTypes().get(0).type().name(), "OwnService");
+    }
+
+    /** A null package root means there is nothing of the connector's to read; the bundled tier serves. */
+    @Test
+    public void testResolveWithNoPackageRootUsesTheBundledCopyOnly() {
+        ModuleInfo moduleInfo = new ModuleInfo("ballerinax", "kafka", "kafka", null);
+        Assert.assertTrue(READER.resolveTriggerMetadataModel(null, moduleInfo).isPresent());
+        // Neither tier has a document for a module nobody ships or bundles.
+        Assert.assertTrue(READER.resolveTriggerMetadataModel(
+                null, new ModuleInfo("ballerinax", "nope", "nope", null)).isEmpty());
+    }
 
     @Test
     public void testGetPackagedTriggerMetadataModelHit() {

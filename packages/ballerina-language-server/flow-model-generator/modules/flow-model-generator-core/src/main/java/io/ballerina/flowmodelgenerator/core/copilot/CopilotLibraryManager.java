@@ -167,11 +167,11 @@ public class CopilotLibraryManager {
             }
             library.setServices(services);
 
-            JsonArray annotationsJson = AnnotationLoader.loadAnnotations(libraryName, semanticModel);
-            List<Annotation> annotations = new ArrayList<>();
-            for (JsonElement annotationElement : annotationsJson) {
-                annotations.add(GSON.fromJson(annotationElement, Annotation.class));
-            }
+            // The annotation catalog comes from the Semantic Model, which is a superset of the
+            // service-index catalog: it covers every attachment point and reports each one exactly
+            // as the compiler resolved it. The index contributes its curated descriptions only.
+            List<Annotation> annotations = symbolResult.getAnnotations();
+            applyIndexDescriptions(libraryName, annotations);
             library.setAnnotations(annotations);
 
             if (README_WHITELIST.contains(libraryName)) {
@@ -185,6 +185,35 @@ public class CopilotLibraryManager {
         augmentLibrariesWithInstructions(libraries);
 
         return libraries;
+    }
+
+    /**
+     * Overlays the curated service-index descriptions onto the Semantic-Model annotation catalog.
+     * Matching is by annotation name alone, so every attachment point of an annotation picks up the
+     * same description.
+     *
+     * <p>The index description wins over the package's doc comment: it is hand-written to say what
+     * the annotation is for, whereas the doc comment tends to restate the annotation's name. Only
+     * the handful of listener packages carried by the index are affected; every other library keeps
+     * its doc comment.</p>
+     *
+     * @param libraryName the library being processed
+     * @param annotations the catalog to enrich, in place
+     */
+    private static void applyIndexDescriptions(String libraryName, List<Annotation> annotations) {
+        if (annotations.isEmpty()) {
+            return;
+        }
+        Map<String, String> descriptions = AnnotationLoader.loadDescriptions(libraryName);
+        if (descriptions.isEmpty()) {
+            return;
+        }
+        for (Annotation annotation : annotations) {
+            String description = descriptions.get(annotation.getName());
+            if (description != null) {
+                annotation.setDescription(description);
+            }
+        }
     }
 
     /**

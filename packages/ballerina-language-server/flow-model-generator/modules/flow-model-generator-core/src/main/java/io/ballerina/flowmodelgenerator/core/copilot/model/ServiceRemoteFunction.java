@@ -38,6 +38,12 @@ public class ServiceRemoteFunction {
     private boolean optional;
     @SerializedName("isDeprecated")
     private Boolean deprecated;
+    private List<AnnotationAttachment> annotations;
+    /**
+     * Set when the metadata document names this handler with the wildcard {@code "*"}: the service
+     * author chooses the method name, so {@code name} carries a generated placeholder.
+     */
+    private Boolean nameIsUserDefined;
 
     public ServiceRemoteFunction() {
         this.parameters = new ArrayList<>();
@@ -97,5 +103,21 @@ public class ServiceRemoteFunction {
 
     public void setDeprecated(Boolean deprecated) {
         this.deprecated = deprecated;
+    }
+
+    public List<AnnotationAttachment> getAnnotations() {
+        return annotations;
+    }
+
+    public void setAnnotations(List<AnnotationAttachment> annotations) {
+        this.annotations = annotations;
+    }
+
+    public Boolean isNameIsUserDefined() {
+        return nameIsUserDefined;
+    }
+
+    public void setNameIsUserDefined(Boolean nameIsUserDefined) {
+        this.nameIsUserDefined = nameIsUserDefined;
     }
 }

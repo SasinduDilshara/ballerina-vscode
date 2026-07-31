@@ -108,6 +108,46 @@ public final class LibraryMetadataReader {
     }
 
     /**
+     * The trigger metadata document for a module, preferring the connector's <b>own</b> copy over the
+     * LS-bundled one.
+     *
+     * <p>Precedence — the connector is authoritative about itself:</p>
+     * <ol>
+     *   <li>{@code resources/trigger-metadata.json} inside the connector's {@code .bala}, so a
+     *       connector that describes itself is honoured without waiting for an LS release; then</li>
+     *   <li>the LS-bundled {@code trigger-metadata-models/<moduleName>/} copy, which is how a
+     *       connector that does not yet ship its own document is served.</li>
+     * </ol>
+     *
+     * <p>Prefer {@link #resolveTriggerMetadataModel(Path, ModuleInfo)} when the caller has already
+     * resolved the package: this overload resolves the package root itself, which reaches Ballerina
+     * Central on a cache miss.</p>
+     *
+     * @param moduleInfo the module to resolve (org and module name are both required)
+     * @return the document from whichever tier supplies it, or empty when neither does
+     */
+    public Optional<TriggerMetadataModel> resolveTriggerMetadataModel(ModuleInfo moduleInfo) {
+        return getTriggerMetadataModel(moduleInfo)
+                .or(() -> getPackagedTriggerMetadataModel(moduleInfo));
+    }
+
+    /**
+     * {@link #resolveTriggerMetadataModel(ModuleInfo)} for a caller that already holds the resolved
+     * package, so the connector's own document is read straight off the given root and no package
+     * resolution — and therefore no Central lookup — happens here at all.
+     *
+     * @param packageRoot the resolved package's source root ({@code pkg.project().sourceRoot()});
+     *                    when {@code null}, only the bundled tier is consulted
+     * @param moduleInfo  the module, used for the bundled lookup
+     * @return the document from whichever tier supplies it, or empty when neither does
+     */
+    public Optional<TriggerMetadataModel> resolveTriggerMetadataModel(Path packageRoot, ModuleInfo moduleInfo) {
+        Optional<TriggerMetadataModel> own = packageRoot == null
+                ? Optional.empty() : readTriggerMetadataModel(packageRoot);
+        return own.isPresent() ? own : getPackagedTriggerMetadataModel(moduleInfo);
+    }
+
+    /**
      * The LS's bundled {@code trigger-metadata-models/<moduleName>/trigger-metadata.json} classpath
      * resource, if any. Keyed by bare module name only -- this is a small, curated set the LS ships
      * directly, so no org/version is needed to disambiguate (mirrors {@code TriggerArtifactReader}).

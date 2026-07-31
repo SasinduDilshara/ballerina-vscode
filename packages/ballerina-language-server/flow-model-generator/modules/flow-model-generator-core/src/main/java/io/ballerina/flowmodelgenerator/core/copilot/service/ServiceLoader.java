@@ -90,7 +90,7 @@ public class ServiceLoader {
      * @return JsonArray containing all services for this library
      */
     public static JsonArray loadAllServices(String libraryName, Package pkg, SemanticModel semanticModel) {
-        if (TriggerSchemaServiceLoader.isSchemaDriven(libraryName)
+        if (TriggerSchemaServiceLoader.isSchemaDriven(libraryName, pkg)
                 && !"index".equals(System.getProperty(TRIGGER_SOURCE_PROPERTY))) {
             JsonArray schemaServices = TriggerSchemaServiceLoader.loadServices(libraryName, pkg, semanticModel);
             if (!schemaServices.isEmpty()) {

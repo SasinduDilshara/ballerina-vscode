@@ -26,7 +26,6 @@ package io.ballerina.flowmodelgenerator.core.copilot.model;
 public class Annotation {
     private String name;
     private String attachmentPoint;
-    private String displayName;
     private String description;
     private Type typeConstraint;
 
@@ -44,14 +43,6 @@ public class Annotation {
 
     public void setAttachmentPoint(String attachmentPoint) {
         this.attachmentPoint = attachmentPoint;
-    }
-
-    public String getDisplayName() {
-        return displayName;
-    }
-
-    public void setDisplayName(String displayName) {
-        this.displayName = displayName;
     }
 
     public String getDescription() {

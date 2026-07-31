@@ -17,7 +17,7 @@
 import * as assert from "assert";
 import * as path from "path";
 import * as fs from "fs";
-import { Library } from "../../../../src/features/ai/utils/libs/library-types";
+import { Annotation, Library } from "../../../../src/features/ai/utils/libs/library-types";
 import { toSyntaxString, deriveModulePrefix } from "../../../../src/features/ai/utils/libs/to-syntax-string";
 
 const RESOURCES_DIR = path.join(__dirname, "resources");
@@ -474,6 +474,319 @@ suite("toSyntaxString", () => {
                 result.includes("// Special Agent Note: ParameterizedQuery, Error FROM ballerina/sql package"),
                 "Should collect from both param and return in one note"
             );
+        });
+    });
+
+    // ----------------------------------------------------------------
+    // Annotation declarations — Lang spec §9.1 (annot-attach-points)
+    // ----------------------------------------------------------------
+    suite("Annotation declarations", () => {
+        function renderAnnotations(annotations: Annotation[]): string[] {
+            const lib: Library = {
+                name: "ballerinax/sample",
+                description: "sample",
+                typeDefs: [],
+                clients: [],
+                annotations,
+            };
+            return toSyntaxString([lib]).split("\n").filter((l) => l.startsWith("public "));
+        }
+
+        test("should render dual attach points with their spec tokens", () => {
+            const declarations = renderAnnotations([
+                { name: "A", attachmentPoint: "OBJECT_METHOD" },
+                { name: "B", attachmentPoint: "RESOURCE" },
+                { name: "C", attachmentPoint: "RECORD_FIELD" },
+                { name: "D", attachmentPoint: "OBJECT_FIELD" },
+            ]);
+            // `service_function` / `resource function` are not attach points — see spec §9.1
+            assert.deepStrictEqual(declarations, [
+                "public annotation A on object function;",
+                "public annotation B on service remote function;",
+                "public annotation C on record field;",
+                "public annotation D on object field;",
+            ]);
+        });
+
+        test("should group the points of one annotation into a single declaration", () => {
+            const declarations = renderAnnotations([
+                { name: "ServiceConfig", attachmentPoint: "SERVICE", typeConstraint: { name: "HttpServiceConfig" } },
+                { name: "ServiceConfig", attachmentPoint: "TYPE", typeConstraint: { name: "HttpServiceConfig" } },
+            ]);
+            assert.deepStrictEqual(declarations,
+                ["public annotation HttpServiceConfig ServiceConfig on service, type;"]);
+        });
+
+        test("should prefix source-only points with `source` and declare them `const`", () => {
+            // Mirrors ballerinax/np: `public const annotation NaturalFunction on source external;`
+            const declarations = renderAnnotations([
+                { name: "NaturalFunction", attachmentPoint: "EXTERNAL" },
+                { name: "Sensitive", attachmentPoint: "LISTENER" },
+            ]);
+            assert.deepStrictEqual(declarations, [
+                "public const annotation NaturalFunction on source external;",
+                "public const annotation Sensitive on source listener;",
+            ]);
+        });
+
+        test("should declare a group `const` when any of its points is source-only", () => {
+            const declarations = renderAnnotations([
+                { name: "Mixed", attachmentPoint: "PARAMETER" },
+                { name: "Mixed", attachmentPoint: "WORKER" },
+            ]);
+            assert.deepStrictEqual(declarations, ["public const annotation Mixed on parameter, source worker;"]);
+        });
+
+        test("should drop points that have no source form", () => {
+            // OBJECT has no writable attach point (neither `on object` nor `on object type` parses),
+            // and unknown points may arrive from a newer compiler.
+            const declarations = renderAnnotations([
+                { name: "Legacy", attachmentPoint: "OBJECT" },
+                { name: "Future", attachmentPoint: "SOMETHING_NEW" },
+                { name: "Kept", attachmentPoint: "TYPE" },
+            ]);
+            assert.deepStrictEqual(declarations, ["public annotation Kept on type;"]);
+        });
+
+        test("should render the description as a doc comment above the declaration", () => {
+            const lib: Library = {
+                name: "ballerina/http",
+                description: "sample",
+                typeDefs: [],
+                clients: [],
+                annotations: [{
+                    name: "ServiceConfig",
+                    attachmentPoint: "SERVICE",
+                    description: "Define advanced configurations like service level security, etc.",
+                }],
+            };
+            const rendered = toSyntaxString([lib]);
+            assert.ok(rendered.includes("# Define advanced configurations like service level security, etc.\n"
+                + "public annotation ServiceConfig on service;"));
+        });
+    });
+
+    // ----------------------------------------------------------------
+    // Annotation ATTACHMENTS on services, handlers and handler parameters.
+    //
+    // These are the bindings a trigger metadata document states and no symbol can supply: which
+    // annotation belongs on which service type / handler / parameter, and whether it is mandatory.
+    // ----------------------------------------------------------------
+    suite("Service annotation attachments", () => {
+        function serviceLib(service: any): string {
+            const lib: Library = {
+                name: "ballerina/ftp",
+                description: "sample",
+                typeDefs: [],
+                clients: [],
+                services: [service],
+            };
+            return toSyntaxString([lib]);
+        }
+
+        const listener = { name: "ftp:Listener", parameters: [] };
+
+        test("should render a service-level attachment above the `service` keyword", () => {
+            const rendered = serviceLib({
+                type: "fixed",
+                name: "Service",
+                listener,
+                annotations: [{
+                    name: "ServiceConfig", module: "ballerina/ftp", value: '{path: ""}', required: true,
+                }],
+                methods: [],
+            });
+            assert.ok(rendered.includes('@ftp:ServiceConfig {path: ""} // required\n'
+                + 'service ftp:Service on new ftp:Listener() {'), rendered);
+        });
+
+        test("should mark only required attachments, leaving optional ones bare", () => {
+            const rendered = serviceLib({
+                type: "fixed",
+                name: "Service",
+                listener,
+                annotations: [
+                    { name: "Required", module: "ballerina/ftp", value: "{}", required: true },
+                    { name: "Optional", module: "ballerina/ftp", value: "{}" },
+                ],
+                methods: [],
+            });
+            assert.ok(rendered.includes("@ftp:Required {} // required"), rendered);
+            assert.ok(rendered.includes("@ftp:Optional {}\n"), rendered);
+            assert.ok(!rendered.includes("@ftp:Optional {} // required"), rendered);
+        });
+
+        test("should render a handler attachment indented above the method", () => {
+            const rendered = serviceLib({
+                type: "fixed",
+                name: "Service",
+                listener,
+                methods: [{
+                    name: "onFileChange",
+                    type: "remote",
+                    description: "",
+                    optional: false,
+                    parameters: [{ description: "", type: { name: "ftp:WatchEvent" }, optional: false }],
+                    return: { type: { name: "error?" } },
+                    annotations: [{
+                        name: "FunctionConfig", module: "ballerina/ftp", value: "{}", required: true,
+                    }],
+                }],
+            });
+            assert.ok(rendered.includes("    @ftp:FunctionConfig {} // required\n"
+                + "    remote function onFileChange(ftp:WatchEvent)"), rendered);
+        });
+
+        test("should render a cross-module attachment with its module prefix", () => {
+            // The one fact no library's own semantic model can produce.
+            const rendered = serviceLib({
+                type: "fixed",
+                name: "Service",
+                listener,
+                methods: [{
+                    name: "toolName",
+                    type: "remote",
+                    description: "",
+                    optional: false,
+                    nameIsUserDefined: true,
+                    parameters: [{
+                        description: "",
+                        type: { name: "string" },
+                        optional: true,
+                        repeatable: true,
+                        annotations: [{ name: "Header", module: "ballerina/http", value: "{}" }],
+                    }],
+                    return: { type: { name: "anydata|error" } },
+                }],
+            });
+            assert.ok(rendered.includes("@http:Header {} string"), rendered);
+            assert.ok(!rendered.includes("@Header {} string"), "must not drop the module prefix");
+        });
+
+        test("should note a user-defined handler name and repeatable slots", () => {
+            const rendered = serviceLib({
+                type: "fixed",
+                name: "Service",
+                listener,
+                methods: [{
+                    name: "toolName",
+                    type: "remote",
+                    description: "",
+                    optional: false,
+                    nameIsUserDefined: true,
+                    parameters: [
+                        { description: "", type: { name: "mcp:Session" }, optional: true },
+                        { description: "", type: { name: "anydata" }, optional: true, repeatable: true },
+                    ],
+                    return: { type: { name: "anydata|error" } },
+                }],
+            });
+            assert.ok(rendered.includes("remote function toolName("), rendered);
+            assert.ok(rendered.includes("method name is chosen by the service author"), rendered);
+            assert.ok(rendered.includes("repeatable: anydata"), rendered);
+            // The metadata wildcard itself must never reach the prompt as an identifier.
+            assert.ok(!rendered.includes("function *("), rendered);
+        });
+
+        test("should render a method-less marker service without a stray methods block", () => {
+            const rendered = serviceLib({
+                type: "fixed",
+                name: "Service",
+                listener,
+                annotations: [{ name: "ServiceConfig", value: '{info: {name: "", version: ""}}' }],
+            });
+            assert.ok(rendered.includes('@ServiceConfig {info: {name: "", version: ""}}'), rendered);
+            assert.ok(rendered.includes("service ftp:Service on new ftp:Listener() {"), rendered);
+            assert.ok(rendered.includes("}"), rendered);
+        });
+
+        test("should render a value-less annotation bare", () => {
+            // An annotation with no record constraint (e.g. `const annotation Expose on parameter;`)
+            // carries no value, and `@x <non-mapping>` does not parse — so it must render bare.
+            const rendered = serviceLib({
+                type: "fixed",
+                name: "Service",
+                listener,
+                annotations: [{ name: "Expose", module: "ballerina/cloud" }],
+                methods: [],
+            });
+            assert.ok(rendered.includes("@cloud:Expose\nservice ftp:Service"), rendered);
+            assert.ok(!rendered.includes("@cloud:Expose true"), rendered);
+        });
+
+        test("should leave a service with no bindings byte-identical to before", () => {
+            const rendered = serviceLib({
+                type: "fixed",
+                name: "Service",
+                listener,
+                methods: [{
+                    name: "onFileChange",
+                    type: "remote",
+                    description: "",
+                    optional: false,
+                    parameters: [{ description: "", type: { name: "ftp:WatchEvent" }, optional: false }],
+                    return: { type: { name: "error?" } },
+                }],
+            });
+            assert.ok(rendered.includes("service ftp:Service on new ftp:Listener() {\n"
+                + "    remote function onFileChange(ftp:WatchEvent) returns error?;"), rendered);
+            assert.ok(!rendered.includes("@"), "no annotation syntax when nothing is bound");
+        });
+    });
+
+    // ----------------------------------------------------------------
+    // Per-symbol attachments on library API elements (from the Semantic Model).
+    // ----------------------------------------------------------------
+    suite("Per-symbol annotation attachments", () => {
+        test("should render attachments on a record type and its fields", () => {
+            const lib: Library = {
+                name: "ballerina/log",
+                description: "sample",
+                clients: [],
+                typeDefs: [{
+                    name: "Entry",
+                    description: "",
+                    type: "Record",
+                    annotations: [{ name: "display", value: '{label: "Entry"}' }],
+                    fields: [{
+                        name: "password",
+                        description: "",
+                        type: { name: "string" },
+                        annotations: [{ name: "Sensitive", value: "{strategy: REDACT}" }],
+                    }],
+                }],
+            };
+            const rendered = toSyntaxString([lib]);
+            assert.ok(rendered.includes('@display {label: "Entry"}\ntype Entry record {'), rendered);
+            assert.ok(rendered.includes("    @Sensitive {strategy: REDACT}\n    string password;"), rendered);
+        });
+
+        test("should render an attachment on a client and inline on its function parameter", () => {
+            const lib: Library = {
+                name: "ballerinax/salesforce",
+                description: "sample",
+                typeDefs: [],
+                clients: [{
+                    name: "Client",
+                    description: "",
+                    annotations: [{ name: "display", value: '{label: "Salesforce"}' }],
+                    functions: [{
+                        type: "Remote",
+                        name: "query",
+                        description: "",
+                        parameters: [{
+                            name: "soql",
+                            description: "",
+                            type: { name: "string" },
+                            annotations: [{ name: "display", value: '{label: "SOQL"}' }],
+                        }],
+                        return: { type: { name: "stream" } },
+                    }] as any,
+                }],
+            };
+            const rendered = toSyntaxString([lib]);
+            assert.ok(rendered.includes('@display {label: "Salesforce"}\nclient class Client {'), rendered);
+            assert.ok(rendered.includes('@display {label: "SOQL"} string soql'), rendered);
         });
     });
 });

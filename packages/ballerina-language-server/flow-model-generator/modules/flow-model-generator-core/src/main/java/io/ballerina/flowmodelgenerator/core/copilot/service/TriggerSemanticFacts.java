@@ -32,6 +32,8 @@ import io.ballerina.compiler.api.symbols.Symbol;
 import io.ballerina.compiler.api.symbols.TypeDefinitionSymbol;
 import io.ballerina.compiler.api.symbols.TypeReferenceTypeSymbol;
 import io.ballerina.compiler.api.symbols.TypeSymbol;
+import io.ballerina.flowmodelgenerator.core.copilot.model.AnnotationAttachment;
+import io.ballerina.flowmodelgenerator.core.copilot.util.AnnotationAttachmentExtractor;
 import io.ballerina.compiler.api.symbols.resourcepath.PathSegmentList;
 import io.ballerina.compiler.api.symbols.resourcepath.ResourcePath;
 import io.ballerina.compiler.syntax.tree.DefaultableParameterNode;
@@ -261,9 +263,10 @@ final class TriggerSemanticFacts {
      * @param description         the method's doc-comment description
      * @param params              the method's parameters, in declaration order
      * @param returnTypeSignature the module-prefixed return type signature
+     * @param annotations         the annotations actually attached to the declared method
      */
     record DeclaredMethod(String name, String kind, String description, List<DeclaredParam> params,
-                          String returnTypeSignature) {
+                          String returnTypeSignature, List<AnnotationAttachment> annotations) {
     }
 
     /**
@@ -273,8 +276,10 @@ final class TriggerSemanticFacts {
      * @param typeSignature the module-prefixed type signature
      * @param description   the parameter documentation from the method's {@code parameterMap()}
      * @param optional      whether the parameter is defaultable
+     * @param annotations   the annotations actually attached to the declared parameter
      */
-    record DeclaredParam(String name, String typeSignature, String description, boolean optional) {
+    record DeclaredParam(String name, String typeSignature, String description, boolean optional,
+                         List<AnnotationAttachment> annotations) {
     }
 
     /**
@@ -282,7 +287,7 @@ final class TriggerSemanticFacts {
      * Resource methods are named by their path (the service-index convention) and their accessor is
      * not carried — matching what the Copilot serves today.
      */
-    List<DeclaredMethod> declaredMethods(ObjectTypeSymbol objectType) {
+    List<DeclaredMethod> declaredMethods(ObjectTypeSymbol objectType, String org, String packageName) {
         List<DeclaredMethod> methods = new ArrayList<>();
         for (Map.Entry<String, MethodSymbol> entry : objectType.methods().entrySet()) {
             MethodSymbol method = entry.getValue();
@@ -313,7 +318,8 @@ final class TriggerSemanticFacts {
                             paramName,
                             CommonUtils.getTypeSignature(semanticModel, param.typeDescriptor(), false),
                             paramDocs.getOrDefault(paramName, ""),
-                            param.paramKind() == ParameterKind.DEFAULTABLE));
+                            param.paramKind() == ParameterKind.DEFAULTABLE,
+                            AnnotationAttachmentExtractor.extract(param, org, packageName)));
                 }
             });
 
@@ -321,7 +327,8 @@ final class TriggerSemanticFacts {
                     .map(ret -> CommonUtils.getTypeSignature(semanticModel, ret, false))
                     .orElse("");
             methods.add(new DeclaredMethod(name, resource ? "resource" : "remote", description, params,
-                    returnSignature));
+                    returnSignature,
+                    AnnotationAttachmentExtractor.extract(method, org, packageName)));
         }
         return methods;
     }

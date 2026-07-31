@@ -19,16 +19,20 @@
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import io.ballerina.compiler.api.SemanticModel;
 import io.ballerina.compiler.api.symbols.ClassSymbol;
 import io.ballerina.compiler.api.symbols.ObjectTypeSymbol;
+import io.ballerina.flowmodelgenerator.core.copilot.model.AnnotationAttachment;
 import io.ballerina.modelgenerator.commons.ModuleInfo;
 import io.ballerina.modelgenerator.commons.trigger.LibraryMetadataReader;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 import io.ballerina.modelgenerator.commons.trigger.models.TypeRef;
 import io.ballerina.projects.Package;
 
+import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -71,13 +75,24 @@ import java.util.logging.Logger;
  * {@link HandlerParamNameGenerator} (handler parameters only — never listener init params, concrete
  * methods, client methods or type fields, all of which carry declared names).
  *
- * <p>Only libraries in {@link #SCHEMA_DRIVEN_LIBRARIES} are served here; everything else stays on
- * {@link ServiceIndexLoader}. Output shape is exactly the Copilot service contract
+ * <p>A library is served here when a trigger metadata document exists for it, and stays on
+ * {@link ServiceIndexLoader} otherwise — the set is discovered by looking the document up rather than
+ * declared in code. The document is taken from the connector's own {@code .bala} when it ships one and
+ * from the LS-bundled {@code trigger-metadata-models/<package>/} copy otherwise, so a library is
+ * onboarded either by publishing its own document or by bundling one, with no change to this class. Output shape is exactly the Copilot service contract
  * ({@code type/name/listener/methods}), so downstream enrichers, the generic-services merge, and the
  * TS prompt renderer are untouched. Function-level {@code optional} is deliberately never emitted
  * (matching the previous output), and metadata constructs with no Copilot counterpart
- * ({@code dataBindingRules}, {@code rules}, {@code identifier}, wildcard {@code "*"} handlers,
- * repeatable {@code addMode: "many"} slots) are ignored.
+ * ({@code dataBindingRules}, {@code identifier}) are ignored. A wildcard {@code "*"} handler and a
+ * repeatable {@code addMode: "many"} parameter slot ARE emitted — each flagged so the renderer can say
+ * what is open-ended — because they carry the document's annotation bindings and, for a marker service
+ * type, the whole handler contract.
+
+ * <p><b>Annotation bindings.</b> The document's {@code annotations} registry and its per-site
+ * references are resolved by {@link TriggerAnnotationBinder} onto the service, its handlers and their
+ * parameters. This is the only source for such a binding, for its {@code presence}, and for a
+ * cross-module binding; the attachment body is generated from the annotation's constraint type via the
+ * declaring module's Semantic Model.
  *
  * @since 1.7.0
  */
@@ -86,30 +101,85 @@ final class TriggerSchemaServiceLoader {
     private static final Logger LOGGER = Logger.getLogger(TriggerSchemaServiceLoader.class.getName());
 
     /**
-     * Copilot libraries served from trigger metadata + semantic model, mapped to the LS-bundled
-     * {@code trigger-metadata-models/<key>/trigger-metadata.json} module key. {@code ballerinax/mssql}
-     * maps to the {@code mssql.cdc} document — the same CDC trigger published under the new module
-     * layout; its listener ({@code CdcListener}) and handler set are validated against the actually
-     * resolved {@code mssql} package before use.
+     * Document keys that differ from the library's package name.
+     *
+     * <p>A bundled document is keyed by directory name under {@code trigger-metadata-models/}, which is
+     * normally just the package name — so a new document is picked up with no code change at all
+     * (see {@link #metadataKeys}). This map exists only for the cases where the trigger was published
+     * under a different module than the package the user imports: {@code ballerinax/mssql} carries the
+     * CDC trigger documented as {@code mssql.cdc}. Its listener ({@code CdcListener}) and handler set
+     * are still validated against the actually resolved {@code mssql} package before use.</p>
      */
-    static final Map<String, String> SCHEMA_DRIVEN_LIBRARIES = Map.of(
-            "ballerinax/kafka", "kafka",
-            "ballerinax/rabbitmq", "rabbitmq",
-            "ballerina/ftp", "ftp",
-            "ballerina/mcp", "mcp",
-            "ballerinax/mssql", "mssql.cdc",
-            "ballerinax/trigger.github", "trigger.github",
-            // Net-new to the Copilot: these were never in the SQLite service-index.
-            "ballerina/smb", "smb",
-            "ballerina/websub", "websub",
-            "ballerinax/trigger.google.calendar", "trigger.google.calendar");
+    private static final Map<String, String> METADATA_KEY_ALIASES = Map.of(
+            "ballerinax/mssql", "mssql.cdc");
 
     private TriggerSchemaServiceLoader() {
         // Prevent instantiation
     }
 
-    static boolean isSchemaDriven(String libraryName) {
-        return SCHEMA_DRIVEN_LIBRARIES.containsKey(libraryName);
+    /**
+     * The document keys to try for a library, in order: its package name, then any alias.
+     *
+     * <p>Deriving the key from the package name is what makes onboarding a library a data-only change:
+     * drop {@code trigger-metadata-models/<package>/trigger-metadata.json} into the LS resources and it
+     * is served, with no edit here.</p>
+     */
+    private static List<String> metadataKeys(String libraryName) {
+        String packageName = ServiceIndexLoader.stripOrg(libraryName);
+        String alias = METADATA_KEY_ALIASES.get(libraryName);
+        return alias == null || alias.equals(packageName)
+                ? List.of(packageName)
+                : List.of(packageName, alias);
+    }
+
+    /**
+     * Whether a trigger metadata document exists for this library, and it should therefore be served
+     * from the document plus the semantic model rather than from the SQLite service-index.
+     *
+     * <p>Determined by looking the document up, not by an allow-list — so a newly bundled document is
+     * honoured automatically. The lookup is a cached classpath read
+     * ({@link LibraryMetadataReader#getPackagedTriggerMetadataModel}), so asking is cheap.</p>
+     */
+    static boolean isSchemaDriven(String libraryName, Package pkg) {
+        return resolveMetadata(libraryName, pkg).isPresent();
+    }
+
+    /**
+     * The trigger metadata document for a library: the connector's own copy first, then the LS-bundled
+     * one, resolved through {@link LibraryMetadataReader#resolveTriggerMetadataModel(Path, ModuleInfo)}
+     * — the same reader and the same precedence any other consumer can adopt.
+     *
+     * <p>The package root comes from the package the caller already resolved, so the connector's own
+     * document costs one file check and nothing is looked up remotely. The bundled tier is tried under
+     * each candidate key (see {@link #metadataKeys}).</p>
+     */
+    private static Optional<TriggerMetadataModel> resolveMetadata(String libraryName, Package pkg) {
+        String packageName = ServiceIndexLoader.stripOrg(libraryName);
+        String org = libraryName.contains("/")
+                ? libraryName.substring(0, libraryName.indexOf('/'))
+                : "ballerinax";
+        Path packageRoot = packageRootOf(pkg);
+        LibraryMetadataReader reader = LibraryMetadataReader.getInstance();
+        for (String key : metadataKeys(libraryName)) {
+            Optional<TriggerMetadataModel> metadata = reader.resolveTriggerMetadataModel(
+                    packageRoot, new ModuleInfo(org, packageName, key, null));
+            if (metadata.isPresent()) {
+                return metadata;
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** The resolved package's source root, or {@code null} when there is no package to read from. */
+    private static Path packageRootOf(Package pkg) {
+        if (pkg == null) {
+            return null;
+        }
+        try {
+            return pkg.project().sourceRoot();
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /**
@@ -119,8 +189,7 @@ final class TriggerSchemaServiceLoader {
      * library.
      */
     static JsonArray loadServices(String libraryName, Package pkg, SemanticModel semanticModel) {
-        String metadataKey = SCHEMA_DRIVEN_LIBRARIES.get(libraryName);
-        if (metadataKey == null || pkg == null || semanticModel == null) {
+        if (pkg == null || semanticModel == null) {
             return new JsonArray();
         }
 
@@ -130,10 +199,8 @@ final class TriggerSchemaServiceLoader {
                 : "ballerinax";
 
         try {
-            Optional<TriggerMetadataModel> metadataOpt = LibraryMetadataReader.getInstance()
-                    .getPackagedTriggerMetadataModel(new ModuleInfo(org, packageName, metadataKey, null));
+            Optional<TriggerMetadataModel> metadataOpt = resolveMetadata(libraryName, pkg);
             if (metadataOpt.isEmpty()) {
-                LOGGER.warning("No bundled trigger metadata for " + libraryName + " (key: " + metadataKey + ")");
                 return new JsonArray();
             }
             TriggerMetadataModel metadata = metadataOpt.get();
@@ -157,6 +224,11 @@ final class TriggerSchemaServiceLoader {
             }
 
             JsonObject listenerJson = buildListener(listenerClass.get(), facts, packageName);
+
+            // Resolves the document's annotation bindings — the one kind of annotation information no
+            // Semantic Model can produce for a marker service type.
+            TriggerAnnotationBinder binder =
+                    new TriggerAnnotationBinder(metadata, semanticModel, org, packageName);
 
             JsonArray services = new JsonArray();
             for (TriggerMetadataModel.ServiceType serviceType : metadata.serviceTypes()) {
@@ -195,10 +267,15 @@ final class TriggerSchemaServiceLoader {
                 svc.addProperty("name", typeName);
                 svc.add("listener", listenerJson);
 
+                JsonArray serviceAnnotations = binder.forServiceType(serviceType.id());
+                if (!serviceAnnotations.isEmpty()) {
+                    svc.add("annotations", serviceAnnotations);
+                }
+
                 JsonArray methods = concrete
-                        ? buildConcreteMethods(typeName, facts, packageName)
+                        ? buildConcreteMethods(typeName, facts, packageName, org, handlers, binder)
                         : buildOptionMethods(handlers.options(), typeName, facts::declaresType,
-                                packageName);
+                                packageName, binder);
                 if (!methods.isEmpty()) {
                     svc.add("methods", methods);
                 }
@@ -250,13 +327,26 @@ final class TriggerSchemaServiceLoader {
      * text is invented.
      */
     private static JsonArray buildConcreteMethods(String typeName, TriggerSemanticFacts facts,
-                                                  String packageName) {
+                                                  String packageName, String org,
+                                                  TriggerMetadataModel.ServiceType.Handlers handlers,
+                                                  TriggerAnnotationBinder binder) {
+        // A concrete type reads its methods from the symbol, but the document may still bind
+        // annotations to them by name; honour those exactly as the marker path does.
+        Map<String, TriggerMetadataModel.ServiceType.HandlerOption> optionsByName = new HashMap<>();
+        if (handlers != null && handlers.options() != null) {
+            for (TriggerMetadataModel.ServiceType.HandlerOption option : handlers.options()) {
+                if (option != null && option.name() != null) {
+                    optionsByName.put(option.name(), option);
+                }
+            }
+        }
         JsonArray methods = new JsonArray();
         Optional<ObjectTypeSymbol> objectType = facts.serviceObjectType(typeName);
         if (objectType.isEmpty()) {
             return methods;
         }
-        for (TriggerSemanticFacts.DeclaredMethod declared : facts.declaredMethods(objectType.get())) {
+        for (TriggerSemanticFacts.DeclaredMethod declared
+                : facts.declaredMethods(objectType.get(), org, packageName)) {
             JsonObject method = new JsonObject();
             method.addProperty("name", declared.name());
             method.addProperty("type", declared.kind());
@@ -264,12 +354,30 @@ final class TriggerSchemaServiceLoader {
             if (declared.description() != null && !declared.description().isEmpty()) {
                 method.addProperty("description", declared.description());
             }
+            // Attachments the declared method actually carries: only a concrete service type has a
+            // method symbol to read them from. The document's bindings for the same handler are
+            // merged in, so a concrete type is not treated differently from a marker one.
+            addAttachments(method, declared.annotations(),
+                    binder == null ? null : binder.forIds(bindingIds(optionsByName.get(declared.name()))));
 
             if (!declared.params().isEmpty()) {
                 JsonArray params = new JsonArray();
-                for (TriggerSemanticFacts.DeclaredParam param : declared.params()) {
-                    params.add(buildParam(param.name(), param.description(), param.typeSignature(),
-                            param.optional(), packageName));
+                TriggerMetadataModel.ServiceType.HandlerOption option =
+                        optionsByName.get(declared.name());
+                List<TriggerMetadataModel.ServiceType.Param> documentParams =
+                        option == null ? null : option.params();
+                for (int i = 0; i < declared.params().size(); i++) {
+                    TriggerSemanticFacts.DeclaredParam param = declared.params().get(i);
+                    JsonObject paramJson = buildParam(param.name(), param.description(),
+                            param.typeSignature(), param.optional(), packageName);
+                    // Positional match against the document's parameter list, which is authored in
+                    // declaration order alongside the same signature.
+                    List<String> documentBindingIds = documentParams != null && i < documentParams.size()
+                            && documentParams.get(i) != null
+                            ? documentParams.get(i).annotations() : null;
+                    addAttachments(paramJson, param.annotations(),
+                            binder == null ? null : binder.forIds(documentBindingIds));
+                    params.add(paramJson);
                 }
                 method.add("parameters", params);
             }
@@ -278,6 +386,50 @@ final class TriggerSchemaServiceLoader {
             methods.add(method);
         }
         return methods;
+    }
+
+    /**
+     * Adds an {@code annotations} array combining the attachments a symbol actually carries with the
+     * document's bindings for the same site, de-duplicated by {@code module + name} so a binding the
+     * library already writes itself is not repeated. Adds nothing when both are empty.
+     */
+    private static void addAttachments(JsonObject target, List<AnnotationAttachment> attachments,
+                                       JsonArray documentBindings) {
+        JsonArray array = new JsonArray();
+        Set<String> seen = new HashSet<>();
+        if (attachments != null) {
+            for (AnnotationAttachment attachment : attachments) {
+                if (!seen.add(attachment.getModule() + "::" + attachment.getName())) {
+                    continue;
+                }
+                JsonObject json = new JsonObject();
+                json.addProperty("name", attachment.getName());
+                if (attachment.getModule() != null) {
+                    json.addProperty("module", attachment.getModule());
+                }
+                if (attachment.getValue() != null) {
+                    json.addProperty("value", attachment.getValue());
+                }
+                array.add(json);
+            }
+        }
+        if (documentBindings != null) {
+            for (JsonElement element : documentBindings) {
+                JsonObject binding = element.getAsJsonObject();
+                String module = binding.has("module") ? binding.get("module").getAsString() : null;
+                if (seen.add(module + "::" + binding.get("name").getAsString())) {
+                    array.add(binding);
+                }
+            }
+        }
+        if (!array.isEmpty()) {
+            target.add("annotations", array);
+        }
+    }
+
+    /** The annotation ids a handler option binds, or {@code null} when there is no option. */
+    private static List<String> bindingIds(TriggerMetadataModel.ServiceType.HandlerOption option) {
+        return option == null ? null : option.annotations();
     }
 
     /**
@@ -293,19 +445,28 @@ final class TriggerSchemaServiceLoader {
      *       the document states it only where a conventional name exists. Where it does, it wins;
      *       otherwise {@link HandlerParamNameGenerator} synthesizes a deterministic, idiomatic one.</li>
      * </ul>
+     *
+     * <p>A <b>wildcard</b> handler ({@code name: "*"}) is emitted, not skipped: it is how a document
+     * states that the service author declares the methods and chooses their names, and for such a
+     * service type it is the <em>only</em> handler entry — dropping it would lose the whole handler
+     * contract along with the annotations bound to it. Its name is a generated placeholder and the
+     * entry is flagged {@code nameIsUserDefined} so the renderer can say so. Likewise a repeatable
+     * ({@code addMode: "many"}) parameter slot is emitted once, flagged {@code repeatable}, since the
+     * slot's type and its annotation binding are real even though the count is open-ended.</p>
      */
     static JsonArray buildOptionMethods(List<TriggerMetadataModel.ServiceType.HandlerOption> options,
                                         String typeName, Predicate<String> declaresType,
-                                        String packageName) {
+                                        String packageName, TriggerAnnotationBinder binder) {
         JsonArray methods = new JsonArray();
         if (options == null) {
             return methods;
         }
         for (TriggerMetadataModel.ServiceType.HandlerOption option : options) {
-            if (option == null || option.name() == null
-                    || TriggerMetadataModel.ServiceType.HandlerOption.WILDCARD_NAME.equals(option.name())) {
+            if (option == null || option.name() == null) {
                 continue;
             }
+            boolean wildcard =
+                    TriggerMetadataModel.ServiceType.HandlerOption.WILDCARD_NAME.equals(option.name());
             // Same validation philosophy as service types: a handler whose signature references a
             // same-module type the resolved package does not declare (metadata authored against a
             // different/future release) would render an uncompilable prompt — skip it.
@@ -315,11 +476,20 @@ final class TriggerSchemaServiceLoader {
                 continue;
             }
             JsonObject method = new JsonObject();
-            method.addProperty("name", option.name());
+            method.addProperty("name", wildcard ? placeholderHandlerName(option) : option.name());
             method.addProperty("type",
                     TriggerMetadataModel.ServiceType.HandlerOption.KIND_RESOURCE.equals(option.kind())
                             ? "resource" : "remote");
+            if (wildcard) {
+                method.addProperty("nameIsUserDefined", true);
+            }
             // No description key: see the FLAG in this method's javadoc.
+            if (binder != null) {
+                JsonArray handlerAnnotations = binder.forIds(option.annotations());
+                if (!handlerAnnotations.isEmpty()) {
+                    method.add("annotations", handlerAnnotations);
+                }
+            }
 
             List<TriggerMetadataModel.ServiceType.Param> optionParams = option.params();
             if (optionParams != null && !optionParams.isEmpty()) {
@@ -332,11 +502,11 @@ final class TriggerSchemaServiceLoader {
                 }
                 for (int i = 0; i < optionParams.size(); i++) {
                     TriggerMetadataModel.ServiceType.Param param = optionParams.get(i);
-                    // A repeatable (addMode: "many") slot is an open-ended, user-named group — a
-                    // low-code authoring concept with no fixed-signature counterpart; skip it.
-                    if (TriggerMetadataModel.ServiceType.Handlers.ADD_MODE_MANY.equals(param.addMode())) {
+                    if (param == null) {
                         continue;
                     }
+                    boolean repeatable = TriggerMetadataModel.ServiceType.Handlers.ADD_MODE_MANY
+                            .equals(param.addMode());
                     // The authored name wins; otherwise generate one (handler params only).
                     String name = param.name() != null ? param.name()
                             : HandlerParamNameGenerator.generate(firstTypeRef(param.type()),
@@ -347,10 +517,18 @@ final class TriggerSchemaServiceLoader {
                     boolean optional = "optional".equals(param.presence());
 
                     // No description argument: see the FLAG in this method's javadoc.
-                    params.add(buildParam(name, null, typeSignature, optional, packageName));
+                    JsonObject paramJson = buildParam(name, null, typeSignature, optional, packageName);
+                    if (repeatable) {
+                        paramJson.addProperty("repeatable", true);
+                    }
+                    if (binder != null) {
+                        JsonArray paramAnnotations = binder.forIds(param.annotations());
+                        if (!paramAnnotations.isEmpty()) {
+                            paramJson.add("annotations", paramAnnotations);
+                        }
+                    }
+                    params.add(paramJson);
                 }
-                // Guard against an all-repeatable option emitting an empty array (every slot skipped
-                // above), matching how the concrete path omits the key when there are no parameters.
                 if (!params.isEmpty()) {
                     method.add("parameters", params);
                 }
@@ -394,6 +572,31 @@ final class TriggerSchemaServiceLoader {
         JsonObject returnObj = new JsonObject();
         returnObj.add("type", TypeResolver.resolveTypeWithLinks(canonical, packageName));
         method.add("return", returnObj);
+    }
+
+    /**
+     * A placeholder identifier for a wildcard handler, whose real name the service author chooses.
+     * Derived from the document itself — the id of the first annotation bound to the handler, which is
+     * what the handler <em>is</em> in the connector's vocabulary (a {@code tool} binding yields
+     * {@code toolName}) — falling back to a neutral name when the document binds none. No library is
+     * named here: the input is whatever id the document happens to carry.
+     */
+    static String placeholderHandlerName(TriggerMetadataModel.ServiceType.HandlerOption option) {
+        String base = null;
+        List<String> annotationIds = option.annotations();
+        if (annotationIds != null) {
+            for (String id : annotationIds) {
+                if (id != null && !id.isEmpty()) {
+                    base = id;
+                    break;
+                }
+            }
+        }
+        if (base == null) {
+            return "handlerName";
+        }
+        String candidate = Character.toLowerCase(base.charAt(0)) + base.substring(1) + "Name";
+        return HandlerParamNameGenerator.isReserved(candidate) ? "handlerName" : candidate;
     }
 
     /** The codegen-default member: the first element of a scalar-or-union {@code TypeRef} slot. */

@@ -29,11 +29,24 @@ export interface Link {
 
 export type Category = "internal" | "external";
 
+/**
+ * An annotation attached to (or contractually required on) an API element.
+ * `required` is set only for bindings sourced from a trigger metadata document, where the
+ * document states whether the annotation must be written.
+ */
+export interface AnnotationAttachment {
+    name: string;
+    module?: string;
+    value?: string;
+    required?: boolean;
+}
+
 export interface Parameter {
     name: string;
     description: string;
     type: Type;
     default?: string;
+    annotations?: AnnotationAttachment[];
 }
 
 export interface ParameterDef {
@@ -41,6 +54,9 @@ export interface ParameterDef {
     type: Type;
     default?: string;
     optional: boolean;
+    annotations?: AnnotationAttachment[];
+    // A repeatable slot: the service may declare more than one parameter of this shape.
+    repeatable?: boolean;
 }
 
 export interface Return {
@@ -59,6 +75,7 @@ export interface Field {
     type: Type;
     default?: string;
     isDeprecated?: boolean;
+    annotations?: AnnotationAttachment[];
 }
 
 export interface UnionValue {
@@ -76,6 +93,7 @@ export interface TypeDefinitionBase {
     description: string;
     type: string;
     isDeprecated?: boolean;
+    annotations?: AnnotationAttachment[];
 }
 
 export interface ConstantTypeDefinition extends TypeDefinitionBase {
@@ -113,6 +131,7 @@ export interface AbstractFunction {
     parameters: Parameter[];
     return: Return;
     isDeprecated?: boolean;
+    annotations?: AnnotationAttachment[];
 }
 
 export interface ResourceFunction extends AbstractFunction {
@@ -132,6 +151,10 @@ export interface ServiceRemoteFunction {
     optional: boolean;
     name: string;
     isDeprecated?: boolean;
+    annotations?: AnnotationAttachment[];
+    // True when the metadata document names this handler with the wildcard `*`: the service author
+    // chooses the method name, so `name` carries a placeholder rather than a fixed identifier.
+    nameIsUserDefined?: boolean;
 }
 
 export interface Client {
@@ -139,6 +162,7 @@ export interface Client {
     description: string;
     functions: (RemoteFunction | ResourceFunction)[];
     isDeprecated?: boolean;
+    annotations?: AnnotationAttachment[];
 }
 
 export interface Listener {
@@ -151,12 +175,12 @@ export interface Service {
     type: "generic" | "fixed";
     name?: string;
     isDeprecated?: boolean;
+    annotations?: AnnotationAttachment[];
 }
 
 export interface Annotation {
     name: string;
     attachmentPoint: string;
-    displayName?: string;
     description?: string;
     typeConstraint?: Type;
 }

@@ -39,6 +39,7 @@ public class Service {
     private String testGenerationInstruction;
     @SerializedName("isDeprecated")
     private Boolean deprecated;
+    private List<AnnotationAttachment> annotations;
 
     public Service() {
     }
@@ -97,5 +98,13 @@ public class Service {
 
     public void setDeprecated(Boolean deprecated) {
         this.deprecated = deprecated;
+    }
+
+    public List<AnnotationAttachment> getAnnotations() {
+        return annotations;
+    }
+
+    public void setAnnotations(List<AnnotationAttachment> annotations) {
+        this.annotations = annotations;
     }
 }

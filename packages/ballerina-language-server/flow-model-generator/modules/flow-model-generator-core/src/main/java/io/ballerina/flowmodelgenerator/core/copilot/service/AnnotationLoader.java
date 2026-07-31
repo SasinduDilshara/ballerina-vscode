@@ -18,30 +18,24 @@
 
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
-import io.ballerina.compiler.api.SemanticModel;
-import io.ballerina.compiler.api.symbols.AnnotationAttachPoint;
-import io.ballerina.compiler.api.symbols.AnnotationSymbol;
-import io.ballerina.compiler.api.symbols.Documentable;
-import io.ballerina.compiler.api.symbols.Documentation;
-import io.ballerina.compiler.api.symbols.Symbol;
-import io.ballerina.compiler.api.symbols.SymbolKind;
 import io.ballerina.modelgenerator.commons.AnnotationAttachment;
-import io.ballerina.modelgenerator.commons.CommonUtils;
 import io.ballerina.modelgenerator.commons.FunctionData;
 import io.ballerina.modelgenerator.commons.ServiceDatabaseManager;
 
-import java.util.HashSet;
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.logging.Logger;
 
 /**
- * Loads annotation descriptors from the service-index.sqlite database for Copilot.
- * Emits only annotations attached at SERVICE or OBJECT_METHOD points, and resolves
- * {@code type_constraint} via {@link TypeResolver} so the shape matches parameter types.
+ * Loads curated annotation descriptions from the service-index.sqlite database for Copilot.
+ *
+ * <p>The annotation catalog itself is built from the compiler Semantic Model, which is a superset
+ * of the index (it covers every attachment point, not just SERVICE / OBJECT_METHOD). The index is
+ * therefore consulted only for its hand-written {@code description}, which states what an
+ * annotation is for and reads better than the package's own doc comment (compare the index's
+ * "Define advanced configurations like service level security, etc." with {@code ballerina/http}'s
+ * "The annotation which is used to configure an HTTP service.").</p>
  *
  * @since 1.7.0
  */
@@ -49,101 +43,21 @@ public final class AnnotationLoader {
 
     private static final Logger LOGGER = Logger.getLogger(AnnotationLoader.class.getName());
 
-    private static final Set<AnnotationAttachPoint> SUPPORTED_ATTACHMENT_POINTS = Set.of(
-            AnnotationAttachPoint.SERVICE,
-            AnnotationAttachPoint.OBJECT_METHOD);
-
     private AnnotationLoader() {
         // Prevent instantiation
     }
 
     /**
-     * Loads annotations for a library: the service-index rows when the library has any (preserving
-     * their curated display names/descriptions), else — for schema-driven libraries only — the
-     * annotations introspected from the resolved package itself. This is what serves libraries that
-     * were never in the SQLite index (smb, websub, trigger.google.calendar).
-     *
-     * @param libraryName   the library name (e.g., "ballerina/smb")
-     * @param semanticModel the resolved package's semantic model (may be null)
-     * @return JsonArray of annotation objects, or an empty array
-     */
-    public static JsonArray loadAnnotations(String libraryName, SemanticModel semanticModel) {
-        JsonArray fromIndex = loadFromServiceIndex(libraryName);
-        if (!fromIndex.isEmpty() || semanticModel == null
-                || !TriggerSchemaServiceLoader.isSchemaDriven(libraryName)
-                || "index".equals(System.getProperty(ServiceLoader.TRIGGER_SOURCE_PROPERTY))) {
-            return fromIndex;
-        }
-        return loadFromSemanticModel(libraryName, semanticModel);
-    }
-
-    /**
-     * Builds the annotation descriptors by introspecting the module's declared annotations —
-     * the same shape {@link #buildAnnotationJson} produces from the index, minus the curated
-     * {@code displayName} (which has no introspectable source). A plain {@code on function}
-     * attach point is emitted as {@code OBJECT_METHOD}: for a trigger library the attachable
-     * functions are the service's handler methods, matching how the curated index rows classified
-     * the same annotations (e.g. ftp's {@code FunctionConfig}).
-     */
-    private static JsonArray loadFromSemanticModel(String libraryName, SemanticModel semanticModel) {
-        JsonArray annotations = new JsonArray();
-        String packageName = ServiceIndexLoader.stripOrg(libraryName);
-
-        try {
-            Set<String> emitted = new HashSet<>();
-            for (Symbol symbol : semanticModel.moduleSymbols()) {
-                if (symbol.kind() != SymbolKind.ANNOTATION || symbol.getName().isEmpty()) {
-                    continue;
-                }
-                AnnotationSymbol annotationSymbol = (AnnotationSymbol) symbol;
-                String name = symbol.getName().get();
-
-                String description = symbol instanceof Documentable documentable
-                        ? documentable.documentation().flatMap(Documentation::description).orElse("")
-                        : "";
-                String typeConstraint = annotationSymbol.typeDescriptor()
-                        .map(type -> CommonUtils.getTypeSignature(semanticModel, type, false))
-                        .orElse(null);
-
-                for (AnnotationAttachPoint point : annotationSymbol.attachPoints()) {
-                    // For a trigger library, functions/resources that can carry annotations are the
-                    // service's handler methods — the same classification the curated index rows used.
-                    AnnotationAttachPoint effective =
-                            point == AnnotationAttachPoint.FUNCTION || point == AnnotationAttachPoint.RESOURCE
-                                    ? AnnotationAttachPoint.OBJECT_METHOD : point;
-                    if (!SUPPORTED_ATTACHMENT_POINTS.contains(effective)
-                            || !emitted.add(name + "#" + effective.name())) {
-                        continue;
-                    }
-
-                    JsonObject obj = new JsonObject();
-                    obj.addProperty("name", name);
-                    obj.addProperty("attachmentPoint", effective.name());
-                    if (!description.isEmpty()) {
-                        obj.addProperty("description", description);
-                    }
-                    if (typeConstraint != null && !typeConstraint.isEmpty()) {
-                        obj.add("typeConstraint",
-                                TypeResolver.resolveTypeWithLinks(typeConstraint, packageName));
-                    }
-                    annotations.add(obj);
-                }
-            }
-        } catch (RuntimeException e) {
-            LOGGER.warning("Failed to introspect annotations for " + libraryName + ": " + e.getMessage());
-            return new JsonArray();
-        }
-        return annotations;
-    }
-
-    /**
-     * Loads annotations from the service-index for the given library.
+     * Loads the curated descriptions for the given library's annotations, keyed on annotation name.
+     * The attachment point is deliberately not part of the key: a description describes the
+     * annotation, not one of its attachment points.
      *
      * @param libraryName the library name (e.g., "ballerinax/ftp")
-     * @return JsonArray of annotation objects, or an empty array on failure
+     * @return annotation name to description; empty when the library has no index rows or on
+     *         failure
      */
-    public static JsonArray loadFromServiceIndex(String libraryName) {
-        JsonArray annotations = new JsonArray();
+    public static Map<String, String> loadDescriptions(String libraryName) {
+        Map<String, String> descriptions = new HashMap<>();
 
         String packageName = ServiceIndexLoader.stripOrg(libraryName);
         String org = libraryName.contains("/")
@@ -155,48 +69,24 @@ public final class AnnotationLoader {
 
             Optional<FunctionData> listenerOpt = db.getListener(org, packageName);
             if (listenerOpt.isEmpty()) {
-                return annotations;
+                return descriptions;
             }
             int packageId = Integer.parseInt(listenerOpt.get().packageId());
 
-            List<AnnotationAttachment> attachments = db.getAnnotationAttachments(packageId);
-
-            for (AnnotationAttachment attachment : attachments) {
-                for (AnnotationAttachPoint point : attachment.attachmentPoints()) {
-                    if (!SUPPORTED_ATTACHMENT_POINTS.contains(point)) {
-                        continue;
-                    }
-                    annotations.add(buildAnnotationJson(attachment, point, packageName));
+            for (AnnotationAttachment attachment : db.getAnnotationAttachments(packageId)) {
+                String annotName = attachment.annotName();
+                String description = attachment.description();
+                if (annotName == null || description == null || description.isEmpty()) {
+                    continue;
                 }
+                descriptions.putIfAbsent(annotName, description);
             }
         } catch (RuntimeException e) {
-            LOGGER.warning("Failed to load annotations from service-index for " + libraryName
-                    + ": " + e.getMessage());
-            return new JsonArray();
+            LOGGER.warning("Failed to load annotation descriptions from service-index for "
+                    + libraryName + ": " + e.getMessage());
+            return Map.of();
         }
 
-        return annotations;
-    }
-
-    private static JsonObject buildAnnotationJson(AnnotationAttachment attachment,
-                                                   AnnotationAttachPoint point,
-                                                   String packageName) {
-        JsonObject obj = new JsonObject();
-        obj.addProperty("name", attachment.annotName());
-        obj.addProperty("attachmentPoint", point.name());
-
-        if (attachment.displayName() != null) {
-            obj.addProperty("displayName", attachment.displayName());
-        }
-        if (attachment.description() != null) {
-            obj.addProperty("description", attachment.description());
-        }
-
-        String typeConstraint = attachment.typeName();
-        if (typeConstraint != null && !typeConstraint.isEmpty()) {
-            obj.add("typeConstraint", TypeResolver.resolveTypeWithLinks(typeConstraint, packageName));
-        }
-
-        return obj;
+        return descriptions;
     }
 }

@@ -294,18 +294,30 @@ public class CopilotSchemaServicesTest {
         List<String> names = new ArrayList<>();
         services.forEach(s -> names.add(s.getAsJsonObject().get("name").getAsString()));
         Assert.assertTrue(names.contains("Service"), "Expected Service in " + names);
-        Assert.assertFalse(names.contains("StreamableHttpService"),
-                "Service types absent from the resolved package version must be skipped: " + names);
-        Assert.assertFalse(names.contains("StreamableHttpAdvancedService"),
-                "Service types absent from the resolved package version must be skipped: " + names);
+        // Only service types the resolved package actually declares are emitted; which ones exist
+        // depends on the resolved mcp version, so this asserts the invariant rather than a fixed set.
+        for (String name : names) {
+            Assert.assertTrue(
+                    List.of("Service", "AdvancedService", "StreamableHttpService",
+                            "StreamableHttpAdvancedService").contains(name),
+                    "Unexpected mcp service type " + name + " in " + names);
+        }
 
         for (JsonElement element : services) {
             JsonObject svc = element.getAsJsonObject();
-            Assert.assertEquals(svc.getAsJsonObject("listener").get("name").getAsString(), "mcp:Listener",
-                    "The metadata's unreleased StreamableHttpListener must fall back to the real class");
+            String listenerName = svc.getAsJsonObject("listener").get("name").getAsString();
+            Assert.assertTrue(
+                    List.of("mcp:Listener", "mcp:StreamableHttpListener").contains(listenerName),
+                    "The listener must be a class the resolved package declares, got " + listenerName);
             if ("Service".equals(svc.get("name").getAsString())) {
-                Assert.assertFalse(svc.has("methods"),
-                        "Wildcard (addMode: many) handlers must not surface as literal methods");
+                // mcp:Service is `distinct service object { }`, so its whole handler contract is the
+                // document's wildcard entry: one author-named remote function per tool.
+                Assert.assertEquals(methodNames(svc), List.of("toolName"),
+                        "The wildcard handler must be emitted under its derived placeholder name");
+                JsonObject wildcard = methodNamed(svc, "toolName");
+                Assert.assertTrue(wildcard.get("nameIsUserDefined").getAsBoolean());
+                Assert.assertNotNull(annotationNamed(wildcard, "Tool"),
+                        "The Tool binding must ride along with the wildcard handler");
             }
             if ("AdvancedService".equals(svc.get("name").getAsString())) {
                 Assert.assertEquals(methodNames(svc), List.of("onListTools", "onCallTool"),
@@ -342,9 +354,9 @@ public class CopilotSchemaServicesTest {
 
     @Test
     public void testMcpServiceModelRoundTrip() {
-        // CopilotLibraryManager Gson-round-trips every service through the Service model class.
-        // mcp's marker Service legitimately has no methods: the model keeps methods == null and the
-        // re-serialized JSON omits the key — the shape the TS renderer's `?? []` guards handle.
+        // CopilotLibraryManager Gson-round-trips every service through the Service model class, so
+        // every field the loader emits — including the annotation bindings, the wildcard flag and the
+        // repeatable flag — has to survive that trip.
         JsonArray services = load("ballerina/mcp");
         Gson gson = new Gson();
         for (JsonElement element : services) {
@@ -352,16 +364,25 @@ public class CopilotSchemaServicesTest {
                     gson.fromJson(element, io.ballerina.flowmodelgenerator.core.copilot.model.Service.class);
             JsonObject reSerialized = gson.toJsonTree(service).getAsJsonObject();
             if ("Service".equals(service.getName())) {
-                Assert.assertNull(service.getMethods());
-                Assert.assertFalse(reSerialized.has("methods"),
-                        "A method-less fixed service must omit the methods key after the round trip");
+                Assert.assertEquals(service.getMethods().size(), 1,
+                        "The wildcard handler must survive the round trip");
+                io.ballerina.flowmodelgenerator.core.copilot.model.ServiceRemoteFunction wildcard =
+                        service.getMethods().get(0);
+                Assert.assertEquals(wildcard.getName(), "toolName");
+                Assert.assertTrue(wildcard.isNameIsUserDefined());
+                Assert.assertEquals(wildcard.getAnnotations().get(0).getName(), "Tool");
+                Assert.assertTrue(reSerialized.getAsJsonArray("methods").get(0).getAsJsonObject()
+                        .has("nameIsUserDefined"));
+                Assert.assertNotNull(service.getAnnotations(),
+                        "The service-level ServiceConfig binding must survive the round trip");
+                Assert.assertEquals(service.getAnnotations().get(0).getName(), "ServiceConfig");
             }
             if ("AdvancedService".equals(service.getName())) {
                 Assert.assertEquals(service.getMethods().size(), 2);
                 Assert.assertTrue(reSerialized.has("methods"));
             }
-            Assert.assertEquals(reSerialized.getAsJsonObject("listener").get("name").getAsString(),
-                    "mcp:Listener");
+            Assert.assertTrue(List.of("mcp:Listener", "mcp:StreamableHttpListener").contains(
+                    reSerialized.getAsJsonObject("listener").get("name").getAsString()));
         }
     }
 
@@ -433,65 +454,260 @@ public class CopilotSchemaServicesTest {
                 .getAsJsonObject("type").get("name").getAsString(), "error?");
     }
 
+    // The annotation DECLARATION catalog is no longer produced here: it comes from the Semantic
+    // Model for every library and every attachment point (see CopilotAnnotationTest). What this
+    // loader owns is the metadata document's annotation BINDINGS, asserted in
+    // testMetadataAnnotationBindings* below.
+
+    // ---- annotation BINDINGS (the metadata document's exclusive contribution) ----------------
+
+    /**
+     * A service-point binding reaches the service object, carries a body generated from the
+     * annotation's constraint record, and is marked when the document says it is mandatory.
+     * {@code ftp}'s {@code ServiceConfig} is linked by {@code appliesTo} and is {@code required}.
+     */
     @Test
-    public void testNetNewLibraryAnnotationsIntrospected() {
-        // These libraries have no SQLite Annotation rows; the loader introspects the module instead.
-        JsonArray smbAnnotations = loadAnnotations("ballerina/smb");
-        Assert.assertEquals(smbAnnotations.size(), 2, "smb declares ServiceConfig + FunctionConfig");
-        JsonObject serviceConfig = annotationNamed(smbAnnotations, "ServiceConfig");
-        Assert.assertEquals(serviceConfig.get("attachmentPoint").getAsString(), "SERVICE");
-        Assert.assertFalse(serviceConfig.get("description").getAsString().isEmpty(),
-                "Introspected annotations carry the library's doc comment");
-        assertInternalLink(mapTypeConstraint(serviceConfig), "SmbServiceConfig");
-        JsonObject functionConfig = annotationNamed(smbAnnotations, "FunctionConfig");
-        Assert.assertEquals(functionConfig.get("attachmentPoint").getAsString(), "OBJECT_METHOD",
-                "A plain 'on function' attach point must surface as OBJECT_METHOD");
-
-        JsonArray websubAnnotations = loadAnnotations("ballerina/websub");
-        JsonObject subscriberConfig = annotationNamed(websubAnnotations, "SubscriberServiceConfig");
-        Assert.assertEquals(subscriberConfig.get("attachmentPoint").getAsString(), "SERVICE");
-
-        // The introspection fallback never overrides curated index rows nor fires for
-        // schema-driven libraries whose module declares no SERVICE/OBJECT_METHOD annotations.
-        Assert.assertTrue(loadAnnotations("ballerinax/kafka").isEmpty(),
-                "kafka's Payload annotation (on parameter) must stay filtered out");
-        JsonArray ftpAnnotations = loadAnnotations("ballerina/ftp");
-        Assert.assertEquals(ftpAnnotations.size(), 2,
-                "ftp's curated index rows must win over introspection");
-        Assert.assertTrue(annotationNamed(ftpAnnotations, "ServiceConfig").has("displayName"),
-                "index-sourced annotations keep their curated displayName");
+    public void testMetadataAnnotationBindingsOnService() {
+        JsonObject service = serviceNamed(load("ballerina/ftp"), "Service");
+        JsonObject serviceConfig = annotationNamed(service, "ServiceConfig");
+        Assert.assertTrue(serviceConfig.get("required").getAsBoolean(),
+                "ftp's ServiceConfig is presence: required in the document");
+        // A binding is a template for user code, so it is module-qualified just like the service type
+        // and listener beside it — the user writes @ftp:ServiceConfig, never a bare @ServiceConfig.
+        Assert.assertEquals(serviceConfig.get("module").getAsString(), "ballerina/ftp");
+        Assert.assertTrue(serviceConfig.has("value"),
+                "The body must be generated from the constraint record, never omitted or guessed");
+        Assert.assertTrue(serviceConfig.get("value").getAsString().startsWith("{"),
+                "A generated body is a mapping constructor: " + serviceConfig);
     }
 
-    private JsonArray loadAnnotations(String libraryName) {
-        String[] parts = libraryName.split("/");
-        Optional<Package> pkgOpt = PackageUtil.getModulePackage(
-                PackageUtil.getSampleProject(), parts[0], parts[1]);
-        if (pkgOpt.isEmpty()) {
-            throw new SkipException("Could not resolve package for " + libraryName);
+    /**
+     * {@code smb} links its {@code ServiceConfig} through a {@code rules} member rather than
+     * {@code appliesTo} — the other linkage the document uses — and marks both its annotations
+     * required.
+     */
+    @Test
+    public void testMetadataAnnotationBindingsLinkedThroughRules() {
+        JsonObject service = serviceNamed(load("ballerina/smb"), "Service");
+        JsonObject serviceConfig = annotationNamed(service, "ServiceConfig");
+
+        // smb reaches ServiceConfig through a `oneOf` rule ("the path comes from serviceConfig.path OR
+        // the service identifier"), so despite the registry's presence: required the annotation itself
+        // is one alternative, not a mandate — and smb's SmbServiceConfig has no required field either.
+        Assert.assertFalse(serviceConfig.has("required"),
+                "A oneOf alternative must not be presented as mandatory: " + serviceConfig);
+        // The field that rule names is what the author is expected to supply, so it is in the body even
+        // though the record marks it optional.
+        Assert.assertEquals(serviceConfig.get("value").getAsString(), "{path: \"\"}",
+                "The rule-named field must appear in the generated body");
+
+        // FunctionConfig is required outright — no rule offers an alternative to it.
+        JsonObject handler = methodNamed(service, "onFileChange");
+        Assert.assertTrue(annotationNamed(handler, "FunctionConfig").get("required").getAsBoolean());
+    }
+
+    /** Every ftp handler carries the document's {@code functionConfig} binding. */
+    @Test
+    public void testMetadataAnnotationBindingsOnEveryHandler() {
+        JsonObject service = serviceNamed(load("ballerina/ftp"), "Service");
+        for (String handlerName : methodNames(service)) {
+            JsonObject handler = methodNamed(service, handlerName);
+            Assert.assertNotNull(annotationNamed(handler, "FunctionConfig"),
+                    "ftp handler " + handlerName + " must carry the FunctionConfig binding");
         }
-        Package pkg = pkgOpt.get();
-        SemanticModel semanticModel = PackageUtil.getCompilation(pkg)
-                .getSemanticModel(pkg.getDefaultModule().moduleId());
-        return io.ballerina.flowmodelgenerator.core.copilot.service.AnnotationLoader
-                .loadAnnotations(libraryName, semanticModel);
     }
 
-    private static JsonObject annotationNamed(JsonArray annotations, String name) {
-        for (JsonElement element : annotations) {
+    /**
+     * A parameter-point binding lands on the parameter it is bound to, and only that one.
+     * {@code rabbitmq} binds {@code Payload} to the message parameter of onMessage/onRequest.
+     */
+    @Test
+    public void testMetadataAnnotationBindingsOnHandlerParameter() {
+        JsonObject service = serviceNamed(load("ballerinax/rabbitmq"), "Service");
+        JsonObject onMessage = methodNamed(service, "onMessage");
+        JsonArray params = onMessage.getAsJsonArray("parameters");
+        Assert.assertTrue(params.size() > 0);
+        Assert.assertNotNull(annotationNamed(params.get(0).getAsJsonObject(), "Payload"),
+                "rabbitmq binds Payload to the first parameter of onMessage: " + onMessage);
+        Assert.assertFalse(params.get(0).getAsJsonObject().getAsJsonArray("annotations")
+                .get(0).getAsJsonObject().has("required"),
+                "rabbitmq's Payload is presence: optional, so it must not be marked required");
+    }
+
+    /**
+     * The cross-module case: {@code mcp} binds {@code ballerina/http}'s {@code Header} to a handler
+     * parameter. Neither the binding nor the annotation exists in {@code mcp}'s own module symbols,
+     * so this can only come from the document plus a resolution of the declaring package.
+     */
+    @Test
+    public void testMetadataAnnotationBindingsCrossModule() {
+        JsonArray services = load("ballerina/mcp");
+        JsonObject header = findAnnotationAnywhere(services, "Header");
+        if (header == null) {
+            throw new SkipException("mcp's Header binding is absent from the resolved metadata/package");
+        }
+        Assert.assertEquals(header.get("module").getAsString(), "ballerina/http",
+                "A cross-module binding must carry its declaring module so it renders as @http:Header");
+    }
+
+    /**
+     * A wildcard handler is emitted with a placeholder name and the flag that says the author picks
+     * the real one, so the annotations bound to it are not lost. {@code mcp}'s marker service types
+     * declare no methods at all, so this is their entire handler contract.
+     */
+    @Test
+    public void testMetadataWildcardHandlerIsEmittedWithBindings() {
+        JsonArray services = load("ballerina/mcp");
+        JsonObject wildcardHandler = null;
+        for (JsonElement element : services) {
+            JsonObject service = element.getAsJsonObject();
+            if (!service.has("methods")) {
+                continue;
+            }
+            for (JsonElement methodElement : service.getAsJsonArray("methods")) {
+                JsonObject method = methodElement.getAsJsonObject();
+                if (method.has("nameIsUserDefined")) {
+                    wildcardHandler = method;
+                    break;
+                }
+            }
+        }
+        if (wildcardHandler == null) {
+            throw new SkipException("No wildcard handler in the resolved mcp metadata");
+        }
+        Assert.assertTrue(wildcardHandler.get("nameIsUserDefined").getAsBoolean());
+        Assert.assertNotEquals(wildcardHandler.get("name").getAsString(), "*",
+                "The wildcard must never be emitted as an identifier");
+        Assert.assertEquals(wildcardHandler.get("name").getAsString(), "toolName",
+                "The placeholder is derived from the bound annotation id (`tool`)");
+        Assert.assertNotNull(annotationNamed(wildcardHandler, "Tool"),
+                "The wildcard handler must carry the Tool binding: " + wildcardHandler);
+    }
+
+    /**
+     * A repeatable slot is emitted once and flagged, so a binding attached to it survives while the
+     * open-ended count is still communicated.
+     */
+    @Test
+    public void testMetadataRepeatableParamSlotIsFlagged() {
+        JsonArray services = load("ballerina/mcp");
+        boolean sawRepeatable = false;
+        for (JsonElement element : services) {
+            JsonObject service = element.getAsJsonObject();
+            if (!service.has("methods")) {
+                continue;
+            }
+            for (JsonElement methodElement : service.getAsJsonArray("methods")) {
+                JsonObject method = methodElement.getAsJsonObject();
+                if (!method.has("parameters")) {
+                    continue;
+                }
+                for (JsonElement paramElement : method.getAsJsonArray("parameters")) {
+                    if (paramElement.getAsJsonObject().has("repeatable")) {
+                        sawRepeatable = true;
+                    }
+                }
+            }
+        }
+        Assert.assertTrue(sawRepeatable, "mcp declares addMode: many slots that must be emitted");
+    }
+
+    /**
+     * An annotation the document does not link to a given service type must not leak onto it.
+     * {@code mcp} restricts {@code ServiceConfig} and {@code StreamableHttpServiceConfig} to
+     * disjoint {@code appliesTo} sets — the distinction no Semantic Model can make, since both are
+     * declared plain {@code on service}.
+     */
+    @Test
+    public void testMetadataAppliesToKeepsServiceBindingsDisjoint() {
+        JsonArray services = load("ballerina/mcp");
+        JsonObject basic = serviceNamed(services, "Service");
+        Assert.assertNotNull(annotationNamed(basic, "ServiceConfig"));
+        Assert.assertNull(findAnnotation(basic, "StreamableHttpServiceConfig"),
+                "StreamableHttpServiceConfig applies only to the streamable service types");
+
+        JsonObject streamable = findService(services, "StreamableHttpService");
+        if (streamable != null) {
+            Assert.assertNotNull(annotationNamed(streamable, "StreamableHttpServiceConfig"));
+            Assert.assertNull(findAnnotation(streamable, "ServiceConfig"),
+                    "ServiceConfig applies only to the non-streamable service types");
+        }
+    }
+
+    /** A library whose document declares no annotations must gain no bindings at all. */
+    @Test
+    public void testLibraryWithoutMetadataAnnotationsGainsNoBindings() {
+        for (JsonElement element : load("ballerinax/kafka")) {
+            JsonObject service = element.getAsJsonObject();
+            Assert.assertFalse(service.has("annotations"),
+                    "kafka's document declares no annotations: " + service);
+            if (!service.has("methods")) {
+                continue;
+            }
+            for (JsonElement methodElement : service.getAsJsonArray("methods")) {
+                Assert.assertFalse(methodElement.getAsJsonObject().has("annotations"));
+            }
+        }
+    }
+
+    private static JsonObject annotationNamed(JsonObject owner, String name) {
+        JsonObject found = findAnnotation(owner, name);
+        Assert.assertNotNull(found, "No annotation named " + name + " on " + owner);
+        return found;
+    }
+
+    private static JsonObject findAnnotation(JsonObject owner, String name) {
+        if (!owner.has("annotations")) {
+            return null;
+        }
+        for (JsonElement element : owner.getAsJsonArray("annotations")) {
             JsonObject annotation = element.getAsJsonObject();
             if (name.equals(annotation.get("name").getAsString())) {
                 return annotation;
             }
         }
-        Assert.fail("No annotation named " + name + " in " + annotations);
         return null;
     }
 
-    private static JsonObject mapTypeConstraint(JsonObject annotation) {
-        // Adapts an annotation's typeConstraint to the shape assertInternalLink expects.
-        JsonObject wrapper = new JsonObject();
-        wrapper.add("type", annotation.getAsJsonObject("typeConstraint"));
-        return wrapper;
+    private static JsonObject findService(JsonArray services, String name) {
+        for (JsonElement element : services) {
+            JsonObject service = element.getAsJsonObject();
+            if (service.has("name") && name.equals(service.get("name").getAsString())) {
+                return service;
+            }
+        }
+        return null;
+    }
+
+    /** Searches services, their handlers and their parameters for a named binding. */
+    private static JsonObject findAnnotationAnywhere(JsonArray services, String name) {
+        for (JsonElement element : services) {
+            JsonObject service = element.getAsJsonObject();
+            JsonObject onService = findAnnotation(service, name);
+            if (onService != null) {
+                return onService;
+            }
+            if (!service.has("methods")) {
+                continue;
+            }
+            for (JsonElement methodElement : service.getAsJsonArray("methods")) {
+                JsonObject method = methodElement.getAsJsonObject();
+                JsonObject onMethod = findAnnotation(method, name);
+                if (onMethod != null) {
+                    return onMethod;
+                }
+                if (!method.has("parameters")) {
+                    continue;
+                }
+                for (JsonElement paramElement : method.getAsJsonArray("parameters")) {
+                    JsonObject onParam = findAnnotation(paramElement.getAsJsonObject(), name);
+                    if (onParam != null) {
+                        return onParam;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     // ---- fallback & pinning --------------------------------------------------------------

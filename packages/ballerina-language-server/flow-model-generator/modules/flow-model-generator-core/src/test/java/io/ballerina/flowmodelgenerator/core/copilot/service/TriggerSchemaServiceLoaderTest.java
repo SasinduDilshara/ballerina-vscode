@@ -151,15 +151,24 @@ public class TriggerSchemaServiceLoaderTest {
     }
 
     @Test
-    public void testIsSchemaDrivenCoversExactlyTheOnboardedLibraries() {
-        Assert.assertTrue(TriggerSchemaServiceLoader.isSchemaDriven("ballerinax/kafka"));
-        Assert.assertTrue(TriggerSchemaServiceLoader.isSchemaDriven("ballerinax/rabbitmq"));
-        Assert.assertTrue(TriggerSchemaServiceLoader.isSchemaDriven("ballerina/ftp"));
-        Assert.assertTrue(TriggerSchemaServiceLoader.isSchemaDriven("ballerina/mcp"));
-        Assert.assertTrue(TriggerSchemaServiceLoader.isSchemaDriven("ballerinax/mssql"));
-        Assert.assertTrue(TriggerSchemaServiceLoader.isSchemaDriven("ballerinax/trigger.github"));
-        Assert.assertFalse(TriggerSchemaServiceLoader.isSchemaDriven("ballerinax/asb"));
-        Assert.assertFalse(TriggerSchemaServiceLoader.isSchemaDriven("ballerina/http"));
+    public void testSchemaDrivenSetIsDiscoveredFromTheAvailableDocuments() {
+        // Discovered by looking the document up, not from an allow-list. A null package means only the
+        // LS-bundled tier is consulted, which is where each of these documents lives today.
+        for (String library : List.of("ballerinax/kafka", "ballerinax/rabbitmq", "ballerina/ftp",
+                "ballerina/mcp", "ballerinax/trigger.github", "ballerina/smb", "ballerina/websub",
+                "ballerinax/trigger.google.calendar")) {
+            Assert.assertTrue(TriggerSchemaServiceLoader.isSchemaDriven(library, null),
+                    library + " has a bundled document and must be schema-driven");
+        }
+        // mssql's document is published under a different module name than the package, so it is
+        // reached through the alias rather than by the package name.
+        Assert.assertTrue(TriggerSchemaServiceLoader.isSchemaDriven("ballerinax/mssql", null));
+
+        // No document bundled -> stays on the SQLite service-index.
+        Assert.assertFalse(TriggerSchemaServiceLoader.isSchemaDriven("ballerinax/asb", null));
+        Assert.assertFalse(TriggerSchemaServiceLoader.isSchemaDriven("ballerina/http", null));
+        Assert.assertFalse(TriggerSchemaServiceLoader.isSchemaDriven("ballerina/graphql", null));
+        Assert.assertFalse(TriggerSchemaServiceLoader.isSchemaDriven("ballerinax/no.such.package", null));
     }
 
     @Test
@@ -185,23 +194,81 @@ public class TriggerSchemaServiceLoaderTest {
             List.of(new TypeRef("error", null), new TypeRef("()", null));
 
     @Test
-    public void testBuildOptionMethodsSkipsWildcardNullAndNamelessOptions() {
+    public void testBuildOptionMethodsSkipsNullAndNamelessOptions() {
         JsonArray methods = TriggerSchemaServiceLoader.buildOptionMethods(
                 java.util.Arrays.asList(
-                        option("*", "remote", "optional", null, ERROR_NIL),
                         null,
                         option(null, "remote", "optional", null, ERROR_NIL)),
-                "Service", NONE, "testmod");
-        Assert.assertTrue(methods.isEmpty(), "Wildcard, null, and name-less options must be skipped");
+                "Service", NONE, "testmod", null);
+        Assert.assertTrue(methods.isEmpty(), "Null and name-less options must be skipped");
         Assert.assertTrue(TriggerSchemaServiceLoader.buildOptionMethods(
-                null, "Service", NONE, "testmod").isEmpty());
+                null, "Service", NONE, "testmod", null).isEmpty());
+    }
+
+    /**
+     * A wildcard option is the service type's whole handler contract — it must be emitted, with a
+     * placeholder name and the flag that says the author picks the real one.
+     */
+    @Test
+    public void testBuildOptionMethodsEmitsWildcardWithPlaceholderName() {
+        JsonArray methods = TriggerSchemaServiceLoader.buildOptionMethods(
+                List.of(option("*", "remote", "optional", null, ERROR_NIL)),
+                "Service", NONE, "testmod", null);
+        Assert.assertEquals(methods.size(), 1, "The wildcard handler must be emitted");
+        JsonObject method = methods.get(0).getAsJsonObject();
+        Assert.assertTrue(method.get("nameIsUserDefined").getAsBoolean());
+        // No annotation is bound here, so the neutral placeholder is used.
+        Assert.assertEquals(method.get("name").getAsString(), "handlerName");
+        Assert.assertNotEquals(method.get("name").getAsString(), "*",
+                "The metadata wildcard is never emitted as an identifier");
+    }
+
+    /**
+     * The placeholder is derived from the document's own annotation id — nothing library-specific.
+     */
+    @Test
+    public void testPlaceholderHandlerNameDerivesFromBoundAnnotation() {
+        Assert.assertEquals(TriggerSchemaServiceLoader.placeholderHandlerName(
+                new HandlerOption("*", "remote", null, List.of("tool"), null, null,
+                        null, null, null, null, null)), "toolName");
+        Assert.assertEquals(TriggerSchemaServiceLoader.placeholderHandlerName(
+                new HandlerOption("*", "remote", null, List.of("eventSubscription"), null, null,
+                        null, null, null, null, null)), "eventSubscriptionName");
+        // No binding, an empty binding, and a null list all fall back to the neutral name.
+        Assert.assertEquals(TriggerSchemaServiceLoader.placeholderHandlerName(
+                new HandlerOption("*", "remote", null, null, null, null,
+                        null, null, null, null, null)), "handlerName");
+        Assert.assertEquals(TriggerSchemaServiceLoader.placeholderHandlerName(
+                new HandlerOption("*", "remote", null, java.util.Arrays.asList((String) null), null, null,
+                        null, null, null, null, null)), "handlerName");
+        // A derived name that would collide with a keyword is rejected.
+        Assert.assertEquals(TriggerSchemaServiceLoader.placeholderHandlerName(
+                new HandlerOption("*", "remote", null, List.of("type"), null, null,
+                        null, null, null, null, null)), "typeName");
+    }
+
+    /**
+     * A repeatable slot is emitted once and flagged, rather than dropped: its type and any annotation
+     * bound to it are real even though the count is open-ended.
+     */
+    @Test
+    public void testBuildOptionMethodsEmitsRepeatableSlotOnceAndFlagsIt() {
+        JsonArray methods = TriggerSchemaServiceLoader.buildOptionMethods(
+                List.of(option("onEvent", "remote", "optional",
+                        List.of(param("session", "Session", "optional", null),
+                                param(null, "anydata", "optional", "many")), ERROR_NIL)),
+                "Service", Set.of("Session")::contains, "testmod", null);
+        JsonArray params = methods.get(0).getAsJsonObject().getAsJsonArray("parameters");
+        Assert.assertEquals(params.size(), 2, "The repeatable slot must be emitted, not skipped");
+        Assert.assertFalse(params.get(0).getAsJsonObject().has("repeatable"));
+        Assert.assertTrue(params.get(1).getAsJsonObject().get("repeatable").getAsBoolean());
     }
 
     @Test
     public void testBuildOptionMethodsResourceKindAndNoParams() {
         JsonArray methods = TriggerSchemaServiceLoader.buildOptionMethods(
                 List.of(option("chat", "resource", "required", null, ERROR_NIL)),
-                "Service", NONE, "testmod");
+                "Service", NONE, "testmod", null);
         JsonObject method = methods.get(0).getAsJsonObject();
         Assert.assertEquals(method.get("type").getAsString(), "resource");
         Assert.assertFalse(method.has("parameters"), "No parameters key for a param-less option");
@@ -218,7 +285,7 @@ public class TriggerSchemaServiceLoaderTest {
         JsonArray withMetadataName = TriggerSchemaServiceLoader.buildOptionMethods(
                 List.of(option("onEvent", "remote", "optional",
                         List.of(param("payload", "json", "optional", null)), ERROR_NIL)),
-                "Service", NONE, "testmod");
+                "Service", NONE, "testmod", null);
         JsonObject method = withMetadataName.get(0).getAsJsonObject();
         Assert.assertFalse(method.has("description"), "Marker-type handlers carry no description");
         JsonObject p = method.getAsJsonArray("parameters").get(0).getAsJsonObject();
@@ -230,7 +297,7 @@ public class TriggerSchemaServiceLoaderTest {
         JsonArray generated = TriggerSchemaServiceLoader.buildOptionMethods(
                 List.of(option("onEvent", "remote", "optional",
                         List.of(param(null, "WatchEvent", "required", null)), null)),
-                "Service", Set.of("WatchEvent")::contains, "testmod");
+                "Service", Set.of("WatchEvent")::contains, "testmod", null);
         JsonObject generatedParam = generated.get(0).getAsJsonObject()
                 .getAsJsonArray("parameters").get(0).getAsJsonObject();
         Assert.assertEquals(generatedParam.get("name").getAsString(), "watchEvent");
@@ -240,7 +307,7 @@ public class TriggerSchemaServiceLoaderTest {
         JsonArray synthetic = TriggerSchemaServiceLoader.buildOptionMethods(
                 List.of(option("onUnknown", "remote", "optional",
                         List.of(param(null, "json", "required", null)), null)),
-                "Service", NONE, "testmod");
+                "Service", NONE, "testmod", null);
         Assert.assertEquals(synthetic.get(0).getAsJsonObject()
                 .getAsJsonArray("parameters").get(0).getAsJsonObject().get("name").getAsString(), "param1");
     }
@@ -252,14 +319,14 @@ public class TriggerSchemaServiceLoaderTest {
         JsonArray skipped = TriggerSchemaServiceLoader.buildOptionMethods(
                 List.of(option("onHubError", "remote", "optional",
                         List.of(param(null, "HubError", "required", null)), ERROR_NIL)),
-                "SubscriberService", NONE, "websub");
+                "SubscriberService", NONE, "websub", null);
         Assert.assertTrue(skipped.isEmpty());
 
         // Same handler with the type declared: kept, with the type-derived param name.
         JsonArray kept = TriggerSchemaServiceLoader.buildOptionMethods(
                 List.of(option("onHubError", "remote", "optional",
                         List.of(param(null, "HubError", "required", null)), ERROR_NIL)),
-                "SubscriberService", Set.of("HubError")::contains, "websub");
+                "SubscriberService", Set.of("HubError")::contains, "websub", null);
         Assert.assertEquals(kept.get(0).getAsJsonObject().getAsJsonArray("parameters")
                 .get(0).getAsJsonObject().get("name").getAsString(), "hubError");
 
@@ -267,7 +334,7 @@ public class TriggerSchemaServiceLoaderTest {
         Assert.assertTrue(TriggerSchemaServiceLoader.buildOptionMethods(
                 List.of(option("onEvent", "remote", "optional", null,
                         List.of(new TypeRef("Acknowledgement", null)))),
-                "Service", NONE, "websub").isEmpty());
+                "Service", NONE, "websub", null).isEmpty());
     }
 
     @Test
@@ -276,7 +343,7 @@ public class TriggerSchemaServiceLoaderTest {
         JsonArray errorSlot = TriggerSchemaServiceLoader.buildOptionMethods(
                 List.of(option("onError", "remote", "optional",
                         List.of(param(null, "Error", "required", null)), null)),
-                "Service", Set.of("Error")::contains, "testmod");
+                "Service", Set.of("Error")::contains, "testmod", null);
         Assert.assertEquals(errorSlot.get(0).getAsJsonObject().getAsJsonArray("parameters")
                 .get(0).getAsJsonObject().get("name").getAsString(), "testmodError");
 
@@ -284,7 +351,7 @@ public class TriggerSchemaServiceLoaderTest {
         JsonArray submodule = TriggerSchemaServiceLoader.buildOptionMethods(
                 List.of(option("onError", "remote", "optional",
                         List.of(param(null, "Error", "required", null)), null)),
-                "Service", Set.of("Error")::contains, "trigger.github");
+                "Service", Set.of("Error")::contains, "trigger.github", null);
         Assert.assertEquals(submodule.get(0).getAsJsonObject().getAsJsonArray("parameters")
                 .get(0).getAsJsonObject().get("name").getAsString(), "githubError");
 
@@ -293,25 +360,28 @@ public class TriggerSchemaServiceLoaderTest {
                 List.of(option("onTwo", "remote", "optional",
                         List.of(param("event", "Event", "required", null),
                                 param(null, "Event", "optional", null)), null)),
-                "Service", Set.of("Event")::contains, "testmod");
+                "Service", Set.of("Event")::contains, "testmod", null);
         JsonArray params = collision.get(0).getAsJsonObject().getAsJsonArray("parameters");
         Assert.assertEquals(params.get(0).getAsJsonObject().get("name").getAsString(), "event");
         Assert.assertEquals(params.get(1).getAsJsonObject().get("name").getAsString(), "param2");
     }
 
     @Test
-    public void testBuildOptionMethodsSkipsRepeatableParamsAndNilReturns() {
+    public void testBuildOptionMethodsFlagsRepeatableParamsAndDropsNilReturns() {
         JsonArray methods = TriggerSchemaServiceLoader.buildOptionMethods(
                 List.of(option("onTool", "remote", "optional",
                         List.of(param("meta", "ToolMeta", "required", null),
                                 param(null, "string", "optional", "many")),
                         List.of(new TypeRef("()", null)))),
-                "Service", Set.of("ToolMeta")::contains, "testmod");
+                "Service", Set.of("ToolMeta")::contains, "testmod", null);
         JsonObject method = methods.get(0).getAsJsonObject();
-        Assert.assertEquals(method.getAsJsonArray("parameters").size(), 1,
-                "addMode: many parameter slots must be skipped");
-        Assert.assertEquals(method.getAsJsonArray("parameters").get(0).getAsJsonObject()
+        JsonArray params = method.getAsJsonArray("parameters");
+        Assert.assertEquals(params.size(), 2,
+                "An addMode: many slot is emitted once and flagged, not skipped");
+        Assert.assertEquals(params.get(0).getAsJsonObject()
                 .getAsJsonObject("type").get("name").getAsString(), "ToolMeta");
+        Assert.assertFalse(params.get(0).getAsJsonObject().has("repeatable"));
+        Assert.assertTrue(params.get(1).getAsJsonObject().get("repeatable").getAsBoolean());
         Assert.assertFalse(method.has("return"), "A nil return carries no information");
     }
 }

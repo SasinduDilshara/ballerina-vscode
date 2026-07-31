@@ -121,6 +121,17 @@ final class HandlerParamNameGenerator {
     }
 
     /**
+     * Whether the identifier would collide with a Ballerina keyword or built-in type name. Shared with
+     * the wildcard-handler placeholder, which is subject to the same constraint.
+     *
+     * @param identifier the candidate identifier
+     * @return {@code true} when the identifier must not be emitted bare
+     */
+    static boolean isReserved(String identifier) {
+        return RESERVED_WORDS.contains(identifier);
+    }
+
+    /**
      * Generates the name for one unnamed handler parameter slot.
      *
      * @param ref             the slot's codegen-default type (first union member), may be null
@@ -136,7 +147,7 @@ final class HandlerParamNameGenerator {
         if (candidate == null && hasDataBinding) {
             candidate = PAYLOAD_NAME;
         }
-        if (candidate == null || RESERVED_WORDS.contains(candidate) || usedNames.contains(candidate)) {
+        if (candidate == null || isReserved(candidate) || usedNames.contains(candidate)) {
             return positionalName(index, usedNames);
         }
         return candidate;
