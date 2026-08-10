@@ -86,10 +86,21 @@ final class HandlerCatalogResolver {
          * <i>rule for writing</i> handlers: the author names each one, so there is no fixed signature to
          * emit and consequently no entry in {@code methods}.
          *
-         * @param template the wildcard option, which states everything about such a handler except its
-         *                 name
+         * <p><b>Plural, though spec §4 says "one".</b> A catalog can be open-ended <i>and</i> admit more than
+         * one legal shape, and {@code graphql} is exactly that: three {@code "*"} entries — a query
+         * ({@code resource}/{@code get}), a mutation ({@code remote}) and a subscription
+         * ({@code resource}/{@code subscribe}, returning a stream). They differ in kind, accessor and return,
+         * so no one of them can stand for the others. This record used to hold a single option and the
+         * resolver took {@code wildcards.get(0)}, which silently deleted GraphQL's mutations and
+         * subscriptions from the catalog with only a log line to show for it. The document defect is real and
+         * {@code AddModeCheck} still reports it; what changed is that tolerating it no longer costs two
+         * thirds of the connector's API surface.
+         *
+         * @param templates the wildcard options in document order, each stating everything about such a
+         *                  handler except its name; never empty
          */
-        record Many(TriggerMetadataModel.ServiceType.HandlerOption template) implements HandlerCatalog {
+        record Many(List<TriggerMetadataModel.ServiceType.HandlerOption> templates)
+                implements HandlerCatalog {
         }
 
         /**
@@ -148,8 +159,10 @@ final class HandlerCatalogResolver {
      *       wildcard. Those four are real, fully-specified signatures; treating the type as open-ended
      *       because of the flag would discard all of them and emit a template instead.</li>
      *   <li><b>{@code graphql}</b> declares three {@code "*"} entries under one {@code options} list where
-     *       spec §4 allows one. The first is taken and the rest reported — dropping the service type over a
-     *       document defect would lose more than it protects.</li>
+     *       spec §4 allows one. <b>All three are kept</b> — they are the query, mutation and subscription
+     *       shapes, and they differ in kind, accessor and return, so taking only the first (as this did
+     *       until now) deleted two thirds of the connector's handler surface. The defect is still reported
+     *       by {@code AddModeCheck}; it is simply no longer paid for in lost output.</li>
      * </ul>
      *
      * <p>Both are document defects belonging to the validator phase; this component's job is to tolerate
@@ -175,7 +188,8 @@ final class HandlerCatalogResolver {
 
         if (wildcards.size() > 1) {
             LOGGER.warning("Service type '" + typeName + "' declares " + wildcards.size()
-                    + " \"*\" options where spec §4 allows one; taking the first");
+                    + " \"*\" options where spec §4 allows one; rendering all of them as alternative"
+                    + " handler shapes");
         }
         if (options.size() > wildcards.size()) {
             LOGGER.warning("Service type '" + typeName + "' mixes a \"*\" option with "
@@ -186,7 +200,7 @@ final class HandlerCatalogResolver {
             LOGGER.warning("Service type '" + typeName + "' declares a \"*\" option under addMode: "
                     + handlers.addMode() + " (spec §4 pairs the wildcard with \"many\")");
         }
-        return new HandlerCatalog.Many(wildcards.get(0));
+        return new HandlerCatalog.Many(List.copyOf(wildcards));
     }
 
     private static List<TriggerMetadataModel.ServiceType.HandlerOption> wildcardsOf(

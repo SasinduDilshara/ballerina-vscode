@@ -95,14 +95,17 @@ public class Service {
      */
     private Boolean authorNamedHandlers;
     /**
-     * Spec §4 {@code addMode: "many"} — the shape every handler of this service type takes, for a catalog
+     * Spec §4 {@code addMode: "many"} — the shapes a handler of this service type may take, for a catalog
      * whose handler names are the author's to choose.
      *
-     * <p>Typed as {@link ServiceRemoteFunction} because it <i>is</i> one in every respect but its name:
-     * same kind, parameters, return and annotation obligations. It is held apart from {@link #methods}
-     * because it is not writable as-is — a consumer must render it as guidance, never as a signature.
+     * <p>Typed as {@link ServiceRemoteFunction} because each <i>is</i> one in every respect but its name:
+     * same kind, parameters, return and annotation obligations. They are held apart from {@link #methods}
+     * because they are not writable as-is — a consumer must render them as guidance, never as signatures.
+     *
+     * <p>A list rather than a single value: {@code graphql} declares three, one each for a query, a mutation
+     * and a subscription, and they differ in kind, accessor and return.
      */
-    private ServiceRemoteFunction handlerTemplate;
+    private List<ServiceRemoteFunction> handlerTemplates;
     @SerializedName("methods")
     private List<ServiceRemoteFunction> methods;
     private String testGenerationInstruction;
@@ -224,12 +227,12 @@ public class Service {
         this.notListenerAttachable = notListenerAttachable;
     }
 
-    public ServiceRemoteFunction getHandlerTemplate() {
-        return handlerTemplate;
+    public List<ServiceRemoteFunction> getHandlerTemplates() {
+        return handlerTemplates;
     }
 
-    public void setHandlerTemplate(ServiceRemoteFunction handlerTemplate) {
-        this.handlerTemplate = handlerTemplate;
+    public void setHandlerTemplates(List<ServiceRemoteFunction> handlerTemplates) {
+        this.handlerTemplates = handlerTemplates;
     }
 
     public List<ServiceRemoteFunction> getMethods() {

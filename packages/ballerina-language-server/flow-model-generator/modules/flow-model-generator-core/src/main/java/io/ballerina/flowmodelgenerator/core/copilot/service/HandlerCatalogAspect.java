@@ -68,8 +68,13 @@ final class HandlerCatalogAspect implements ServiceAspect {
                 }
                 buildFromOptions(scope, draft, options.options());
             }
-            case HandlerCatalogResolver.HandlerCatalog.Many many ->
-                    buildTemplate(scope, draft, many.template());
+            case HandlerCatalogResolver.HandlerCatalog.Many many -> {
+                // Document order is preserved: graphql's query, mutation and subscription shapes are read
+                // in the order the document declares them, the same rule §7 states for parameters.
+                for (TriggerMetadataModel.ServiceType.HandlerOption template : many.templates()) {
+                    buildTemplate(scope, draft, template);
+                }
+            }
         }
     }
 
@@ -92,7 +97,7 @@ final class HandlerCatalogAspect implements ServiceAspect {
             // declare would describe a handler nobody can write.
             handlerDraft.veto(id(), specSection(), scope.serviceTypeName(),
                     "its handler template references a type the resolved package does not declare");
-            draft.setHandlerTemplate(handlerDraft);
+            draft.addHandlerTemplate(handlerDraft);
             return;
         }
 
@@ -100,7 +105,7 @@ final class HandlerCatalogAspect implements ServiceAspect {
             aspect.contribute(handlerScope, handlerDraft);
         }
         buildOptionParams(handlerScope, handlerDraft, template.params());
-        draft.setHandlerTemplate(handlerDraft);
+        draft.addHandlerTemplate(handlerDraft);
     }
 
     /** A concrete service type: every handler and parameter is read from the semantic model. */

@@ -316,6 +316,17 @@ export interface Service {
     type: "generic" | "fixed";
     name?: string;
     isDeprecated?: boolean;
+    // Hand-authored guidance for writing this service, from
+    // `resources/copilot/instructions/<org>/<module>/service.md`.
+    //
+    // Declared on `Service` rather than only on `GenericService` because a metadata-derived (fixed) entry
+    // now absorbs it too. The division of labour is strict and is what keeps the two halves from ever
+    // contradicting each other: a curated file may state ONLY what neither the trigger-metadata document
+    // nor the semantic model can — project conventions (an http listener belongs at module level),
+    // compiler-plugin rules (`@http:Payload` is optional for a lone record parameter), defaults (a graphql
+    // service defaults to `/graphql`), and worked examples. Everything factual — types, presence,
+    // annotations, accessors, binding — is synthesized and must not be restated here.
+    instructions?: string;
     // Spec §1: the `org/module` a cross-module service type belongs to (`ballerinax/cdc`). Absent
     // for a home-module type, which is prefixed with the listener's alias instead.
     serviceTypeModule?: string;
@@ -359,6 +370,9 @@ export interface Annotation {
 }
 
 export interface GenericService extends Service {
+    // Narrowed to required: a generic service is nothing BUT its instructions — it carries no methods, no
+    // annotations and no identifier, so an absent value would leave nothing to render at all. On a fixed
+    // service the same field is optional, because there the synthesized block stands on its own.
     instructions: string;
     type: "generic";
 }
@@ -367,12 +381,17 @@ export interface FixedService extends Service {
     type: "fixed";
     // Absent for fixed services whose service type declares no methods (e.g. mcp's marker Service).
     methods?: ServiceRemoteFunction[];
-    // Spec §4 `addMode: "many"`: the shape every handler of this service type takes, for a catalog whose
-    // handler names are the author's to choose. Typed as a ServiceRemoteFunction because it is one in
-    // every respect but its name — but it is deliberately NOT in `methods`, because it is not writable
-    // as-is. Spec §11.1: such a handler "cannot yield a compilable signature", so it renders as commented
-    // guidance and never as syntax.
-    handlerTemplate?: ServiceRemoteFunction;
+    // Spec §4 `addMode: "many"`: the shapes a handler of this service type may take, for a catalog whose
+    // handler names are the author's to choose. Typed as ServiceRemoteFunction because each is one in
+    // every respect but its name — but they are deliberately NOT in `methods`, because they are not
+    // writable as-is. Spec §11.1: such a handler "cannot yield a compilable signature", so each renders as
+    // commented guidance and never as syntax.
+    //
+    // A list, though spec §4 says one: `graphql` declares three — a query (`resource`/`get`), a mutation
+    // (`remote`) and a subscription (`resource`/`subscribe`, returning a stream). They differ in kind,
+    // accessor and return, so rendering only the first (as this did until now) deleted two thirds of the
+    // connector's handler surface.
+    handlerTemplates?: ServiceRemoteFunction[];
 }
 
 export interface Library {

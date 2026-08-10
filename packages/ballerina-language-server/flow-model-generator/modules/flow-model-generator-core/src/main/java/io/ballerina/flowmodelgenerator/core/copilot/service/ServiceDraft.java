@@ -42,6 +42,9 @@ final class ServiceDraft {
 
     private final JsonObject json = new JsonObject();
     private final JsonArray methods = new JsonArray();
+    // Spec §4's open-ended shapes. Held as a field rather than written eagerly for the same reason
+    // `methods` is: the catalog contributes them one at a time, and an empty list must not be emitted.
+    private final JsonArray handlerTemplates = new JsonArray();
     // Vetoes raised against this entry — any one of them drops it.
     private final List<Veto> vetoes = new ArrayList<>();
     // Non-fatal drops: a handler that could not be built, an annotation obligation that could not be
@@ -196,8 +199,12 @@ final class ServiceDraft {
      *
      * <p>A vetoed template is dropped with its reason and the service still renders — the same policy a
      * dropped handler follows.
+     *
+     * <p><b>Additive, and the key is plural.</b> A catalog may declare more than one legal shape:
+     * {@code graphql}'s query, mutation and subscription are three {@code "*"} options that differ in kind,
+     * accessor and return. Order is preserved, because it is the document's.
      */
-    void setHandlerTemplate(HandlerDraft template) {
+    void addHandlerTemplate(HandlerDraft template) {
         if (template == null) {
             return;
         }
@@ -206,7 +213,7 @@ final class ServiceDraft {
             nonFatal.addAll(template.vetoes());
             return;
         }
-        json.add("handlerTemplate", template.toJson());
+        handlerTemplates.add(template.toJson());
     }
 
     /**
@@ -269,6 +276,11 @@ final class ServiceDraft {
      * array.
      */
     JsonObject toJson() {
+        // Templates precede methods, mirroring the order a consumer renders them: the rule for writing a
+        // handler comes before any fixed vocabulary. No corpus service type carries both.
+        if (!handlerTemplates.isEmpty()) {
+            json.add("handlerTemplates", handlerTemplates);
+        }
         if (!methods.isEmpty()) {
             json.add("methods", methods);
         }

@@ -23,6 +23,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import io.ballerina.compiler.api.SemanticModel;
+import io.ballerina.flowmodelgenerator.core.InstructionLoader;
 import io.ballerina.projects.Package;
 
 import java.io.IOException;
@@ -75,7 +76,8 @@ public class ServiceLoader {
      * @return JsonArray containing all services for this library
      */
     public static JsonArray loadAllServices(String libraryName) {
-        return mergeWithGenericServices(libraryName, ServiceIndexLoader.loadFromServiceIndex(libraryName));
+        return mergeWithGenericServices(libraryName, ServiceIndexLoader.loadFromServiceIndex(libraryName),
+                false);
     }
 
     /**
@@ -98,17 +100,49 @@ public class ServiceLoader {
         if (!"index".equals(System.getProperty(TRIGGER_SOURCE_PROPERTY))) {
             JsonArray schemaServices = TriggerSchemaServiceLoader.loadServices(libraryName, pkg, semanticModel);
             if (!schemaServices.isEmpty()) {
-                return mergeWithGenericServices(libraryName, schemaServices);
+                return mergeWithGenericServices(libraryName, schemaServices, true);
             }
         }
         return loadAllServices(libraryName);
     }
 
     /**
-     * Applies the generic-services overlay: a generic-services.json entry sharing its {@code name}
-     * with a fixed entry takes precedence and the fixed one is dropped.
+     * Applies the generic-services overlay, and what a {@code name} collision means depends on where the
+     * fixed entry came from.
+     *
+     * <p><b>Index-derived ({@code schemaDerived == false}) — replace.</b> The curated entry wins and the
+     * index entry is dropped, exactly as before. An index row carries a listener and a method list and
+     * nothing else; the curated prose was written precisely because that is too thin to generate against,
+     * so there is nothing in it worth preserving alongside.
+     *
+     * <p><b>Schema-derived ({@code schemaDerived == true}) — <i>merge</i>.</b> The metadata-derived entry
+     * survives and absorbs the curated guidance. This is the case that was silently destroying work:
+     * {@code ballerina/http} and {@code ballerina/graphql} both declare {@code type.name = "Service"} and
+     * both have a curated entry named {@code Service}, so their <b>entire trigger-metadata documents
+     * rendered nothing at all</b> — for http, 8 method values, 3 path forms, 6 parameter slots, 7
+     * annotation references (including the corpus's only {@code attachPoint: "return"} entry) and a
+     * {@code dataBindingRules} rule; for graphql, three handler shapes including subscriptions, which the
+     * curated prose never mentions.
+     *
+     * <p>The two sources are not substitutes and neither subsumes the other: the document states the
+     * <i>facts</i> (types, presence, annotations, binding), while the curated file states the
+     * <i>conventions</i> a document deliberately cannot carry — that an http listener belongs at module
+     * level, that {@code @http:Payload} is optional for a lone record parameter, that a graphql service
+     * defaults to {@code /graphql}. Merging keeps both; the old behaviour kept only the second.
+     *
+     * <p>The instruction text is loaded here rather than left to
+     * {@code CopilotLibraryManager.augmentServicesWithInstructions}, which applies it only to entries typed
+     * {@code generic}. Doing it at the point of absorption keeps the change surgical: no service that did
+     * not previously carry curated guidance starts carrying it, so {@code ballerina/ai}'s never-yet-rendered
+     * {@code service.md} stays exactly as unrendered as it is today.
+     *
+     * @param libraryName   the library being loaded
+     * @param fixedServices the non-generic entries
+     * @param schemaDerived whether {@code fixedServices} came from the trigger-metadata pipeline
+     * @return the merged service list
      */
-    private static JsonArray mergeWithGenericServices(String libraryName, JsonArray fixedServices) {
+    private static JsonArray mergeWithGenericServices(String libraryName, JsonArray fixedServices,
+                                                      boolean schemaDerived) {
         JsonArray genericServices = getGenericServices(libraryName);
 
         Set<String> genericNames = new HashSet<>();
@@ -119,15 +153,30 @@ public class ServiceLoader {
             }
         }
 
+        Set<String> absorbed = new HashSet<>();
         JsonArray services = new JsonArray();
         for (JsonElement element : fixedServices) {
             JsonObject svc = element.getAsJsonObject();
-            if (svc.has("name") && genericNames.contains(svc.get("name").getAsString())) {
+            String name = svc.has("name") ? svc.get("name").getAsString() : null;
+            if (name != null && genericNames.contains(name)) {
+                if (!schemaDerived) {
+                    continue;
+                }
+                absorbed.add(name);
+                InstructionLoader.loadServiceInstruction(libraryName)
+                        .ifPresent(text -> svc.addProperty("instructions", text));
+            }
+            services.add(svc);
+        }
+        // Document order is preserved for whatever was not absorbed, so the index path emits exactly the
+        // array it emitted before.
+        for (JsonElement element : genericServices) {
+            JsonObject svc = element.getAsJsonObject();
+            if (svc.has("name") && absorbed.contains(svc.get("name").getAsString())) {
                 continue;
             }
             services.add(svc);
         }
-        genericServices.forEach(services::add);
         return services;
     }
 

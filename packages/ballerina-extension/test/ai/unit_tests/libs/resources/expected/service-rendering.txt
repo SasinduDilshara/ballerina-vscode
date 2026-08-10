@@ -43,6 +43,7 @@ type Event record {
 @snapshotdemo:ServiceConfig {...} // required
 service snapshotdemo:Service on new snapshotdemo:Listener(int port, snapshotdemo:ListenerConfiguration config = {}) {
     # Handles one event.
+    # Required parameters: event
     # Optional parameters (may be omitted): caller
     remote function onEvent(snapshotdemo:Event event, Caller caller) returns error?;
 }

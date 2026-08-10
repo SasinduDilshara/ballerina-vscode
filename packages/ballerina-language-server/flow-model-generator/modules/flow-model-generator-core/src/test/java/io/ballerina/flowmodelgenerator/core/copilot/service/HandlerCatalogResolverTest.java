@@ -117,7 +117,9 @@ public class HandlerCatalogResolverTest {
                 serviceType(false, new TriggerMetadataModel.ServiceType.Handlers(
                         false, "many", List.of(wildcard))),
                 "Service", null);
-        Assert.assertSame(((HandlerCatalogResolver.HandlerCatalog.Many) catalog).template(), wildcard);
+        Assert.assertEquals(((HandlerCatalogResolver.HandlerCatalog.Many) catalog).templates().size(), 1);
+        Assert.assertSame(((HandlerCatalogResolver.HandlerCatalog.Many) catalog).templates().get(0),
+                wildcard);
     }
 
     @Test
@@ -143,15 +145,25 @@ public class HandlerCatalogResolverTest {
     }
 
     @Test
-    public void testSeveralWildcardsTakeTheFirst() {
-        // ballerina/graphql declares three "*" entries under one options list where §4 allows one.
-        // Dropping the service type over that would lose more than it protects.
-        TriggerMetadataModel.ServiceType.HandlerOption first = option("*");
+    public void testSeveralWildcardsAreAllKeptInDocumentOrder() {
+        // ballerina/graphql declares three "*" entries under one options list where §4 allows one. They are
+        // its query, mutation and subscription shapes: different `kind`, different accessor, different
+        // return. Taking only the first (as this did until now) deleted two thirds of the connector's
+        // handler surface with nothing but a log line to show for it — so all three are kept, in the order
+        // the document declares them. The document defect is still reported, by AddModeCheck.
+        TriggerMetadataModel.ServiceType.HandlerOption query = option("*");
+        TriggerMetadataModel.ServiceType.HandlerOption mutation = option("*");
+        TriggerMetadataModel.ServiceType.HandlerOption subscription = option("*");
         HandlerCatalogResolver.HandlerCatalog catalog = HandlerCatalogResolver.resolve(
                 serviceType(false, new TriggerMetadataModel.ServiceType.Handlers(
-                        false, "many", List.of(first, option("*"), option("*")))),
+                        false, "many", List.of(query, mutation, subscription))),
                 "Service", null);
-        Assert.assertSame(((HandlerCatalogResolver.HandlerCatalog.Many) catalog).template(), first);
+        List<TriggerMetadataModel.ServiceType.HandlerOption> templates =
+                ((HandlerCatalogResolver.HandlerCatalog.Many) catalog).templates();
+        Assert.assertEquals(templates.size(), 3, "every wildcard shape must survive");
+        Assert.assertSame(templates.get(0), query);
+        Assert.assertSame(templates.get(1), mutation);
+        Assert.assertSame(templates.get(2), subscription);
     }
 
     @Test

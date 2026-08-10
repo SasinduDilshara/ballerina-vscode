@@ -1,12 +1,22 @@
 # Service writing instructions
 
-- HTTP Service always requires a http listener to be attatched to it. Always declare the listener in the module level as variable and then use it in the service declaration. (eg; listener http:Listener ep  = check new http:Listener(8080);)
-- Only can contain resource functions inside the service.
-- Path paramters must be specified in the resource function path. (eg: resource function get v1/user/[int userId]/profile())
-- In the resource function parameters, you can specify query parameters, headers and body as parameters.
-    - Body - use `@http:Payload` annotation to specify the body parameter. Note: The annotation is optional if there is only one parameter and if the type is a record.
-    - Query parameters - use `@http:Query` annotation to specify query parameters.
-    - Headers - use `@http:Header` annotation to specify header parameters.
+- Always declare the listener at module level as a variable and attach the service to that variable.
+  (eg: `listener http:Listener ep = check new http:Listener(8080);` then `service /v1 on ep { ... }`)
+  The declaration shown below writes the listener inline only to state its signature; do not copy
+  that form.
+- Path parameters are written as typed segments in the resource path.
+  (eg: `resource function get v1/user/[int userId]/profile()`)
+- Prefer a concrete return type (a record, `string`, `json`) over `http:Response`.
+
+The following two rules are enforced by the HTTP compiler plugin and override what the handler shape
+below states about optionality. The shape lists every slot that is *available*; it is not a legal
+combination of them.
+
+- `@http:Payload` is **required** on the body parameter whenever the handler takes more than one
+  parameter. It may be omitted only when the handler takes exactly one parameter and that parameter's
+  type is a record.
+- A handler that takes an `http:Caller` must return `error?` — it may not also return a value.
+  Use `http:Caller` to respond directly, or return a value; never both.
 
 ```
 import ballerina/http;

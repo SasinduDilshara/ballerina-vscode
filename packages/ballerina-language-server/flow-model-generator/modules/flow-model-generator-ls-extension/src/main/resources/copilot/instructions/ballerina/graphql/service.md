@@ -1,12 +1,8 @@
 # Service writing instructions
 
-- GraphQL Service always requires a graphql listener to be attatched to it.
-- Service requires base path to be set. Specify /graphql if not specified explictily by the user query.
-- Figure out are the Query and Mutation operations required based on the user query.
-- Input fields are represented by function parameters. Only use records and basic types as types for input parameters.
-
-## Query
-- Represented by resource functions.
-
-## Mutation
-- Represented by remote functions.
+- Specify `/graphql` as the base path unless the user query states one explicitly.
+- A service must declare at least one query (a `resource function get`). A service containing only
+  mutations or only subscriptions is rejected by the GraphQL compiler plugin.
+- `anydata` is not a legal GraphQL type, for a parameter **or** for a return. The shapes below use it
+  because that is what the metadata declares; replace it in both positions with a specific type —
+  records and basic types for inputs, and a record, a basic type or an array of either for returns.

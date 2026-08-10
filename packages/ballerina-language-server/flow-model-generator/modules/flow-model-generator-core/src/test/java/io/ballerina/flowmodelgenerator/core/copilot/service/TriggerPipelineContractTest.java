@@ -272,10 +272,10 @@ public class TriggerPipelineContractTest {
     public void testTheP6ServiceKeysFollowTheOmissionRule() {
         ServiceDraft draft = new ServiceDraft();
         draft.setAlternatives(false);
-        draft.setHandlerTemplate(null);
+        draft.addHandlerTemplate(null);
         Assert.assertFalse(draft.toJson().has("alternatives"),
                 "Spec §3: a sole service type is required, and that is not restated");
-        Assert.assertFalse(draft.toJson().has("handlerTemplate"),
+        Assert.assertFalse(draft.toJson().has("handlerTemplates"),
                 "A fixed vocabulary has no template");
         Assert.assertFalse(draft.toJson().has("singleListenerOnly"),
                 "A permissive cardinality states nothing");
@@ -320,11 +320,45 @@ public class TriggerPipelineContractTest {
         ServiceDraft draft = new ServiceDraft();
         HandlerDraft template = new HandlerDraft();
         template.veto("handlerCatalog", "§4", "Service", "references an undeclared type");
-        draft.setHandlerTemplate(template);
+        draft.addHandlerTemplate(template);
 
         Assert.assertFalse(draft.isVetoed(), "A dropped template must not drop its service");
-        Assert.assertFalse(draft.toJson().has("handlerTemplate"));
+        Assert.assertFalse(draft.toJson().has("handlerTemplates"));
         Assert.assertEquals(draft.vetoes().size(), 1, "...but the reason is still reported");
+    }
+
+    @Test
+    public void testEveryOpenEndedShapeReachesTheDraftInDocumentOrder() {
+        // §4 as graphql actually declares it: three "*" shapes, which must all survive and keep their
+        // order. The draft is what the singular `handlerTemplate` key used to silently truncate.
+        ServiceDraft draft = new ServiceDraft();
+        for (String kind : List.of("first", "second", "third")) {
+            HandlerDraft template = new HandlerDraft();
+            template.setName(kind);
+            draft.addHandlerTemplate(template);
+        }
+
+        JsonArray templates = draft.toJson().getAsJsonArray("handlerTemplates");
+        Assert.assertEquals(templates.size(), 3, "every wildcard shape must be emitted");
+        Assert.assertEquals(templates.get(0).getAsJsonObject().get("name").getAsString(), "first");
+        Assert.assertEquals(templates.get(2).getAsJsonObject().get("name").getAsString(), "third");
+    }
+
+    @Test
+    public void testAVetoedShapeDoesNotCostItsSiblings() {
+        // A document defect in one shape must not take the others with it — the same policy a dropped
+        // handler follows one tier down.
+        ServiceDraft draft = new ServiceDraft();
+        HandlerDraft good = new HandlerDraft();
+        good.setName("usable");
+        draft.addHandlerTemplate(good);
+        HandlerDraft bad = new HandlerDraft();
+        bad.veto("handlerCatalog", "§4", "Service", "references an undeclared type");
+        draft.addHandlerTemplate(bad);
+
+        Assert.assertFalse(draft.isVetoed());
+        Assert.assertEquals(draft.toJson().getAsJsonArray("handlerTemplates").size(), 1);
+        Assert.assertEquals(draft.vetoes().size(), 1, "...and the reason is still reported");
     }
 
     @Test

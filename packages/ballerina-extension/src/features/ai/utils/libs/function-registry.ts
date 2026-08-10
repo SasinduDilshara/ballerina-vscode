@@ -626,11 +626,13 @@ function collectServiceTypeRefs(service: Service): Type[] {
     if (service.type !== "fixed") {
         return refs;
     }
-    // Spec §4 `addMode: "many"`: the handler template names types the reader must write — mcp's
+    // Spec §4 `addMode: "many"`: a handler template names types the reader must write — mcp's
     // `mcp:Session`, `http:Headers`, `http:Request` — in a body that lists no methods at all. Without this
-    // the template would be the one construct in the catalog that can name a type nothing defines.
-    const template = (service as FixedService).handlerTemplate;
-    if (template) {
+    // the templates would be the one construct in the catalog that can name a type nothing defines.
+    //
+    // Every template is scanned, not just the first: graphql's subscription shape is the only place
+    // `stream<anydata, error?>` is named, and it is the third of three.
+    for (const template of (service as FixedService).handlerTemplates ?? []) {
         for (const annotation of template.annotationRefs ?? []) {
             add(annotation?.typeConstraint);
         }

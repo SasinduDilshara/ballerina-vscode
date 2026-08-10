@@ -737,4 +737,72 @@ public class CopilotSchemaServicesTest {
             System.clearProperty("ballerina.copilot.triggerSource");
         }
     }
+
+    // ---- the curated overlay is additive on the schema path -------------------------------------
+
+    @Test
+    public void testACuratedOverlayNoLongerDeletesTheMetadataDocument() {
+        // ballerina/http declares `type.name = "Service"` and generic-services.json declares a curated
+        // entry of the same name, so the name collision used to drop the ENTIRE metadata-derived entry:
+        // 8 method values, 3 path forms, 6 parameter slots, 7 annotation references (including the
+        // corpus's only `attachPoint: "return"`) and a dataBindingRules rule reached the prompt nowhere.
+        // The two sources are not substitutes — the document states facts, the curated file states the
+        // conventions a document deliberately cannot carry — so a collision now merges instead of replacing.
+        JsonObject service = serviceNamed(load("ballerina/http"), "Service");
+        Assert.assertEquals(service.get("type").getAsString(), "fixed",
+                "the metadata-derived entry must survive the collision, not be replaced by the curated one");
+        Assert.assertTrue(service.has("handlerTemplates"),
+                "http is an addMode:\"many\" catalog, so its shape must reach the wire: " + service);
+        Assert.assertTrue(service.has("identifier"),
+                "§3's required base path is stated by the document and must survive");
+        Assert.assertTrue(service.has("instructions"),
+                "...and the curated guidance must be carried onto it, not discarded: " + service.keySet());
+    }
+
+    @Test
+    public void testTheCuratedGuidanceIsTheLibrarysOwnServiceMarkdown() {
+        JsonObject service = serviceNamed(load("ballerina/http"), "Service");
+        String instructions = service.get("instructions").getAsString();
+        Assert.assertTrue(instructions.contains("module level"),
+                "the absorbed text must be ballerina/http's own service.md: " + instructions);
+    }
+
+    @Test
+    public void testGraphqlRendersEveryWildcardShapeNotJustTheFirst() {
+        // graphql declares three "*" options where spec §4 allows one: a query (resource/get), a mutation
+        // (remote) and a subscription (resource/subscribe, returning a stream). They differ in kind,
+        // accessor and return, so taking only the first deleted two thirds of the handler surface.
+        JsonObject service = serviceNamed(load("ballerina/graphql"), "Service");
+        JsonArray templates = service.getAsJsonArray("handlerTemplates");
+        Assert.assertNotNull(templates, "graphql's wildcard shapes must reach the wire: " + service);
+        Assert.assertEquals(templates.size(), 3, "every wildcard shape must survive: " + templates);
+
+        List<String> operations = new ArrayList<>();
+        for (JsonElement element : templates) {
+            JsonObject template = element.getAsJsonObject();
+            Assert.assertTrue(template.has("graphqlOperation"), "each shape names its operation: " + template);
+            operations.add(template.get("graphqlOperation").getAsString());
+        }
+        Assert.assertEquals(operations, List.of("query", "mutation", "subscription"),
+                "document order is preserved");
+    }
+
+    @Test
+    public void testAnIndexDerivedEntryStillYieldsToTheCuratedOverlay() {
+        // The additive rule is scoped to the schema path on purpose. An index row carries a listener and a
+        // method list and nothing else — which is precisely why the curated prose was written — so there is
+        // nothing in it worth preserving alongside, and the SQLite path keeps its replace semantics.
+        for (String library : new String[]{"ballerina/http", "ballerina/graphql"}) {
+            JsonArray viaIndex = ServiceLoader.loadAllServices(library);
+            boolean hasGeneric = false;
+            for (JsonElement element : viaIndex) {
+                JsonObject svc = element.getAsJsonObject();
+                if (svc.has("type") && "generic".equals(svc.get("type").getAsString())) {
+                    hasGeneric = true;
+                }
+            }
+            Assert.assertTrue(hasGeneric,
+                    "the SQLite path must still emit the curated generic entry for " + library);
+        }
+    }
 }

@@ -1114,8 +1114,14 @@ suite("toSyntaxString", () => {
                 methods: [method({ name: "onEvent", graphqlOperation: "mutation",
                                    fieldNameForm: ["identifierSegment"] })],
             });
-            assert.ok(line(result, "# Resource:").includes("this is a GraphQL mutation"));
+            // The label follows the handler's KIND, not the spec section its extras are filed under.
+            // This assertion previously demanded "# Resource:" on a handler its own next line calls a
+            // remote method — a contradiction that never surfaced because graphql's mutation shape was
+            // being discarded before it could render. It renders now, so the label has to be right.
+            assert.ok(line(result, "# Handler:").includes("this is a GraphQL mutation"));
             assert.ok(result.includes("remote function onEvent("), "a mutation is a remote method");
+            assert.ok(!result.includes("# Resource:"),
+                `a remote handler must not be labelled a resource:\n${result}`);
         });
 
         // ---- §5 presence ----
@@ -1922,7 +1928,7 @@ suite("toSyntaxString", () => {
             // "ERROR documentation not attached to a construct".
             const result = renderService(service([], {
                 methods: undefined,
-                handlerTemplate: {
+                handlerTemplates: [{
                     name: "*", type: "remote",
                     parameters: [{
                         name: "session", description: "",
@@ -1930,7 +1936,7 @@ suite("toSyntaxString", () => {
                         optional: true,
                     }],
                     return: { type: { name: "anydata|error" } },
-                },
+                }],
             }));
             const body = result.split("\n").filter((l) => l.trim().startsWith("//")
                 && l.startsWith("    "));
@@ -1946,11 +1952,11 @@ suite("toSyntaxString", () => {
             // expression — verified: "incompatible types: expected a map or a record, found 'other'".
             const result = renderService(service([], {
                 methods: undefined,
-                handlerTemplate: {
+                handlerTemplates: [{
                     name: "*", type: "remote", parameters: [],
                     return: { type: { name: "anydata|error" } },
                     annotationRefs: [{ name: "Tool", presence: "optional", attachPoint: "function" }],
-                },
+                }],
             }));
             assert.ok(result.includes("    // @kafka:Tool {} // optional"), `got:\n${result}`);
             noLine(result, "{...}");
@@ -1983,10 +1989,10 @@ suite("toSyntaxString", () => {
             // `resource function get pathSegment <handlerName>(...)`, which is not a signature.
             const result = renderService(service([], {
                 methods: undefined,
-                handlerTemplate: {
+                handlerTemplates: [{
                     name: "*", type: "resource", accessor: "get", parameters: [],
                     return: { type: { name: "anydata|error" } },
-                },
+                }],
             }));
             assert.ok(result.includes("    // resource function get pathSegment() returns anydata|error;"),
                 `got:\n${result}`);
@@ -1997,10 +2003,10 @@ suite("toSyntaxString", () => {
             // The same policy renderMethodSignature applies: inventing `get` would be inventing API.
             const result = renderService(service([], {
                 methods: undefined,
-                handlerTemplate: {
+                handlerTemplates: [{
                     name: "*", type: "resource", parameters: [],
                     return: { type: { name: "anydata|error" } },
-                },
+                }],
             }));
             assert.ok(result.includes("    // remote function <handlerName>() returns anydata|error;"),
                 `got:\n${result}`);
@@ -2011,6 +2017,281 @@ suite("toSyntaxString", () => {
             const result = renderService(service([method()]));
             noLine(result, "<handlerName>");
             noLine(result, "you choose each one's name");
+        });
+
+        test("§4: every open-ended shape is rendered, not just the first", () => {
+            // graphql's real shape: three "*" entries — a query (resource/get), a mutation (remote) and a
+            // subscription (resource/subscribe, returning a stream). They differ in kind, accessor and
+            // return, so no one of them stands for the others. Rendering only the first deleted two thirds
+            // of the connector's handler surface.
+            const result = renderService(service([], {
+                methods: undefined,
+                handlerTemplates: [
+                    {
+                        name: "*", type: "resource", accessor: "get", parameters: [],
+                        graphqlOperation: "query", return: { type: { name: "anydata|error" } },
+                    },
+                    {
+                        name: "*", type: "remote", parameters: [],
+                        graphqlOperation: "mutation", return: { type: { name: "anydata|error" } },
+                    },
+                    {
+                        name: "*", type: "resource", accessor: "subscribe", parameters: [],
+                        graphqlOperation: "subscription",
+                        return: { type: { name: "stream<anydata, error?>" } },
+                    },
+                ],
+            }));
+            assert.ok(result.includes("each following one of these 3 shapes:"),
+                `the preamble must state how many shapes there are:\n${result}`);
+            assert.ok(result.includes("// Shape 1 of 3:"), `got:\n${result}`);
+            assert.ok(result.includes("// Shape 3 of 3:"), `got:\n${result}`);
+            assert.ok(result.includes(
+                "    // resource function get pathSegment() returns anydata|error;"),
+                `the query shape:\n${result}`);
+            assert.ok(result.includes(
+                "    // remote function <handlerName>() returns anydata|error;"),
+                `the mutation shape — remote, so it takes the name placeholder:\n${result}`);
+            assert.ok(result.includes(
+                "    // resource function subscribe pathSegment() returns stream<anydata, error?>;"),
+                `the subscription shape:\n${result}`);
+            // Each shape keeps its own §5 informational label, which is what tells them apart.
+            for (const operation of ["query", "mutation", "subscription"]) {
+                assert.ok(result.includes(`this is a GraphQL ${operation}`),
+                    `shape labels must survive:\n${result}`);
+            }
+            // §5 files fieldName/graphqlOperation as resource extras, but a mutation is legitimately
+            // `kind: "remote"` and carries them anyway. Labelling it "Resource:" contradicts the
+            // `remote function` signature printed directly beneath it.
+            assert.ok(result.includes("// Handler: this is a GraphQL mutation."),
+                `a remote handler's extras note must not claim it is a resource:\n${result}`);
+            assert.ok(result.includes("// Resource: this is a GraphQL query."),
+                `...while a genuine resource handler keeps the resource label:\n${result}`);
+        });
+
+        test("curated guidance is emitted above the synthesized declaration, not instead of it", () => {
+            // The hybrid contract. Before this, a curated `service.md` REPLACED the whole metadata-derived
+            // entry: ballerina/http and ballerina/graphql both declare `type.name = "Service"` and both have
+            // a curated entry of that name, so their entire trigger-metadata documents rendered nothing.
+            // Both halves must now appear, and in this order — prose frames, synthesis specifies.
+            const result = renderService(service([method()], {
+                instructions: "# Service writing instructions\n\n- Declare the listener at module level.",
+            }));
+            const guidanceAt = result.indexOf("// --- Service writing guidance ---");
+            const declarationAt = result.indexOf("service kafka:Service on new");
+            assert.ok(guidanceAt >= 0, `the curated block must render:\n${result}`);
+            assert.ok(declarationAt >= 0, `the synthesized declaration must render:\n${result}`);
+            assert.ok(guidanceAt < declarationAt,
+                `guidance must precede the declaration it frames:\n${result}`);
+            assert.ok(result.includes("- Declare the listener at module level."),
+                `the markdown is emitted verbatim:\n${result}`);
+        });
+
+        test("curated guidance is raw markdown, never `#` documentation", () => {
+            // `#`-prefixing would attach a multi-kilobyte block with fenced code samples to the service
+            // declaration as its doc comment — legal, but unreadable, and it would sit ahead of the service's
+            // own `#` notes. This is the same raw form renderGenericService has always used.
+            const result = renderService(service([method()], {
+                instructions: "- Always declare the listener at module level.",
+            }));
+            assert.ok(result.includes("\n- Always declare the listener at module level."),
+                `got:\n${result}`);
+            noLine(result, "# - Always declare the listener");
+        });
+
+        test("a service with no curated guidance renders exactly as before", () => {
+            // Every library but http and graphql. The overwhelmingly common path must be untouched.
+            const result = renderService(service([method()]));
+            noLine(result, "--- Service writing guidance ---");
+        });
+
+        test("blank curated guidance emits nothing rather than an empty heading", () => {
+            const result = renderService(service([method()], { instructions: "   \n  " }));
+            noLine(result, "--- Service writing guidance ---");
+        });
+
+        test("§7: presence is stated from both sides once anything is optional", () => {
+            // Naming only the omittable slots leaves the obligation to be inferred from absence, and that
+            // inference is where a generator guesses wrong beside a multi-parameter signature.
+            const result = renderService(service([method({
+                parameters: [
+                    { name: "records", description: "", type: { name: "Record" }, optional: false },
+                    { name: "caller", description: "", type: { name: "Caller" }, optional: true },
+                ],
+            })]));
+            assert.ok(result.includes("# Required parameters: records"), `got:\n${result}`);
+            assert.ok(result.includes("# Optional parameters (may be omitted): caller"), `got:\n${result}`);
+            // Order: what must be there before what need not be.
+            assert.ok(result.indexOf("# Required parameters:") < result.indexOf("# Optional parameters"),
+                `got:\n${result}`);
+        });
+
+        test("§7: a signature with nothing mandatory says so outright", () => {
+            // ballerina/http's shape: four parameters, none of them required. "May be omitted: caller,
+            // request, headers, payload" reads as a list of caveats when it means the whole parameter list
+            // is optional, so the empty category is stated rather than left to be noticed.
+            const result = renderService(service([method({
+                parameters: [
+                    { name: "caller", description: "", type: { name: "Caller" }, optional: true },
+                    { name: "request", description: "", type: { name: "Request" }, optional: true },
+                ],
+            })]));
+            assert.ok(result.includes(
+                "# Required parameters: none — every parameter in the signature may be omitted."),
+                `got:\n${result}`);
+            assert.ok(result.includes("# Optional parameters (may be omitted): caller, request"),
+                `got:\n${result}`);
+        });
+
+        test("§7: an all-required signature still states nothing — `required` is the default", () => {
+            const result = renderService(service([method({
+                parameters: [
+                    { name: "records", description: "", type: { name: "Record" }, optional: false },
+                ],
+            })]));
+            noLine(result, "# Required parameters");
+            noLine(result, "# Optional parameters");
+        });
+
+        test("§7: a repeatable slot appears in neither presence list", () => {
+            // It is not in the signature, so neither "required" nor "may be omitted" applies to it.
+            const result = renderService(service([method({
+                parameters: [
+                    { name: "records", description: "", type: { name: "Record" }, optional: false },
+                    { name: "caller", description: "", type: { name: "Caller" }, optional: true },
+                    {
+                        name: "extra", description: "", type: { name: "string" },
+                        optional: true, repeatable: true,
+                    },
+                ],
+            })]));
+            assert.ok(!result.includes("may be omitted): caller, extra"),
+                `a repeatable slot must not be listed as omittable:\n${result}`);
+            assert.ok(result.includes("# Optional parameters (may be omitted): caller"), `got:\n${result}`);
+        });
+
+        test("§5: a resource-only open catalog says so, because a remote method there does not compile", () => {
+            // Verified: ballerina/http answers a remote method with
+            // "ERROR remote methods are not allowed in http:Service". The generic preamble ("any number of
+            // handlers") reads as permission to write one, and http's curated file used to carry the
+            // prohibition explicitly. It is derivable from `options[].kind`, so the renderer must state it.
+            const result = renderService(service([], {
+                methods: undefined,
+                handlerTemplates: [{
+                    name: "*", type: "resource", accessor: "get", parameters: [],
+                    return: { type: { name: "anydata|error" } },
+                }],
+            }));
+            assert.ok(result.includes("takes any number of resource handlers"), `got:\n${result}`);
+            assert.ok(result.includes("Only resource methods are accepted here"), `got:\n${result}`);
+        });
+
+        test("§5: a remote-only open catalog names its kind too, and claims no prohibition", () => {
+            const result = renderService(service([], {
+                methods: undefined,
+                handlerTemplates: [{
+                    name: "*", type: "remote", parameters: [],
+                    return: { type: { name: "anydata|error" } },
+                }],
+            }));
+            assert.ok(result.includes("takes any number of remote handlers"), `got:\n${result}`);
+            noLine(result, "Only resource methods are accepted");
+        });
+
+        test("§5: a mixed-kind catalog states no single kind", () => {
+            // graphql: two resource shapes and one remote. Claiming either kind would be false.
+            const result = renderService(service([], {
+                methods: undefined,
+                handlerTemplates: [
+                    { name: "*", type: "resource", accessor: "get", parameters: [],
+                      return: { type: { name: "anydata|error" } } },
+                    { name: "*", type: "remote", parameters: [],
+                      return: { type: { name: "anydata|error" } } },
+                ],
+            }));
+            assert.ok(result.includes("takes any number of handlers"), `got:\n${result}`);
+            noLine(result, "Only resource methods are accepted");
+        });
+
+        test("§5: a field-name note says which slot it replaces", () => {
+            // graphql's note read "the field name is author-chosen (identifierSegment)" above a signature
+            // saying `resource function get pathSegment(...)` — three names for one slot, none connected.
+            const resource = renderService(service([], {
+                methods: undefined,
+                handlerTemplates: [{
+                    name: "*", type: "resource", accessor: "get", parameters: [],
+                    fieldNameForm: ["identifierSegment"], graphqlOperation: "query",
+                    return: { type: { name: "anydata|error" } },
+                }],
+            }));
+            assert.ok(resource.includes("the field name is author-chosen (identifierSegment) — replace "
+                + "`pathSegment`"), `got:\n${resource}`);
+
+            const remote = renderService(service([], {
+                methods: undefined,
+                handlerTemplates: [{
+                    name: "*", type: "remote", parameters: [],
+                    fieldNameForm: ["identifierSegment"], graphqlOperation: "mutation",
+                    return: { type: { name: "anydata|error" } },
+                }],
+            }));
+            assert.ok(remote.includes("the field name is author-chosen (identifierSegment) — replace "
+                + "`<handlerName>`"),
+                `a remote shape's author-chosen slot is the name, not a path:\n${remote}`);
+        });
+
+        test("§7: two unnamed repeatable slots are told apart by their annotations", () => {
+            // ballerina/http's real shape: a query slot and a header slot, identical type unions, neither
+            // named by the document. Without a discriminator this emitted the same sentence twice — which
+            // reads as a rendering bug and says nothing about why there are two.
+            const result = renderService(service([method({
+                parameters: [
+                    {
+                        description: "", type: { name: "string" }, optional: true, repeatable: true,
+                        annotationRefs: [{
+                            name: "Query", presence: "optional", attachPoint: "parameter",
+                        }],
+                    },
+                    {
+                        description: "", type: { name: "string" }, optional: true, repeatable: true,
+                        annotationRefs: [{
+                            name: "Header", presence: "optional", attachPoint: "parameter",
+                        }],
+                    },
+                ],
+            })]));
+            assert.ok(result.includes("Zero or more further parameters annotated `@kafka:Query` of type"),
+                `got:\n${result}`);
+            assert.ok(result.includes("Zero or more further parameters annotated `@kafka:Header` of type"),
+                `got:\n${result}`);
+            const repeats = result.split("\n").filter((l) => l.includes("Zero or more further parameters"));
+            assert.strictEqual(new Set(repeats).size, repeats.length,
+                `no two repeat notes may be identical:\n${repeats.join("\n")}`);
+        });
+
+        test("§7: a named repeatable slot still prefers its own name", () => {
+            const result = renderService(service([method({
+                parameters: [{
+                    name: "extra", description: "", type: { name: "string" },
+                    optional: true, repeatable: true,
+                    annotationRefs: [{ name: "Query", presence: "optional", attachPoint: "parameter" }],
+                }],
+            })]));
+            assert.ok(result.includes("Zero or more further parameters (`extra`) of type"), `got:\n${result}`);
+        });
+
+        test("§4: a single shape keeps the original singular wording", () => {
+            // The multi-shape path must not change what a one-shape catalog (mcp) renders.
+            const result = renderService(service([], {
+                methods: undefined,
+                handlerTemplates: [{
+                    name: "*", type: "remote", parameters: [],
+                    return: { type: { name: "anydata|error" } },
+                }],
+            }));
+            assert.ok(result.includes("// Declare as many as the requirement needs, following this shape:"),
+                `got:\n${result}`);
+            noLine(result, "Shape 1 of");
         });
     });
 

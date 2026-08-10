@@ -665,6 +665,11 @@ function renderAlternativeNotes(method: ServiceRemoteFunction, listenerAlias: st
  *
  * Types are written as the reader must write them, module-qualified, because this describes code the
  * reader is about to author rather than a signature already spelled out above.
+ *
+ * A slot the document leaves unnamed is identified by its annotation instead. `ballerina/http` declares two
+ * repeatable slots with an identical type union — one for query parameters, one for headers — and neither
+ * carries a name, so without that discriminator this emitted the SAME sentence twice in a row, which reads
+ * as a rendering bug and tells the reader nothing about why there are two.
  */
 function renderRepeatNotes(method: ServiceRemoteFunction, listenerAlias: string | null,
                            indent: string): string[] {
@@ -676,12 +681,18 @@ function renderRepeatNotes(method: ServiceRemoteFunction, listenerAlias: string 
         const surface = [param.type, ...(param.alternatives ?? [])]
             .map((type) => qualifyDeclaredType(type, listenerAlias))
             .filter((name) => name !== "");
-        const named = param.name ? ` (\`${param.name}\`)` : "";
+        // The name when the document states one; otherwise the annotation the slot must carry, which is
+        // what actually distinguishes two same-typed slots from each other.
+        const annotation = (param.annotationRefs ?? [])
+            .map((ref) => qualifyRequirement(ref, listenerAlias).qualifiedName)[0];
+        const discriminator = param.name
+            ? ` (\`${param.name}\`)`
+            : (annotation ? ` annotated \`@${annotation}\`` : "");
         const types = surface.length > 1
             ? `${surface[0]} (or ${surface.slice(1).join(", ")})`
             : surface[0] ?? "";
-        lines.push(`${indent}# Zero or more further parameters${named} of type ${types} may be added, `
-            + `each independently named.`);
+        lines.push(`${indent}# Zero or more further parameters${discriminator} of type ${types} may be `
+            + `added, each independently named.`);
     }
     return lines;
 }
@@ -813,7 +824,7 @@ function renderBindingMode(mode: BindingMode, paramName: string, visible: Set<st
  * not a parameter form at all, and `Caller caller = ()` requires a nilable type and turns "may be omitted"
  * into "has a default". A `//` comment cannot go here either — inside a parameter list it would comment out
  * the closing paren and the return type. Optionality is therefore stated on a `#` line above the method, by
- * `renderOptionalParamNote`.
+ * `renderParamPresenceNotes`.
  */
 function renderParamDef(param: ParameterDef, listenerAlias: string | null = null): string {
     const annotations = renderRequirementAttachments(param.annotationRefs, listenerAlias);
@@ -829,20 +840,36 @@ function renderParamDef(param: ParameterDef, listenerAlias: string | null = null
 }
 
 /**
- * Spec §7 `presence` — the `#` line naming a handler's omittable parameters.
+ * Spec §7 `presence` — the `#` lines stating, for each parameter in the signature, whether it may be
+ * omitted.
  *
- * Returns "" when every parameter is required, which is the common case.
+ * Returns nothing when every parameter is required, which is the common case: spec §7 makes `required` the
+ * default, and the omission rule says a default is never restated.
+ *
+ * **Two-sided once anything is optional.** Naming only the omittable slots leaves the reader to infer the
+ * obligation from absence — and inference across a comma-separated list beside a four-parameter signature is
+ * exactly where a generator guesses wrong. Where there is nothing required, that is said outright rather
+ * than left as an empty category: `ballerina/http`'s handler has four parameters and *no* mandatory one, so
+ * "may be omitted: caller, request, headers, payload" reads as a list of caveats when it in fact means the
+ * whole parameter list is optional.
  */
-function renderOptionalParamNote(method: ServiceRemoteFunction, indent: string): string {
-    // A repeatable slot is excluded: it is not in the signature, so "may be omitted" is meaningless for
-    // it, and naming it here would advertise a parameter the reader cannot find above.
-    const optionalNames = (method.parameters ?? [])
-        .filter((param) => param.optional && param.name && !param.repeatable)
-        .map((param) => param.name as string);
-    if (optionalNames.length === 0) {
-        return "";
+function renderParamPresenceNotes(method: ServiceRemoteFunction, indent: string): string[] {
+    // A repeatable slot is excluded from both lists: it is not in the signature, so neither "required" nor
+    // "may be omitted" applies to it, and naming it here would advertise a parameter the reader cannot find
+    // above. `renderRepeatNotes` states it instead.
+    const inSignature = (method.parameters ?? [])
+        .filter((param) => !param.repeatable && param.name);
+    const optional = inSignature.filter((param) => param.optional).map((param) => param.name as string);
+    if (optional.length === 0) {
+        return [];
     }
-    return `${indent}# Optional parameters (may be omitted): ${optionalNames.join(", ")}\n`;
+    const required = inSignature.filter((param) => !param.optional).map((param) => param.name as string);
+    return [
+        required.length > 0
+            ? `${indent}# Required parameters: ${required.join(", ")}`
+            : `${indent}# Required parameters: none — every parameter in the signature may be omitted.`,
+        `${indent}# Optional parameters (may be omitted): ${optional.join(", ")}`,
+    ];
 }
 
 /**
@@ -909,13 +936,44 @@ function renderResourceNote(method: ServiceRemoteFunction, indent: string): stri
         parts.push(`the path is author-chosen (${forms}) — replace \`${RESOURCE_PATH_PLACEHOLDER}\``);
     }
     if (method.fieldNameForm && method.fieldNameForm.length > 0) {
-        parts.push(`the field name is author-chosen (${method.fieldNameForm.join(", ")})`);
+        // Names the slot it replaces, exactly as the `pathForm` branch above does. Without it graphql's
+        // note said "the field name is author-chosen (identifierSegment)" above a signature reading
+        // `resource function get pathSegment(...)` — three names for one slot (`identifierSegment`, the
+        // document's form token; `pathSegment`, the placeholder; and for a remote shape `<handlerName>`),
+        // with nothing connecting them. The slot a field name occupies is whichever one the signature
+        // actually leaves open.
+        const slot = method.type === "resource" ? RESOURCE_PATH_PLACEHOLDER : "<handlerName>";
+        parts.push(`the field name is author-chosen (${method.fieldNameForm.join(", ")}) — replace `
+            + `\`${slot}\``);
     }
     if (method.graphqlOperation) {
         // Spec §5 marks graphqlOperation informational, so it may only ever become prose.
         parts.push(`this is a GraphQL ${method.graphqlOperation}`);
     }
-    return parts.length === 0 ? "" : `${indent}# Resource: ${parts.join("; ")}.\n`;
+    // The label follows the handler's actual kind, not the spec section the extras are filed under.
+    // Spec §5 groups `fieldName`/`graphqlOperation` as resource extras, but a GraphQL **mutation** is
+    // legitimately `kind: "remote"` and still carries both — `ResourceExtrasCheck` reports exactly that
+    // shape as a WARN for this reason, and the corpus accepts it. Labelling that handler "Resource:"
+    // states the opposite of the `remote function` signature printed two lines below it.
+    const label = method.type === "resource" ? "Resource" : "Handler";
+    return parts.length === 0 ? "" : `${indent}# ${label}: ${parts.join("; ")}.\n`;
+}
+
+/**
+ * The curated `service.md` block that precedes a synthesized service declaration.
+ *
+ * Returns nothing when the library ships no curated file, which is every library but `ballerina/http` and
+ * `ballerina/graphql` — so the overwhelmingly common case is unchanged.
+ *
+ * The heading is `//`, not `#`: a `#` line immediately before the `service` declaration would be read as
+ * that declaration's documentation, and this block is guidance about writing one, not documentation of the
+ * one below.
+ */
+function renderServiceGuidance(instructions: string | undefined): string[] {
+    if (!instructions || instructions.trim() === "") {
+        return [];
+    }
+    return ["// --- Service writing guidance ---", instructions.trimEnd(), ""];
 }
 
 /**
@@ -1326,19 +1384,64 @@ function renderCardinalityNotes(service: Service): string[] {
  * states. Types are module-qualified because the reader writes them in their own module — the same rule
  * the §9 `*envelope;` note already follows.
  *
- * Verified by compiling the filled-in form: substituting a real name for `<handlerName>` and uncommenting
- * yields a service that builds against the resolved package.
+ * The filled-in form is intended to compile once a real name replaces `<handlerName>` — but that is a goal,
+ * NOT a verified guarantee, and the distinction matters. It holds for a catalog whose contract is fully
+ * expressed by the document (`mcp`). It does not necessarily hold where a compiler plugin imposes rules the
+ * document cannot state: `ballerina/http` requires `@http:Payload` once a handler takes more than one
+ * parameter, and the template has no way to know that. Treat this block as the shape a handler takes, not as
+ * a line that is guaranteed to build unedited; the library's own curated guidance carries the plugin rules.
  */
-function renderHandlerTemplate(template: ServiceRemoteFunction | undefined,
-                               listenerAlias: string | null): string[] {
-    if (!template) {
+function renderHandlerTemplates(templates: ServiceRemoteFunction[] | undefined,
+                                listenerAlias: string | null): string[] {
+    if (!templates || templates.length === 0) {
         return [];
     }
     const indent = "    ";
+    const many = templates.length > 1;
+    // Spec §5 `options[].kind`, stated in the preamble rather than left to the signature below it. A
+    // catalog whose every shape is `resource` accepts NOTHING else, and the compiler enforces it:
+    // `ballerina/http` answers a remote method with "ERROR remote methods are not allowed in
+    // http:Service". The generic wording ("any number of handlers") reads as permission to write a remote
+    // one, so for a resource-only catalog the kind has to be named up front — it is the difference between
+    // guidance and a compile error.
+    const kinds = new Set(templates.map((template) => template.type));
+    const kindWord = kinds.size === 1 && kinds.has("resource") ? "resource handlers"
+        : (kinds.size === 1 && kinds.has("remote") ? "remote handlers" : "handlers");
     const lines: string[] = [
-        `${indent}// This service type takes any number of handlers, and you choose each one's name.`,
-        `${indent}// Declare as many as the requirement needs, following this shape:`,
+        `${indent}// This service type takes any number of ${kindWord}, and you choose each one's name.`,
+        many
+            ? `${indent}// Declare as many as the requirement needs, each following one of these `
+              + `${templates.length} shapes:`
+            : `${indent}// Declare as many as the requirement needs, following this shape:`,
     ];
+    if (kinds.size === 1 && kinds.has("resource")) {
+        lines.push(`${indent}// Only resource methods are accepted here — a remote method does not compile.`);
+    }
+
+    templates.forEach((template, index) => {
+        if (many) {
+            // Numbered rather than named. The shapes' semantics are already stated by their own notes —
+            // graphql's `# Resource: … this is a GraphQL query` comes from `renderResourceNote` — so a label
+            // here would either duplicate that or invent a name the document does not supply.
+            lines.push(`${indent}//`);
+            lines.push(`${indent}// Shape ${index + 1} of ${templates.length}:`);
+        }
+        lines.push(...renderHandlerTemplateBody(template, listenerAlias, indent));
+    });
+    return lines;
+}
+
+/**
+ * One template's notes, annotation obligations and commented signature.
+ *
+ * Split out of {@link renderHandlerTemplates} so the shared preamble is emitted once regardless of how many
+ * shapes a catalog declares. For a single-shape catalog the emitted lines are byte-identical to what this
+ * function produced before it was split.
+ */
+function renderHandlerTemplateBody(template: ServiceRemoteFunction,
+                                   listenerAlias: string | null,
+                                   indent: string): string[] {
+    const lines: string[] = [];
 
     const fixedParams = (template.parameters ?? []).filter((param) => !param.repeatable);
     const params = fixedParams
@@ -1352,9 +1455,9 @@ function renderHandlerTemplate(template: ServiceRemoteFunction | undefined,
     const returnStr = returnType ? ` returns ${returnType}` : "";
     // The same policy `renderMethodSignature` applies to a named resource handler, and for the same
     // reason: when the document supplies no accessor there is none to write, and substituting `get`
-    // would be inventing API. Falling back to `remote function` keeps the line copyable. No corpus
-    // document reaches the fallback — the two rendered templates are both `remote`, and the resource
-    // wildcards (http, graphql) are replaced wholesale by the curated generic-services overlay.
+    // would be inventing API. Falling back to `remote function` keeps the line copyable — which is the
+    // branch graphql's *mutation* shape takes, since a mutation is `kind: "remote"` and declares no
+    // accessor at all.
     // A resource handler's *path* is what a remote handler's name is — so the author-chosen slot is the
     // path placeholder, and appending `<handlerName>` after it as well would emit
     // `resource function get pathSegment <handlerName>(...)`, which is not a signature at all.
@@ -1365,10 +1468,20 @@ function renderHandlerTemplate(template: ServiceRemoteFunction | undefined,
     // The same facts a real handler states, in the same order, but as `//` prose. Reused from the shared
     // renderers so that a change to what §7 or §8 says reaches the template automatically; only the `# `
     // marker is swapped, because of the compiler rule above.
+    //
+    // The list must stay in step with `renderHandlers`, which is the only other place a handler's notes are
+    // built. It did not: `renderResourceNote`, `renderAlternativeNotes` and `renderBindingNotes` were missing
+    // here, and a template is the ONLY shape an `addMode: "many"` catalog renders — so for `ballerina/http`
+    // (a wildcard catalog) its 8 legal accessors, its 3 path forms and its §9 binding rule reached the prompt
+    // nowhere at all, despite the pipeline resolving every one of them. Ordered exactly as `renderHandlers`
+    // orders them: what the handler is, then what its parameters may hold, then which may be omitted.
     const notes = [
-        renderOptionalParamNote(template, "").trimEnd(),
+        renderResourceNote(template, "").trimEnd(),
+        ...renderAlternativeNotes(template, listenerAlias, ""),
         ...renderRepeatNotes(template, listenerAlias, ""),
+        ...renderBindingNotes(template, listenerAlias, ""),
         ...renderParamAnnotationNotes(template, listenerAlias, ""),
+        ...renderParamPresenceNotes(template, ""),
     ].filter((note) => note !== "");
     for (const note of notes) {
         lines.push(`${indent}// ${note.replace(/^# ?/, "")}`);
@@ -1464,9 +1577,11 @@ function renderHandlers(service: FixedService, listenerAlias: string | null,
         const obligations = renderAnnotationRequirementLines(
             method.annotationRefs, listenerAlias, "handler", "    ");
         const obligationBlock = obligations.length > 0 ? obligations.join("\n") + "\n" : "";
+        const presence = renderParamPresenceNotes(method, "    ");
+        const presenceBlock = presence.length > 0 ? presence.join("\n") + "\n" : "";
 
         lines.push(`${desc}${renderResourceNote(method, "    ")}${noteBlock}`
-            + `${renderOptionalParamNote(method, "    ")}${obligationBlock}`
+            + `${presenceBlock}${obligationBlock}`
             + `${dep}    ${renderMethodSignature(method)}(${params})${returnStr}${terminator}`
             + `${renderPresenceMarker(method)}`);
         lines.push("");
@@ -1536,7 +1651,7 @@ function renderServiceClass(service: FixedService, listenerAlias: string | null)
     // type is both open-ended and unattachable, so this is latent — but omitting it would silently delete
     // the *only* description of how to write a handler for such a type, which is the one thing this block
     // exists to convey.
-    lines.push(...renderHandlerTemplate(service.handlerTemplate, listenerAlias));
+    lines.push(...renderHandlerTemplates(service.handlerTemplates, listenerAlias));
     // `{ }` rather than `;` — a class defines its methods; see `renderHandlers`.
     lines.push(...renderHandlers(service, listenerAlias, " { }"));
 
@@ -1560,6 +1675,14 @@ function renderFixedService(service: FixedService): string {
     if (service.notListenerAttachable) {
         return renderServiceClass(service, listenerAlias);
     }
+
+    // Curated guidance, when the library ships a `service.md` this entry absorbed. Emitted FIRST, and as
+    // raw markdown rather than `#` documentation lines, for two reasons: prose frames the declaration that
+    // follows, and `#`-prefixing a multi-kilobyte block with fenced code samples would turn it into a
+    // Ballerina doc comment attached to the service — legal, but far harder to read. This is the same raw
+    // form `renderGenericService` has always used, so nothing about how the text reaches the model changes;
+    // what changes is that a synthesized declaration now follows it instead of replacing it.
+    lines.push(...renderServiceGuidance(service.instructions));
 
     // A default is emitted ONLY for an optional parameter. Every parameter used to get one, which told the
     // model that a mandatory value — kafka's `bootstrapServers`, grpc's `port`, websocket's `'listener` — had
@@ -1639,7 +1762,7 @@ function renderFixedService(service: FixedService): string {
     // rule for writing one instead. Emitted before the methods because no corpus service type has both,
     // and a template that followed real methods would read as an afterthought rather than as the shape
     // every handler here takes.
-    lines.push(...renderHandlerTemplate(service.handlerTemplate, listenerAlias));
+    lines.push(...renderHandlerTemplates(service.handlerTemplates, listenerAlias));
 
     lines.push(...renderHandlers(service, listenerAlias, ";"));
 
