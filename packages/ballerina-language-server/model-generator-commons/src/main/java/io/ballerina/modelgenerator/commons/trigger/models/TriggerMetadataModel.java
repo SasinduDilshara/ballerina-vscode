@@ -109,9 +109,13 @@ public record TriggerMetadataModel(
      *                                            carries {@code backedByConcreteType: true} and no
      *                                            {@code options}); {@code false} for a marker/abstract type
      * @param multipleListenersAllowed            can one service instance attach to more than one
-     *                                            listener in a single declaration ({@code service X on l1, l2 {}})
+     *                                            listener in a single declaration ({@code service X on l1, l2 {}});
+     *                                            boxed so an absent key stays {@code null} rather than
+     *                                            deserializing to {@code false} — a consumer that states
+     *                                            only the prohibition would otherwise turn an omission
+     *                                            into a restriction the document never made
      * @param multipleServicesPerListenerAllowed  can one listener instance host more than one service of
-     *                                            this type simultaneously
+     *                                            this type simultaneously; boxed for the same reason
      * @param identifier                          the identifier/base-path slot (the string/path after
      *                                            {@code service}); {@code null}/absent when the slot
      *                                            carries no meaning for this service type
@@ -124,8 +128,8 @@ public record TriggerMetadataModel(
             String id,
             TypeRef type,
             boolean concrete,
-            boolean multipleListenersAllowed,
-            boolean multipleServicesPerListenerAllowed,
+            Boolean multipleListenersAllowed,
+            Boolean multipleServicesPerListenerAllowed,
             PresenceForm identifier,
             Handlers handlers,
             List<Rule> rules) {

@@ -101,6 +101,39 @@ public class CardinalityResolverTest {
         Assert.assertTrue(cardinality.multipleServicesPerListener());
     }
 
+    /**
+     * An <b>absent</b> key is permissive, and that is the reason both fields are boxed.
+     *
+     * <p>The aspect states only the prohibition, so if {@code null} were read as {@code false} a document
+     * that simply omitted the key would gain a restriction its author never wrote — "this service type
+     * attaches to exactly one listener" asserted on no evidence at all. Only an explicit {@code false} is
+     * a prohibition. Every bundled service type states both keys today
+     * ({@link #testEveryBundledServiceTypeStatesBothCardinalityKeys}), so this pins the behaviour for the
+     * documents not yet written, which is exactly when it will matter.
+     */
+    @Test
+    public void testAnAbsentKeyIsPermissiveRatherThanForbidden() {
+        CardinalityResolver.Cardinality absent =
+                CardinalityResolver.resolve(serviceType(null, null));
+        Assert.assertTrue(absent.multipleListeners(),
+                "an omitted multipleListenersAllowed must not read as a prohibition");
+        Assert.assertTrue(absent.multipleServicesPerListener(),
+                "an omitted multipleServicesPerListenerAllowed must not read as a prohibition");
+
+        // ...and the aspect therefore writes nothing, which is the observable half of the same rule.
+        Assert.assertFalse(contribute(null, null).has("singleListenerOnly"));
+        Assert.assertFalse(contribute(null, null).has("singleServicePerListenerOnly"));
+    }
+
+    @Test
+    public void testAnAbsentKeyIsIndependentOfItsSibling() {
+        // A document may state one and omit the other; the omitted one must not inherit the stated one.
+        CardinalityResolver.Cardinality mixed =
+                CardinalityResolver.resolve(serviceType(false, null));
+        Assert.assertFalse(mixed.multipleListeners(), "the stated prohibition survives");
+        Assert.assertTrue(mixed.multipleServicesPerListener(), "the omitted key stays permissive");
+    }
+
     // ---- the aspect's omission rule -----------------------------------------------------
 
     @Test
@@ -151,7 +184,7 @@ public class CardinalityResolverTest {
 
     // ---- fixtures --------------------------------------------------------------------
 
-    private static JsonObject contribute(boolean multipleListeners, boolean multipleServicesPerListener) {
+    private static JsonObject contribute(Boolean multipleListeners, Boolean multipleServicesPerListener) {
         ServiceDraft draft = new ServiceDraft();
         new CardinalityAspect().contribute(
                 scopeOf(serviceType(multipleListeners, multipleServicesPerListener)), draft);
@@ -163,8 +196,9 @@ public class CardinalityResolverTest {
                 AnnotationRegistry.of(null), serviceType, null, null, null, name -> false);
     }
 
-    private static TriggerMetadataModel.ServiceType serviceType(boolean multipleListeners,
-                                                                boolean multipleServicesPerListener) {
+    // Boxed, so a test can express the third state the document has: the key is simply not there.
+    private static TriggerMetadataModel.ServiceType serviceType(Boolean multipleListeners,
+                                                                Boolean multipleServicesPerListener) {
         return new TriggerMetadataModel.ServiceType("service", new TypeRef("Service", null), false,
                 multipleListeners, multipleServicesPerListener, null, null, null);
     }

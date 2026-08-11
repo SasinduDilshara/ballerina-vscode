@@ -82,14 +82,28 @@ public class ServiceLoader {
 
     /**
      * Loads all services for a library, preferring the schema-driven path (trigger metadata +
-     * semantic model) whenever a metadata document resolves for the library, with an automatic
-     * fallback to the SQLite service-index when it yields nothing. Setting the system property
-     * {@value #TRIGGER_SOURCE_PROPERTY} to {@code "index"} pins everything to the SQLite path.
+     * semantic model) whenever a metadata document resolves for the library. Setting the system
+     * property {@value #TRIGGER_SOURCE_PROPERTY} to {@code "index"} pins everything to the SQLite path.
      *
-     * <p>The schema path is attempted for every library, not a fixed set: {@code loadServices}
-     * returns empty for anything with no metadata document, which is the overwhelming majority and
-     * costs one {@code stat} against the already-resolved package. Falling through is therefore the
-     * normal case and is not logged.
+     * <p>The schema path is attempted for every library, not a fixed set: it returns empty for
+     * anything with no metadata document, which is the overwhelming majority and costs one
+     * {@code stat} against the already-resolved package. Falling through is therefore the normal case
+     * and is not logged.
+     *
+     * <h2>Empty is two different outcomes, and only one of them falls back</h2>
+     *
+     * <p><b>No document</b> — the library is not schema-driven. The service index is its only source,
+     * so it is used, silently, exactly as before. This is the path all thirteen index-only libraries
+     * take, and nothing about it changed.
+     *
+     * <p><b>Document resolved, produced nothing</b> — the index is <i>not</i> consulted. Everything the
+     * index holds for a schema-driven library is a strict subset of what its document describes, with
+     * one exception (handler and parameter descriptions, which the schema path cannot produce and which
+     * it therefore already does not emit today). So the index cannot repair this outcome; it can only
+     * disguise it, substituting a thinner catalog for a real defect and leaving no trace that the
+     * document failed. Preferring an obvious absence over a confident-looking downgrade is what makes
+     * that class of failure findable — {@code ballerina/smb} 2.0.1 removing a type the document still
+     * referenced is exactly the shape of release that lands here.
      *
      * @param libraryName   the library name (e.g., "ballerinax/kafka")
      * @param pkg           the resolved package the caller already compiled (may be null)
@@ -98,9 +112,22 @@ public class ServiceLoader {
      */
     public static JsonArray loadAllServices(String libraryName, Package pkg, SemanticModel semanticModel) {
         if (!"index".equals(System.getProperty(TRIGGER_SOURCE_PROPERTY))) {
-            JsonArray schemaServices = TriggerSchemaServiceLoader.loadServices(libraryName, pkg, semanticModel);
-            if (!schemaServices.isEmpty()) {
-                return mergeWithGenericServices(libraryName, schemaServices, true);
+            TriggerSchemaServiceLoader.LoadResult result =
+                    TriggerSchemaServiceLoader.load(libraryName, pkg, semanticModel);
+            if (!result.services().isEmpty()) {
+                return mergeWithGenericServices(libraryName, result.services(), true);
+            }
+            if (result.documentResolved()) {
+                LOGGER.warning("Trigger metadata resolved for " + libraryName + " but produced no"
+                        + " services. Not falling back to the service index: the index catalog is a"
+                        + " strict subset of what this document describes, so substituting it would"
+                        + " hide the failure behind a poorer answer. Check the veto report — the usual"
+                        + " cause is a package release the document no longer matches.");
+                // The curated overlay is still emitted. It is not a fallback for the document: it
+                // states project conventions the document never carried, so it stands whether or not
+                // the metadata path produced anything, and dropping it here would lose ballerina/http
+                // and ballerina/graphql their hand-written guidance over an unrelated failure.
+                return mergeWithGenericServices(libraryName, new JsonArray(), false);
             }
         }
         return loadAllServices(libraryName);

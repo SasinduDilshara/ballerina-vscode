@@ -111,18 +111,25 @@ final class TriggerSchemaServiceLoader {
      * rather than only logged so a caller (or a test) can assert exactly what a library dropped and why,
      * which is what makes a silently missing handler impossible to reintroduce unnoticed.
      *
-     * @param services the emitted service entries, in document order
-     * @param vetoes   every reason an entry was dropped, whether a service type or a single handler
+     * @param services         the emitted service entries, in document order
+     * @param vetoes           every reason an entry was dropped, whether a service type or a single
+     *                         handler
+     * @param documentResolved whether a metadata document was found for this library at all, which is a
+     *                         different fact from whether it produced anything. Empty-with-no-document is
+     *                         the ordinary case for the overwhelming majority of libraries and means "not
+     *                         a trigger library"; empty-with-a-document means the document is there and
+     *                         yielded nothing, which is a defect. Only the caller can act on the
+     *                         distinction, so it is reported rather than collapsed into an empty array
      */
-    record LoadResult(JsonArray services, List<Veto> vetoes) {
+    record LoadResult(JsonArray services, List<Veto> vetoes, boolean documentResolved) {
     }
 
     /**
      * Loads services for a trigger library.
      *
      * <p>Returns an empty array when inputs are missing, no metadata document resolves for the library, or
-     * anything throws — the caller then falls back to the SQLite path, so a failure here can never lose a
-     * library.
+     * anything throws. Use {@link #load} instead when the caller needs to tell "no document" from
+     * "document resolved and produced nothing" — this overload deliberately discards that distinction.
      *
      * @param libraryName   the library name, e.g. {@code "ballerinax/kafka"}
      * @param pkg           the resolved package the caller already compiled; may be {@code null}
@@ -139,7 +146,7 @@ final class TriggerSchemaServiceLoader {
      */
     static LoadResult load(String libraryName, Package pkg, SemanticModel semanticModel) {
         if (pkg == null || semanticModel == null) {
-            return empty();
+            return empty(false);
         }
 
         String packageName = ServiceIndexLoader.stripOrg(libraryName);
@@ -147,15 +154,20 @@ final class TriggerSchemaServiceLoader {
                 ? libraryName.substring(0, libraryName.indexOf('/'))
                 : DEFAULT_ORG;
 
+        // Flipped the moment a document is in hand, and read by the catch below: an exception thrown
+        // after that point is a failure to *process* a document that exists, which the caller must not
+        // mistake for "this library ships no metadata".
+        boolean documentResolved = false;
         try {
             Optional<TriggerMetadataModel> metadataOpt = resolveMetadata(libraryName, org, packageName, pkg);
             if (metadataOpt.isEmpty()) {
-                return empty();
+                return empty(false);
             }
+            documentResolved = true;
             TriggerMetadataModel metadata = metadataOpt.get();
             if (metadata.listeners() == null || metadata.listeners().isEmpty()
                     || metadata.serviceTypes() == null || metadata.serviceTypes().isEmpty()) {
-                return empty();
+                return empty(true);
             }
 
             TriggerSemanticFacts facts = new TriggerSemanticFacts(semanticModel, pkg);
@@ -168,7 +180,7 @@ final class TriggerSchemaServiceLoader {
                 TypeRef declared = metadata.listeners().get(0).type();
                 LOGGER.warning("No listener class resolvable for " + libraryName
                         + " (metadata declared: " + (declared == null ? null : declared.name()) + ")");
-                return empty();
+                return empty(true);
             }
 
             AspectRegistry registry = AspectRegistry.forVersion(AspectRegistry.VERSION_V1);
@@ -191,10 +203,10 @@ final class TriggerSchemaServiceLoader {
             for (Veto veto : vetoes) {
                 LOGGER.warning("Dropped for " + libraryName + ": " + veto);
             }
-            return new LoadResult(services, vetoes);
+            return new LoadResult(services, vetoes, true);
         } catch (RuntimeException e) {
             LOGGER.warning("Failed to load schema-driven services for " + libraryName + ": " + e.getMessage());
-            return empty();
+            return empty(documentResolved);
         }
     }
 
@@ -228,8 +240,8 @@ final class TriggerSchemaServiceLoader {
         return draft;
     }
 
-    private static LoadResult empty() {
-        return new LoadResult(new JsonArray(), List.of());
+    private static LoadResult empty(boolean documentResolved) {
+        return new LoadResult(new JsonArray(), List.of(), documentResolved);
     }
 
     /**

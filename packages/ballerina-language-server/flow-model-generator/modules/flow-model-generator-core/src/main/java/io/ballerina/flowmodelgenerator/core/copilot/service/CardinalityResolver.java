@@ -28,14 +28,14 @@ import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
  * decided here — that is {@link CardinalityAspect}'s omission rule — so this resolver stays the single
  * place the spec's meaning lives and the aspect stays the single place the editorial judgement lives.
  *
- * <p><b>Known hazard, deliberately not worked around here.</b>
- * {@link TriggerMetadataModel.ServiceType} declares both fields as a primitive {@code boolean}, so a
- * document that omits a key deserializes to {@code false} — indistinguishable from a document that states
- * {@code false}. Under the "state only the prohibition" reading that turns an omission into a claim the
- * document never made, which is the tri-state defect §5's {@code presence} already had, in reverse. It is
- * harmless today only because every service type in every bundled document states both keys explicitly,
- * and {@code TriggerMetadataSpecTest} pins exactly that. Boxing the two fields (or having the reader
- * reject a document missing them) belongs to the validator phase.
+ * <p><b>Absent is not {@code false}.</b> Both fields are boxed in
+ * {@link TriggerMetadataModel.ServiceType}, so a document that omits a key yields {@code null} rather than
+ * deserializing to {@code false}. That distinction is the whole point: the consumer states only the
+ * prohibition, so reading an omission as {@code false} would invent a restriction the document never made
+ * — the tri-state defect spec §5's {@code presence} already had, in reverse. Only an explicit
+ * {@code false} is a prohibition here. The schema requires both keys and {@code CardinalityCheck} reports
+ * an omission, so a document reaching this resolver with {@code null} is already a reported defect; this
+ * class simply refuses to compound it with a fabricated claim.
  *
  * @since 1.7.0
  */
@@ -66,7 +66,23 @@ final class CardinalityResolver {
         if (serviceType == null) {
             return new Cardinality(true, true);
         }
-        return new Cardinality(serviceType.multipleListenersAllowed(),
-                serviceType.multipleServicesPerListenerAllowed());
+        return new Cardinality(permissiveUnlessForbidden(serviceType.multipleListenersAllowed()),
+                permissiveUnlessForbidden(serviceType.multipleServicesPerListenerAllowed()));
+    }
+
+    /**
+     * Reads one cardinality key, treating an absent value as permissive.
+     *
+     * <p>Only an explicit {@code false} states a prohibition. {@code null} — the key is not in the
+     * document — states nothing, and must not be read as {@code false}: a consumer that emits a note only
+     * on the restrictive value would then manufacture a restriction out of an omission. That is the
+     * mirror image of the tri-state defect spec §5's {@code presence} already had, and the reason both
+     * fields are boxed.
+     *
+     * @param declared the document's value; {@code null} when the key is absent
+     * @return whether the document permits it
+     */
+    private static boolean permissiveUnlessForbidden(Boolean declared) {
+        return !Boolean.FALSE.equals(declared);
     }
 }

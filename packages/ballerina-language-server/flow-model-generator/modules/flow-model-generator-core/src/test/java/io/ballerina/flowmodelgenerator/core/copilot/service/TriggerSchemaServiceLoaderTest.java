@@ -174,6 +174,26 @@ public class TriggerSchemaServiceLoaderTest {
                 "Missing package/semantic model must yield empty");
     }
 
+    /**
+     * An empty result carries <i>why</i> it is empty, and the caller's fallback turns on that answer.
+     *
+     * <p>"We never looked" must not read as "we looked and the document produced nothing": the second
+     * suppresses the service index, and reporting it for a library that simply has no compiled package
+     * behind it would take a working library offline. {@code ballerinax/kafka} is the sharp case — it
+     * <i>does</i> ship a bundled document, so the flag cannot be inferred from the library name.
+     *
+     * <p>The converse state — resolved, and produced nothing — needs a compiled package whose release no
+     * longer matches its document, so it has no corpus instance to assert here and is covered by the
+     * end-to-end suite instead.
+     */
+    @Test
+    public void testMissingInputsReportNoDocumentRatherThanAFailedOne() {
+        Assert.assertFalse(TriggerSchemaServiceLoader.load("ballerinax/kafka", null, null).documentResolved(),
+                "No package to read means no document was resolved, whatever the library is called");
+        Assert.assertFalse(TriggerSchemaServiceLoader.load("ballerinax/asb", null, null).documentResolved(),
+                "A library that ships no document must never suppress the service index");
+    }
+
     // ---- buildOptionMethods ----------------------------------------------------------
 
     private static HandlerOption option(String name, String kind, String presence, List<Param> params,

@@ -58,6 +58,7 @@ final class AspectRegistry {
                 new ReturnAnnotationAspect());
         this.paramAspects = List.of(
                 new ParamTypeAspect(),
+                new ParamPresenceAspect(),
                 new ParamRepeatAspect(),
                 new ParamAnnotationAspect(),
                 new DataBindingAspect());

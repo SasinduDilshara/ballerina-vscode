@@ -1062,8 +1062,12 @@ function renderAnnotationRequirementLines(
         if (!annotation || !annotation.name) {
             continue;
         }
-        const prefix = annotation.module ? deriveModulePrefix(annotation.module) : listenerAlias;
-        const qualifiedName = prefix ? `${prefix}:${annotation.name}` : annotation.name;
+        // Delegated rather than recomputed. This block and the in-signature form below state the same
+        // requirement in two places, so a qualification rule implemented twice is a rule that will
+        // eventually disagree with itself — and it already had: this copy resolved the constraint with
+        // `applyPrefixToTypeName` while the shared helper is where the fix belongs.
+        const { qualifiedName, constraint, provenanceNote } =
+            qualifyRequirement(annotation, listenerAlias);
         const required = annotation.presence === "required";
 
         // `{...}` is not valid Ballerina, so the obligation line says outright that it has to be
@@ -1071,14 +1075,6 @@ function renderAnnotationRequirementLines(
         // does not have to guess which of the library's records fills it. Several of these records have
         // mandatory fields (ftp's `ServiceConfiguration.path`, rabbitmq's `ServiceConfig.queueName`),
         // so an empty `{}` would not compile.
-        // The constraint is named the way source would write it: a foreign record carries its own
-        // module's prefix, applied by the same helper every other cross-module reference here uses.
-        const constraintLinks = annotation.typeConstraint
-            ? collectExternalLinks(annotation.typeConstraint)
-            : [];
-        const constraint = annotation.typeConstraint
-            ? applyPrefixToTypeName(annotation.typeConstraint.name, constraintLinks)
-            : undefined;
         const fields = constraint
             ? ` Replace {...} with its fields, which are those of ${constraint}.`
             : ` Replace {...} with its fields.`;
@@ -1095,14 +1091,9 @@ function renderAnnotationRequirementLines(
         // `// optional` is the same marker this renderer already uses for an optional service method.
         // The note names everything the model has to go and find in that package: the annotation itself
         // and, when known, the record constraining it. Grouped in the one comment the file's convention
-        // uses, so the line carries a single `//` rather than two competing ones.
-        const foreignNames = annotation.module
-            ? [annotation.name, ...constraintLinks.map((link) => link.recordName)]
-            : [];
-        const provenance = foreignNames.length > 0
-            ? `; Special Agent Note: ${[...new Set(foreignNames)].join(", ")} `
-              + `FROM ${annotation.module} package`
-            : "";
+        // uses, so the line carries a single `//` rather than two competing ones — hence the `; `, which
+        // is why `qualifyRequirement` hands the note back unpunctuated.
+        const provenance = provenanceNote ? `; ${provenanceNote}` : "";
         attachments.push(
             `${indent}@${qualifiedName} {...} // ${required ? "required" : "optional"}${provenance}`);
     }
@@ -1123,8 +1114,16 @@ function qualifyRequirement(
     const constraintLinks = annotation.typeConstraint
         ? collectExternalLinks(annotation.typeConstraint)
         : [];
+    // Qualified the same way a handler parameter's type is, and for the same reason: this names a record
+    // the READER has to write in their own module. `applyPrefixToTypeName` was used here, and it only ever
+    // consults EXTERNAL links — so a cross-module constraint came out right (`cdc:CdcServiceConfig`) while
+    // a home-module one came out bare. That bare form is not a type the reader can name: `ftp`, `smb`,
+    // `mcp`, `kafka`, `rabbitmq`, `grpc`, `websocket` and `websub` were all told to fill `{...}` with the
+    // fields of something like `ServiceConfiguration`, which resolves to nothing outside the library.
+    // `qualifyDeclaredType` dispatches on the link category the pipeline already attaches, so both cases
+    // are right and a future library needs no special-casing.
     const constraint = annotation.typeConstraint
-        ? applyPrefixToTypeName(annotation.typeConstraint.name, constraintLinks)
+        ? qualifyDeclaredType(annotation.typeConstraint, listenerAlias)
         : undefined;
     const foreignNames = annotation.module
         ? [annotation.name, ...constraintLinks.map((link) => link.recordName)]
@@ -1776,23 +1775,36 @@ function renderFixedService(service: FixedService): string {
 }
 
 /**
- * Renders a library annotation declaration.
+ * Renders one library annotation declaration, given every attach point it was declared at.
  *
- * An attach point with no entry in `ATTACHMENT_POINT_LABELS` yields `null` and is dropped by the caller.
- * That is the deliberate treatment for a point Ballerina has no declarable syntax for (`OBJECT`): the
- * catalog is the model's authoritative API reference, so a declaration that cannot compile is worse than a
- * declaration that is absent — the model can discover a missing annotation from the compiler, but it will
- * copy an uncompilable one straight into the generated file.
+ * An attach point with no entry in `ATTACHMENT_POINT_LABELS` is dropped by the caller. That is the
+ * deliberate treatment for a point Ballerina has no declarable syntax for (`OBJECT`): the catalog is the
+ * model's authoritative API reference, so a declaration that cannot compile is worse than a declaration
+ * that is absent — the model can discover a missing annotation from the compiler, but it will copy an
+ * uncompilable one straight into the generated file.
+ *
+ * **The points share one declaration, and that is required rather than tidy.** Ballerina declares an
+ * annotation once with an attach-point *list*; emitting one declaration per point redeclares the same
+ * symbol, which the compiler rejects. Verified against 2201.13.4, all four forms build:
+ * <pre>
+ *   public annotation Cfg A1 on parameter, return, record field;
+ *   public annotation A2 on parameter, return, record field;          // no type constraint
+ *   public const annotation Cfg A3 on source listener, source worker;
+ *   public const annotation Cfg A5 on source listener, parameter;     // mixed, still one declaration
+ * </pre>
+ * Two rules fall out of those probes and are both load-bearing:
+ *  - every source-only point carries its **own** `source` keyword — `on source listener, worker` is
+ *    `ERROR missing source keyword`, so the qualifier cannot be hoisted onto the list;
+ *  - one source-only point anywhere in the list makes the **whole** declaration `const`, and mixing it
+ *    with a normal point is legal, so the list never has to be split across two declarations.
  */
-function renderAnnotation(annotation: Annotation): string | null {
-    const point = ATTACHMENT_POINT_LABELS[annotation.attachmentPoint];
-    if (!point) {
-        return null;
-    }
-    // A source-only point is declared `const` and written `on source <token>`; both halves are obligatory
-    // and neither is derivable from the other, so they travel together on the point.
-    const keyword = point.sourceOnly ? "public const annotation" : "public annotation";
-    const onClause = point.sourceOnly ? `source ${point.token}` : point.token;
+function renderAnnotationDeclaration(annotation: Annotation, points: AttachmentPoint[]): string {
+    // `const` is a property of the declaration, not of a point: one source-only member obliges it for all.
+    const keyword = points.some((point) => point.sourceOnly)
+        ? "public const annotation" : "public annotation";
+    const onClause = points
+        .map((point) => (point.sourceOnly ? `source ${point.token}` : point.token))
+        .join(", ");
 
     const lines: string[] = [];
     if (annotation.description) {
@@ -1807,6 +1819,9 @@ function renderAnnotation(annotation: Annotation): string | null {
     let agentNote = "";
     if (annotation.typeConstraint) {
         const externalLinks = collectExternalLinks(annotation.typeConstraint);
+        // NOT `qualifyDeclaredType` here, deliberately. This line is the library's OWN declaration,
+        // written as the library's module writes it, so a home-module constraint is bare — the opposite
+        // of the §8 requirement lines, which describe code in the reader's module and do take the alias.
         const typeName = applyPrefixToTypeName(annotation.typeConstraint.name, externalLinks);
         typeSlot = `${typeName} `;
         agentNote = buildSpecialAgentNote(externalLinks);
@@ -1814,6 +1829,52 @@ function renderAnnotation(annotation: Annotation): string | null {
 
     lines.push(`${keyword} ${typeSlot}${annotation.name} on ${onClause};${agentNote}`);
     return lines.join("\n");
+}
+
+/**
+ * The library's annotation declarations, one per declared annotation rather than one per attach point.
+ *
+ * The catalog arrives with the 1:N relationship already flattened: the compiler reports one
+ * `AnnotationSymbol` carrying N attach points, and the wire model's `attachmentPoint` is singular, so the
+ * producer emits N rows for a single Ballerina declaration. Rendering those rows verbatim redeclares the
+ * symbol — `ballerina/graphql` printed `ID` three times, `ballerina/http` printed four such pairs
+ * (`Payload`, `Header`, `Query`, `ServiceConfig`), and `ballerinax/rabbitmq` and `ballerina/ai` two each.
+ * Copied into a file, every repeat after the first is a redeclaration error.
+ *
+ * Regrouping here rather than in the producer is deliberate: the wire shape is consumed elsewhere, and
+ * this is a rendering decision — how to *write* what the compiler reported, not what it reported.
+ *
+ * Rows are keyed by name **and** constraint. Two rows for one symbol always agree on both, so the key
+ * merges exactly the rows that came from a single declaration; a hypothetical name collision carrying
+ * different constraints stays split rather than being silently merged into a declaration neither library
+ * made. Group and token order follow first appearance, so output is stable and diff-friendly.
+ */
+function renderAnnotationDeclarations(annotations: Annotation[]): string[] {
+    interface Group {
+        annotation: Annotation;
+        points: AttachmentPoint[];
+    }
+    const groups = new Map<string, Group>();
+    for (const annotation of annotations) {
+        if (!annotation || !annotation.name) {
+            continue;
+        }
+        const point = ATTACHMENT_POINT_LABELS[annotation.attachmentPoint];
+        if (!point) {
+            // A point with no declarable syntax. Dropped exactly as before — but only this point, so an
+            // annotation declared at both a declarable and an undeclarable one still renders.
+            continue;
+        }
+        const key = `${annotation.name} ${annotation.typeConstraint?.name ?? ""}`;
+        const group = groups.get(key);
+        if (!group) {
+            groups.set(key, { annotation, points: [point] });
+        } else if (!group.points.includes(point)) {
+            group.points.push(point);
+        }
+    }
+    return Array.from(groups.values())
+        .map((group) => renderAnnotationDeclaration(group.annotation, group.points));
 }
 
 /**
@@ -1930,9 +1991,7 @@ export function toSyntaxString(libraries: Library[]): string {
 
         // Annotation section
         if (lib.annotations && lib.annotations.length > 0) {
-            const renderedAnnotations = lib.annotations
-                .map(renderAnnotation)
-                .filter((rendered): rendered is string => rendered !== null);
+            const renderedAnnotations = renderAnnotationDeclarations(lib.annotations);
             if (renderedAnnotations.length > 0) {
                 output.push("");
                 output.push("// --- Annotations ---");

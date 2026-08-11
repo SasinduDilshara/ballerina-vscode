@@ -52,24 +52,11 @@ public class ParamTypeResolverTest {
             Set.of("AnydataConsumerRecord", "BytesConsumerRecord", "Caller", "Error")::contains;
     private static final Predicate<String> NONE = name -> false;
 
-    // ---- §7 presence -------------------------------------------------------------------
-
-    @Test
-    public void testOnlyAnOptionalSlotIsOptional() {
-        Assert.assertTrue(ParamTypeResolver.isOptional(param(null, "Caller", "optional", null)));
-        Assert.assertFalse(ParamTypeResolver.isOptional(param(null, "Caller", "required", null)));
-    }
-
-    @Test
-    public void testAbsentPresenceIsNotOptional() {
-        // `required` is the safe reading of an unstated presence: emitting a required slot that is in
-        // fact optional still compiles, whereas omitting a required one does not.
-        Assert.assertFalse(ParamTypeResolver.isOptional(param(null, "Caller", null, null)));
-    }
-
-    // §7's `addMode` moved to ParamRepeatResolverTest when it gained its own owner: the renderer treats
-    // `presence` and `addMode` completely differently — one keeps a slot in the signature, the other takes
-    // it out — so they are separate constructs and get separate suites.
+    // §7's `presence` moved to ParamPresenceResolverTest and its `addMode` to ParamRepeatResolverTest,
+    // each when it gained its own owner. All three are independent modifiers of one slot and the renderer
+    // treats them completely differently — the type surface decides what may be written, `presence` decides
+    // whether the slot may be left out, `addMode` takes it out of the signature entirely — so they are
+    // separate constructs and get separate suites.
 
     // ---- §7 type, resolved per §1 -------------------------------------------------------
 

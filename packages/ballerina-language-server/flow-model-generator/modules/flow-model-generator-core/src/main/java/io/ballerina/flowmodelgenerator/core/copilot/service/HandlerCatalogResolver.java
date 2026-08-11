@@ -24,7 +24,6 @@ import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.logging.Logger;
 
 /**
  * Owns <b>spec §4 {@code handlers}</b>: which of the two sources a service type's handlers come from.
@@ -37,8 +36,6 @@ import java.util.logging.Logger;
  * @since 1.7.0
  */
 final class HandlerCatalogResolver {
-
-    private static final Logger LOGGER = Logger.getLogger(HandlerCatalogResolver.class.getName());
 
     private HandlerCatalogResolver() {
         // Prevent instantiation
@@ -113,6 +110,25 @@ final class HandlerCatalogResolver {
     }
 
     /**
+     * A resolved catalog, plus every way the document had to be tolerated to reach it.
+     *
+     * <p>Tolerating a non-conformant document is right — dropping a service type over a spec deviation
+     * would lose far more than it protects — but tolerating it <i>silently</i> is not. These used to be
+     * {@code LOGGER.warning} calls, which no test can assert and no veto report can show, so a document
+     * defect that cost real output ({@code grpc}'s wildcard-less {@code many}, a wildcard mixed with named
+     * options) was visible only to whoever happened to be reading the language server's log.
+     *
+     * <p>Returned rather than reported from here so the resolver stays pure: it decides what the document
+     * means, and the aspect decides where that goes.
+     *
+     * @param catalog      where this service type's handlers come from
+     * @param degradations spec deviations that changed how the document was read or cost emitted output,
+     *                     phrased in terms a document author can act on; empty for a conformant document
+     */
+    record CatalogResolution(HandlerCatalog catalog, List<String> degradations) {
+    }
+
+    /**
      * Whether a service type's handlers are its own declared methods.
      *
      * <p>A missing {@code handlers} block is treated as concrete: with nothing to enumerate, the only
@@ -129,10 +145,11 @@ final class HandlerCatalogResolver {
      * @param serviceType the service type
      * @param typeName    its declared type name
      * @param facts       the resolved package's symbols
-     * @return the catalog, or {@link HandlerCatalog.None} when a concrete type cannot be introspected
+     * @return the catalog and its degradations; the catalog is {@link HandlerCatalog.None} when a concrete
+     *         type cannot be introspected
      */
-    static HandlerCatalog resolve(TriggerMetadataModel.ServiceType serviceType, String typeName,
-                                  TriggerSemanticFacts facts) {
+    static CatalogResolution resolve(TriggerMetadataModel.ServiceType serviceType, String typeName,
+                                     TriggerSemanticFacts facts) {
         if (!isConcrete(serviceType)) {
             return openOrFixed(serviceType.handlers(), typeName);
         }
@@ -140,9 +157,11 @@ final class HandlerCatalogResolver {
         if (objectType.isEmpty()) {
             // Emitting a method-less service here would be a phantom: the document claims the type
             // declares its own handlers, but the resolved package has no such type to read them from.
-            return new HandlerCatalog.None("no introspectable service object type");
+            return new CatalogResolution(
+                    new HandlerCatalog.None("no introspectable service object type"), List.of());
         }
-        return new HandlerCatalog.Concrete(facts.declaredMethods(objectType.get()));
+        return new CatalogResolution(
+                new HandlerCatalog.Concrete(facts.declaredMethods(objectType.get())), List.of());
     }
 
     /**
@@ -168,39 +187,43 @@ final class HandlerCatalogResolver {
      * <p>Both are document defects belonging to the validator phase; this component's job is to tolerate
      * them visibly, never to fix them silently.
      */
-    private static HandlerCatalog openOrFixed(TriggerMetadataModel.ServiceType.Handlers handlers,
-                                              String typeName) {
+    private static CatalogResolution openOrFixed(TriggerMetadataModel.ServiceType.Handlers handlers,
+                                                 String typeName) {
         List<TriggerMetadataModel.ServiceType.HandlerOption> options = handlers.options();
         boolean declaresMany =
                 TriggerMetadataModel.ServiceType.Handlers.ADD_MODE_MANY.equals(handlers.addMode());
         List<TriggerMetadataModel.ServiceType.HandlerOption> wildcards = wildcardsOf(options);
+        List<String> degradations = new ArrayList<>();
 
         if (wildcards.isEmpty()) {
             if (declaresMany && options != null && !options.isEmpty()) {
-                LOGGER.warning("Service type '" + typeName + "' declares addMode: \"many\" with "
-                        + options.size() + " named option(s) and no \"*\" entry (spec §4 represents an"
-                        + " open-ended catalog as one option named \"*\"); treating the named options as a"
-                        + " fixed vocabulary so their signatures are not lost");
+                degradations.add("declares addMode: \"many\" with " + options.size()
+                        + " named option(s) and no \"*\" entry (spec §4 represents an open-ended catalog"
+                        + " as one option named \"*\"); the named options are read as a fixed vocabulary"
+                        + " so their signatures are not lost");
             }
-            return new HandlerCatalog.Options(options, declaresMany && options != null
-                    && !options.isEmpty());
+            return new CatalogResolution(
+                    new HandlerCatalog.Options(options, declaresMany && options != null
+                            && !options.isEmpty()),
+                    List.copyOf(degradations));
         }
 
         if (wildcards.size() > 1) {
-            LOGGER.warning("Service type '" + typeName + "' declares " + wildcards.size()
-                    + " \"*\" options where spec §4 allows one; rendering all of them as alternative"
-                    + " handler shapes");
+            degradations.add("declares " + wildcards.size() + " \"*\" options where spec §4 allows one;"
+                    + " all of them are rendered as alternative handler shapes");
         }
         if (options.size() > wildcards.size()) {
-            LOGGER.warning("Service type '" + typeName + "' mixes a \"*\" option with "
-                    + (options.size() - wildcards.size()) + " named option(s); spec §4 defines the two as"
-                    + " alternative shapes, so the named options are not emitted");
+            // The only one of these that costs emitted output, which is why it must not stay a log line.
+            degradations.add("mixes a \"*\" option with " + (options.size() - wildcards.size())
+                    + " named option(s); spec §4 defines the two as alternative shapes, so the named"
+                    + " options are NOT emitted");
         }
         if (!declaresMany) {
-            LOGGER.warning("Service type '" + typeName + "' declares a \"*\" option under addMode: "
-                    + handlers.addMode() + " (spec §4 pairs the wildcard with \"many\")");
+            degradations.add("declares a \"*\" option under addMode: " + handlers.addMode()
+                    + " (spec §4 pairs the wildcard with \"many\")");
         }
-        return new HandlerCatalog.Many(List.copyOf(wildcards));
+        return new CatalogResolution(new HandlerCatalog.Many(List.copyOf(wildcards)),
+                List.copyOf(degradations));
     }
 
     private static List<TriggerMetadataModel.ServiceType.HandlerOption> wildcardsOf(

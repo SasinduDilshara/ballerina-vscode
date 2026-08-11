@@ -26,16 +26,6 @@
         "addMode": "subset",
         "options": [
           {
-            "name": "onFileChange",
-            "kind": "remote",
-            "presence": "optional",
-            "annotations": ["functionConfig"],
-            "params": [
-              { "name": "watchEvent", "type": { "name": "WatchEvent" }, "presence": "required" }
-            ],
-            "returns": [{ "name": "error" }, { "name": "()" }]
-          },
-          {
             "name": "onFileText",
             "kind": "remote",
             "presence": "optional",
@@ -106,6 +96,28 @@
               { "name": "fileInfo", "type": { "name": "FileInfo" }, "presence": "required" }
             ],
             "returns": [{ "name": "error" }, { "name": "()" }]
+          },
+          {
+            "name": "onFileDelete",
+            "kind": "remote",
+            "presence": "optional",
+            "annotations": ["functionConfig"],
+            "params": [
+              { "name": "deletedFile", "type": { "name": "string" }, "presence": "required" },
+              { "name": "caller", "type": { "name": "Caller" }, "presence": "optional" }
+            ],
+            "returns": [{ "name": "error" }, { "name": "()" }]
+          },
+          {
+            "name": "onError",
+            "kind": "remote",
+            "presence": "optional",
+            "annotations": ["functionConfig"],
+            "params": [
+              { "name": "smbError", "type": { "name": "Error" }, "presence": "required" },
+              { "name": "caller", "type": { "name": "Caller" }, "presence": "optional" }
+            ],
+            "returns": [{ "name": "error" }, { "name": "()" }]
           }
         ]
       },
@@ -134,7 +146,7 @@
       "id": "functionConfig",
       "type": { "name": "FunctionConfig" },
       "attachPoint": "function",
-      "presence": "required"
+      "presence": "optional"
     }
   ],
 

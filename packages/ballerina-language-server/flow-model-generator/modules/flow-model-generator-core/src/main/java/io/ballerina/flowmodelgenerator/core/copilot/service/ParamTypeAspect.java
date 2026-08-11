@@ -55,7 +55,7 @@ final class ParamTypeAspect implements ParamAspect {
             draft.setDescription(declared.description());
             draft.setType(TypeResolver.resolveTypeWithLinks(
                     declared.typeSignature() != null ? declared.typeSignature() : "", packageName));
-            draft.setOptional(declared.optional());
+            // Optionality is ParamPresenceAspect's, for both sources.
             return;
         }
 
@@ -78,7 +78,6 @@ final class ParamTypeAspect implements ParamAspect {
         draft.setName(name);
         // No description: a marker-type handler's parameters have no documented source.
         draft.setType(TypeResolver.resolveTypeWithLinks(type.signature(), packageName));
-        draft.setOptional(ParamTypeResolver.isOptional(param));
 
         // Spec §7's other legal types, as link-carrying pairs so the type closure reaches their
         // definitions. Never joined with `|` — see ParamTypeResolver.ParamType.

@@ -32,6 +32,7 @@
             <class name="io.ballerina.flowmodelgenerator.core.copilot.service.ParamAnnotationResolverTest"/>
             <class name="io.ballerina.flowmodelgenerator.core.copilot.service.ReturnAnnotationResolverTest"/>
             <class name="io.ballerina.flowmodelgenerator.core.copilot.service.CardinalityResolverTest"/>
+            <class name="io.ballerina.flowmodelgenerator.core.copilot.service.ParamPresenceResolverTest"/>
             <class name="io.ballerina.flowmodelgenerator.core.copilot.service.ParamRepeatResolverTest"/>
             <class name="io.ballerina.flowmodelgenerator.core.copilot.service.ServiceIdentityResolverTest"/>
             <class name="io.ballerina.flowmodelgenerator.core.copilot.service.TriggerPipelineContractTest"/>

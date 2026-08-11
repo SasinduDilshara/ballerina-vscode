@@ -39,7 +39,7 @@ type Event record {
 // --- Service ---
 
 # Requires: import ballerinax/snapshotdemo.driver as _;
-# Mandatory: this service must carry the @snapshotdemo:ServiceConfig annotation. Replace {...} with its fields, which are those of DemoServiceConfig.
+# Mandatory: this service must carry the @snapshotdemo:ServiceConfig annotation. Replace {...} with its fields, which are those of snapshotdemo:DemoServiceConfig.
 @snapshotdemo:ServiceConfig {...} // required
 service snapshotdemo:Service on new snapshotdemo:Listener(int port, snapshotdemo:ListenerConfiguration config = {}) {
     # Handles one event.

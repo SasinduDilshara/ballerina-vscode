@@ -52,19 +52,8 @@ public class TriggerMetadataCorpusTest {
             "ftp", "graphql", "grpc", "http", "kafka", "mcp", "mssql.cdc", "rabbitmq", "smb",
             "trigger.github", "trigger.google.calendar", "websocket", "websub");
 
-    /**
-     * The schema's declared top-level properties. Hand-maintained against
-     * {@code resources/schemas/trigger-metadata.schema.json} because no JSON-schema implementation is on
-     * this build's classpath and adding one would break every {@code --offline} build that has not cached
-     * it. This covers the one schema clause that actually bites — {@code additionalProperties: false} —
-     * which is what made a spec-conforming document carrying {@code version} fail the repo's own schema
-     * before it was updated.
-     */
-    private static final Set<String> SCHEMA_TOP_LEVEL_PROPERTIES =
-            Set.of("version", "listeners", "serviceTypes", "annotations", "dataBindingRules");
-
-    private static final Set<String> SCHEMA_REQUIRED_TOP_LEVEL =
-            Set.of("version", "listeners", "serviceTypes");
+    /** The schema this repo ships, which every bundled document is validated against. */
+    private static final String SCHEMA_RESOURCE = "schemas/trigger-metadata.schema.json";
 
     @Test
     public void testEveryBundledDocumentIsFreeOfErrors() {
@@ -91,35 +80,90 @@ public class TriggerMetadataCorpusTest {
         }
     }
 
+    /**
+     * Validates every bundled document against the shipped schema, <b>reading the schema itself</b>.
+     *
+     * <p>This used to compare each document against two hand-written {@code Set}s mirroring the schema's
+     * top-level clauses. That mirror was the problem it was meant to solve: it covered only the top level,
+     * and nothing made it agree with the file it claimed to mirror — a schema edit and a stale copy of it
+     * would have looked identical from here.
+     *
+     * <p>{@link SchemaWalk} enforces the three clauses that actually bite — {@code required},
+     * {@code additionalProperties: false} and {@code enum} — recursively, resolving {@code $ref} within the
+     * document. No JSON-schema library is added: one is not on this build's classpath and pulling one in
+     * would break every {@code --offline} build that has not cached it.
+     */
     @Test
-    public void testEveryBundledDocumentSatisfiesTheSchemaTopLevelContract() {
-        // The `additionalProperties: false` half of §9.6's ask, hand-rolled. It is deliberately narrow:
-        // it catches a key the schema would reject outright, which is the failure mode that silently
-        // invalidates every document at once.
+    public void testEveryBundledDocumentSatisfiesTheShippedSchema() {
+        JsonObject schema = readJson(SCHEMA_RESOURCE);
+        Map<String, List<String>> violationsByDocument = new LinkedHashMap<>();
         for (String key : CORPUS) {
-            JsonObject json = raw(key);
-            for (String property : json.keySet()) {
-                Assert.assertTrue(SCHEMA_TOP_LEVEL_PROPERTIES.contains(property),
-                        key + " declares top-level key '" + property
-                                + "', which the schema does not allow (additionalProperties: false)");
-            }
-            for (String required : SCHEMA_REQUIRED_TOP_LEVEL) {
-                Assert.assertTrue(json.has(required),
-                        key + " is missing the schema-required top-level key '" + required + "'");
+            List<String> violations = SchemaWalk.validate(schema, raw(key));
+            if (!violations.isEmpty()) {
+                violationsByDocument.put(key, violations);
             }
         }
+        Assert.assertTrue(violationsByDocument.isEmpty(),
+                "Documents violating the shipped schema:\n" + renderViolations(violationsByDocument));
+    }
+
+    /**
+     * The walker is only worth trusting if it can fail, so this proves it does.
+     *
+     * <p>A test that validates thirteen conformant documents passes just as well when the validator is a
+     * no-op. These three mutations are one per clause the walker enforces.
+     */
+    @Test
+    public void testTheSchemaWalkerRejectsWhatTheSchemaForbids() {
+        JsonObject schema = readJson(SCHEMA_RESOURCE);
+
+        JsonObject missingRequired = raw("kafka");
+        missingRequired.remove("version");
+        Assert.assertFalse(SchemaWalk.validate(schema, missingRequired).isEmpty(),
+                "a document missing a required key must be rejected");
+
+        JsonObject unknownKey = raw("kafka");
+        unknownKey.addProperty("notAThing", true);
+        Assert.assertFalse(SchemaWalk.validate(schema, unknownKey).isEmpty(),
+                "additionalProperties: false must reject an unknown key");
+
+        // Reached only through two `$ref` hops (serviceTypes -> serviceType -> handlers), so this also
+        // proves reference resolution works — a walker that silently failed to follow `$ref` would
+        // enforce nothing below the top level and still pass every other assertion here.
+        JsonObject badEnum = raw("kafka");
+        badEnum.getAsJsonArray("serviceTypes").get(0).getAsJsonObject()
+                .getAsJsonObject("handlers").addProperty("addMode", "someFutureMode");
+        Assert.assertFalse(SchemaWalk.validate(schema, badEnum).isEmpty(),
+                "a value outside an enum must be rejected");
+
+        // `version` is deliberately NOT used for this: the schema constrains it only as `type: string`
+        // with an `examples` list, so `v99` is schema-valid. It is the SpecVersionGate that rejects an
+        // unimplemented version, not the schema — asserting otherwise here would pin a constraint the
+        // schema does not make.
     }
 
     @Test
     public void testEverySpecSectionHasAtLeastOneRegisteredCheck() {
         // The validator half of the plan's traceability guard: a construct cannot be half-covered, with a
         // resolver that reads it and no check that validates it.
+        //
+        // §7 is in this list even though no check declares it as its own section: `params[]` is validated
+        // by TypeRefCheck (§1 — an empty `type` array leaves the slot with no signature) and by
+        // VocabularyCheck (§10 — `presence` and `addMode` against the spec's tables). Both are filed under
+        // the section that owns the *rule*, not the one that owns the construct, so the assertion below
+        // maps §7 onto them explicitly rather than leaving the gap unexplained.
         List<String> owned = TriggerMetadataValidator.checks().stream()
                 .map(DocumentCheck::specSection).distinct().toList();
         for (String section : List.of("§1", "§2", "§3", "§4", "§5", "§6", "§8", "§9", "§10")) {
             Assert.assertTrue(owned.contains(section),
                     "no registered check owns spec " + section + "; owned: " + owned);
         }
+        List<String> paramCheckIds = TriggerMetadataValidator.checks().stream()
+                .map(DocumentCheck::id).filter(id -> id.equals("typeRef") || id.equals("vocabulary"))
+                .toList();
+        Assert.assertEquals(paramCheckIds.size(), 2,
+                "spec §7 is covered by typeRef and vocabulary; if either is renamed or removed, §7 loses "
+                        + "its coverage silently. Registered: " + paramCheckIds);
     }
 
     @Test
@@ -205,13 +249,27 @@ public class TriggerMetadataCorpusTest {
     }
 
     private static JsonObject raw(String key) {
+        return readJson(resourcePath(key));
+    }
+
+    /** Any JSON resource on the test classpath, parsed. Used for the documents and for the schema. */
+    private static JsonObject readJson(String resource) {
         try (InputStreamReader reader = new InputStreamReader(
                 TriggerMetadataCorpusTest.class.getClassLoader()
-                        .getResourceAsStream(resourcePath(key)), StandardCharsets.UTF_8)) {
+                        .getResourceAsStream(resource), StandardCharsets.UTF_8)) {
             return JsonParser.parseReader(reader).getAsJsonObject();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    private static String renderViolations(Map<String, List<String>> violationsByDocument) {
+        StringBuilder sb = new StringBuilder();
+        violationsByDocument.forEach((key, violations) -> {
+            sb.append("  ").append(key).append(":\n");
+            violations.forEach(violation -> sb.append("    ").append(violation).append('\n'));
+        });
+        return sb.toString();
     }
 
     private static String render(Map<String, List<Finding>> errorsByDocument) {

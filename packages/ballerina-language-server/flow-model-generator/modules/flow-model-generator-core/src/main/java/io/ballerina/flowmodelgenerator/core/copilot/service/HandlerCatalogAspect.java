@@ -54,10 +54,18 @@ final class HandlerCatalogAspect implements ServiceAspect {
     @Override
     public void contribute(TriggerScope scope, ServiceDraft draft) {
         String typeName = scope.serviceTypeName();
-        HandlerCatalogResolver.HandlerCatalog catalog =
+        HandlerCatalogResolver.CatalogResolution resolution =
                 HandlerCatalogResolver.resolve(scope.serviceType(), typeName, scope.facts());
 
-        switch (catalog) {
+        // Every way the document had to be tolerated, recorded against the service type it affected.
+        // Non-fatal by construction: the entry still renders, which is the whole point of tolerating it —
+        // but the reason now reaches the veto report, so a test can assert it and a document author can
+        // find it without reading the language server's log.
+        for (String degradation : resolution.degradations()) {
+            draft.drop(id(), specSection(), typeName, degradation);
+        }
+
+        switch (resolution.catalog()) {
             case HandlerCatalogResolver.HandlerCatalog.None none ->
                     draft.veto(id(), specSection(), typeName, none.reason());
             case HandlerCatalogResolver.HandlerCatalog.Concrete concrete ->
@@ -132,6 +140,15 @@ final class HandlerCatalogAspect implements ServiceAspect {
         }
         for (TriggerMetadataModel.ServiceType.HandlerOption option : options) {
             if (option == null || option.name() == null) {
+                continue;
+            }
+            // Defence in depth, not dead code. A wildcard reaching this loop would render a handler
+            // literally named `*`, which is not an identifier. It cannot arrive today — the resolver
+            // routes any wildcard to `Many` — but that routing is one branch away from this one, and the
+            // failure it prevents is silent and uncompilable rather than loud.
+            if (TriggerMetadataModel.ServiceType.HandlerOption.WILDCARD_NAME.equals(option.name())) {
+                draft.drop(id(), specSection(), option.name(),
+                        "a \"*\" option reached the fixed-vocabulary path, where it has no writable name");
                 continue;
             }
 

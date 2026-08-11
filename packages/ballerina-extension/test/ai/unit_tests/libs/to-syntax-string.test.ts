@@ -943,9 +943,17 @@ suite("toSyntaxString", () => {
             assert.strictEqual(line.split("//").length - 1, 1, "exactly one trailing comment");
         });
 
-        test("§8: a home-module constraint stays unprefixed by the external mechanism", () => {
-            // An internal link records the type without re-qualifying it, so the sentence reads with the
-            // bare record name the same file already declares.
+        test("§8: a home-module constraint takes the listener's alias, like any other declared type", () => {
+            // This test previously asserted the opposite — that the bare name survived — and described
+            // the mechanism ("the external mechanism does not re-qualify it") rather than the requirement.
+            // The mechanism was the defect: the constraint was resolved with `applyPrefixToTypeName`,
+            // which only consults EXTERNAL links, so a cross-module record came out qualified while a
+            // home-module one came out bare.
+            //
+            // Bare is not a name the reader can use. This sentence tells them what to put inside `{...}`
+            // of an annotation they are writing in THEIR module, where the library's own records are
+            // reachable only through its alias — exactly the rule every handler parameter and return type
+            // in this file already follows.
             const result = renderService({
                 type: "fixed", name: "Service", listener: ftpListener, methods: [],
                 annotations: [annotation({
@@ -956,8 +964,31 @@ suite("toSyntaxString", () => {
                     },
                 })],
             });
-            assert.ok(result.includes("which are those of ServiceConfiguration."), `got:\n${result}`);
-            assert.ok(!result.includes("ftp:ServiceConfiguration"), "internal links are not re-qualified");
+            assert.ok(result.includes("which are those of ftp:ServiceConfiguration."), `got:\n${result}`);
+        });
+
+        test("§8: a cross-module constraint keeps its OWN module's prefix, not the listener's", () => {
+            // The other half of the same rule, pinned separately so a future change cannot fix one by
+            // breaking the other: an external link must still win over the listener alias. `mssql`'s
+            // listener is `mssql:`, but the constraining record belongs to `ballerinax/cdc`.
+            const result = renderService({
+                type: "fixed", name: "Service", listener: ftpListener, methods: [],
+                annotations: [annotation({
+                    presence: "required",
+                    module: "ballerinax/cdc",
+                    typeConstraint: {
+                        name: "CdcServiceConfig",
+                        links: [{
+                            category: "external",
+                            recordName: "CdcServiceConfig",
+                            libraryName: "ballerinax/cdc",
+                        }],
+                    },
+                })],
+            });
+            assert.ok(result.includes("which are those of cdc:CdcServiceConfig."), `got:\n${result}`);
+            assert.ok(!result.includes("ftp:CdcServiceConfig"),
+                "the listener alias must not override an external link");
         });
 
         test("§8: a nameless entry is skipped rather than rendered as a bare @", () => {
@@ -2578,6 +2609,71 @@ suite("toSyntaxString", () => {
                 `An undeclarable attach point must render nothing, got:\n${result}`);
             assert.ok(!result.includes("// --- Annotations ---"),
                 "An annotations section with no renderable entry must not be emitted");
+        });
+
+        // ---- one declaration per annotation, not per attach point ----
+
+        function renderAnnotationsAt(points: string[], name = "X",
+                                     constraint: Record<string, unknown> | undefined = own("Cfg")): string {
+            const lib = {
+                name: "ballerina/mcp", description: "", typeDefs: [], clients: [],
+                annotations: points.map((attachmentPoint) => ({
+                    name, attachmentPoint, typeConstraint: constraint,
+                })),
+            } as unknown as Library;
+            return toSyntaxString([lib]);
+        }
+
+        test("an annotation declared at several points renders ONE declaration, not one per point", () => {
+            // The catalog carries one row per attach point, because the compiler reports one symbol with N
+            // points and the wire model's `attachmentPoint` is singular. Rendering the rows verbatim
+            // redeclares the symbol: graphql printed `ID` three times, http printed four such pairs.
+            // Verified with bal build: `public annotation Cfg X on parameter, return, record field;` builds.
+            const result = renderAnnotationsAt(["PARAMETER", "RETURN", "RECORD_FIELD"]);
+            assert.ok(result.includes("public annotation Cfg X on parameter, return, record field;"),
+                `got:\n${result}`);
+            assert.strictEqual(result.split("annotation Cfg X on").length - 1, 1,
+                `exactly one declaration of X, got:\n${result}`);
+        });
+
+        test("one source-only point makes the whole declaration const, and the list is not split", () => {
+            // Verified with bal build, both halves:
+            //   `public const annotation Cfg X on source listener, parameter;`  builds — mixing is legal,
+            //   so a source-only point does NOT force a second declaration;
+            //   `public const annotation Cfg X on source listener, worker;`     is
+            //   `ERROR missing source keyword` — every source-only point carries its own `source`, so the
+            //   qualifier cannot be hoisted onto the list.
+            const result = renderAnnotationsAt(["LISTENER", "PARAMETER"]);
+            assert.ok(result.includes("public const annotation Cfg X on source listener, parameter;"),
+                `got:\n${result}`);
+
+            const both = renderAnnotationsAt(["LISTENER", "WORKER"]);
+            assert.ok(both.includes("public const annotation Cfg X on source listener, source worker;"),
+                `each source-only point keeps its own \`source\`, got:\n${both}`);
+        });
+
+        test("an undeclarable point among declarable ones drops only itself", () => {
+            // The drop is per point, not per annotation: OBJECT has no syntax, but the annotation is still
+            // really declared `on parameter` and the model still needs to know that.
+            const result = renderAnnotationsAt(["OBJECT", "PARAMETER"]);
+            assert.ok(result.includes("public annotation Cfg X on parameter;"), `got:\n${result}`);
+            assert.ok(!result.includes("object;"), `the undeclarable point is gone, got:\n${result}`);
+        });
+
+        test("same name but different constraints stay separate declarations", () => {
+            // Rows are keyed by name AND constraint. Two rows for one symbol always agree on both, so the
+            // key merges exactly what one declaration produced; a name collision carrying different
+            // constraints must not be merged into a declaration neither library wrote.
+            const lib = {
+                name: "ballerina/mcp", description: "", typeDefs: [], clients: [],
+                annotations: [
+                    { name: "X", attachmentPoint: "PARAMETER", typeConstraint: own("Cfg") },
+                    { name: "X", attachmentPoint: "RETURN", typeConstraint: own("Other") },
+                ],
+            } as unknown as Library;
+            const result = toSyntaxString([lib]);
+            assert.ok(result.includes("public annotation Cfg X on parameter;"), `got:\n${result}`);
+            assert.ok(result.includes("public annotation Other X on return;"), `got:\n${result}`);
         });
 
         // ---- the `isolated` qualifier of a concrete service type's declared method ----

@@ -74,16 +74,52 @@ public class CopilotSchemaServicesTest {
     // covered once Central catches up with the metadata (see the pinned test below).
     private static final String MCP_PRE_STREAMABLE_HTTP_VERSION = "1.1.0";
 
+    /**
+     * The package version each library's assertions were written against.
+     *
+     * <p>Resolution is otherwise "whatever Central serves latest", which makes every assertion in this
+     * class hostage to an upstream release. That is not hypothetical: {@code ballerina/smb} 2.0.1
+     * (published 2026-08-06) removed the {@code WatchEvent} record and added a compiler plugin that
+     * rejects {@code onFileChange}, and two tests here began failing with {@code expected [6] but found
+     * [5]} — a message that says nothing at all about the cause.
+     *
+     * <p>Pinning moves that failure to exactly one place. {@link #testPinnedVersionsStillMatchLatest}
+     * names the library and both versions, so the response is a decision — re-verify the document against
+     * the new release, then move the pin — rather than an investigation.
+     *
+     * <p>A library absent from this map resolves latest, which is right where the assertions do not
+     * depend on a release: {@code ballerinax/asb} only asserts that two code paths agree with each other
+     * within a single run.
+     */
+    private static final Map<String, String> PINNED_VERSIONS = Map.ofEntries(
+            Map.entry("ballerina/ftp", "2.20.1"),
+            Map.entry("ballerina/graphql", "1.17.0"),
+            Map.entry("ballerina/http", "2.16.6"),
+            Map.entry(MCP, "1.2.0"),
+            Map.entry("ballerina/smb", "2.0.1"),
+            Map.entry("ballerina/websub", "2.15.0"),
+            Map.entry("ballerinax/kafka", "4.6.5"),
+            Map.entry("ballerinax/mssql", "1.19.0"),
+            Map.entry("ballerinax/rabbitmq", "3.6.0"),
+            Map.entry("ballerinax/trigger.github", "0.11.0"),
+            Map.entry("ballerinax/trigger.google.calendar", "0.12.0"));
+
     private final Map<String, JsonArray> cache = new HashMap<>();
     private final Map<String, SemanticModel> semanticModels = new HashMap<>();
 
     private JsonArray load(String libraryName) {
         return cache.computeIfAbsent(libraryName, lib -> {
             String[] parts = lib.split("/");
-            Optional<Package> pkgOpt = PackageUtil.getModulePackage(
-                    PackageUtil.getSampleProject(), parts[0], parts[1]);
+            // The pinned version when this library has one, so an upstream release cannot silently
+            // rewrite what these assertions are testing against. See PINNED_VERSIONS.
+            String pinned = PINNED_VERSIONS.get(lib);
+            Optional<Package> pkgOpt = pinned == null
+                    ? PackageUtil.getModulePackage(PackageUtil.getSampleProject(), parts[0], parts[1])
+                    : PackageUtil.getModulePackage(PackageUtil.getSampleProject(), parts[0], parts[1],
+                            pinned);
             if (pkgOpt.isEmpty()) {
-                throw new SkipException("Could not resolve package for " + lib);
+                throw new SkipException("Could not resolve package for " + lib
+                        + (pinned == null ? "" : ":" + pinned));
             }
             Package pkg = pkgOpt.get();
             SemanticModel semanticModel = PackageUtil.getCompilation(pkg)
@@ -568,8 +604,15 @@ public class CopilotSchemaServicesTest {
         Assert.assertTrue(listener.getAsJsonArray("parameters").size() > 0,
                 "Listener init params must be introspected");
 
-        Assert.assertEquals(methodNames(service), List.of("onFileChange", "onFileText", "onFileJson",
-                "onFileXml", "onFileCsv", "onFile"));
+        // Exactly the vocabulary smb's compiler plugin admits, verified by compiling all seven against
+        // smb 2.0.1: "smb listener only supports `onFile`, `onFileText`, `onFileJson`, `onFileXml`,
+        // `onFileCsv`, `onFileDelete` and `onError` remote methods".
+        //
+        // `onFileChange` is deliberately absent. smb 1.0.2 declared a `WatchEvent` record and shipped no
+        // compiler plugin at all, so the handler was legal; 2.0.1 removed the type AND rejects the name
+        // outright (`ERROR invalid remote method name 'onFileChange'`). The document no longer declares it.
+        Assert.assertEquals(methodNames(service), List.of("onFileText", "onFileJson", "onFileXml",
+                "onFileCsv", "onFile", "onFileDelete", "onError"));
 
         JsonObject onFileJson = methodNamed(service, "onFileJson");
         Assert.assertEquals(paramNames(onFileJson), List.of("content", "caller", "fileInfo"));
@@ -646,9 +689,16 @@ public class CopilotSchemaServicesTest {
                 "Semantic-Model annotations carry the library's doc comment");
         assertInternalTypeConstraint(serviceConfig, "SmbServiceConfig");
 
-        // smb declares FunctionConfig `on function`. The compiler reports FUNCTION and it is
-        // emitted verbatim — it is no longer reclassified as a service method.
-        annotationNamed(smb, "FunctionConfig", "FUNCTION");
+        // smb 2.0.1 declares FunctionConfig `on service remote function`, which the compiler reports as
+        // RESOURCE (its constant for that Ballerina attach point — the enum has no SERVICE_REMOTE). It is
+        // emitted verbatim; it is not reclassified.
+        //
+        // This assertion tracks whatever Central serves, unlike the service assertions below, because
+        // `libraryAnnotations` goes through CopilotLibraryManager, which resolves the latest version
+        // internally and offers no seam to pin one. smb 1.0.2 declared the same annotation `on function`
+        // (reported FUNCTION); 2.0.1 moved it. Either value is a faithful report of the resolved package,
+        // so what this pins is that the catalog states the compiler's answer rather than a guess.
+        annotationNamed(smb, "FunctionConfig", "RESOURCE");
 
         annotationNamed(libraryAnnotations("ballerina/websub"), "SubscriberServiceConfig", "SERVICE");
 
@@ -705,6 +755,48 @@ public class CopilotSchemaServicesTest {
 
     // ---- fallback & pinning --------------------------------------------------------------
 
+    /**
+     * Reports a library whose pinned version is no longer the one Central serves.
+     *
+     * <p>This is the only test in the class allowed to fail because of an upstream release, and it is the
+     * reason the others are not. A trigger-metadata document describes a package at a point in time —
+     * handler vocabulary, type names, annotation attach points — and a connector is free to change any of
+     * them in a new release. When that happens the document has to be re-verified by a human; what this
+     * guard supplies is the notification, naming the library and both versions.
+     *
+     * <p>It does not assert the document is still correct, because nothing here can: only compiling
+     * against the new release answers that. It asserts that nobody is unknowingly testing against a
+     * release the document was never checked against.
+     *
+     * <p>Under {@code --offline}, "latest" is the newest version in the local bala cache, so a build that
+     * has never fetched a newer release simply passes. That is intended — the guard reports drift the
+     * environment can actually observe, and does not fail for lack of network.
+     */
+    @Test
+    public void testPinnedVersionsStillMatchLatest() {
+        List<String> drifted = new ArrayList<>();
+        for (Map.Entry<String, String> pin : PINNED_VERSIONS.entrySet()) {
+            String[] parts = pin.getKey().split("/");
+            Optional<Package> latest = PackageUtil.getModulePackage(
+                    PackageUtil.getSampleProject(), parts[0], parts[1]);
+            if (latest.isEmpty()) {
+                // Unresolvable here means the environment cannot see the library at all, which every
+                // other test in this class already reports as a skip rather than a failure.
+                continue;
+            }
+            String resolved = latest.get().packageVersion().toString();
+            if (!pin.getValue().equals(resolved)) {
+                drifted.add(pin.getKey() + ": pinned " + pin.getValue() + ", latest " + resolved);
+            }
+        }
+        drifted.sort(null);
+        Assert.assertTrue(drifted.isEmpty(),
+                "These libraries have moved on since their assertions were written. Re-verify each "
+                        + "trigger-metadata document against the new release — handler vocabulary, "
+                        + "parameter types, annotation attach points — then update PINNED_VERSIONS:\n  "
+                        + String.join("\n  ", drifted));
+    }
+
     @Test
     public void testNonSchemaDrivenLibraryStaysOnServiceIndex() {
         // asb is not schema-driven: the overload must produce exactly the SQLite-path output.
@@ -712,6 +804,37 @@ public class CopilotSchemaServicesTest {
         JsonArray viaOverload = load(library);
         JsonArray viaIndex = ServiceLoader.loadAllServices(library);
         Assert.assertEquals(viaOverload, viaIndex);
+    }
+
+    /**
+     * The counterpart of the test above, and the property that lets the index fallback be withheld from a
+     * schema-driven library.
+     *
+     * <p>{@code ballerina/ftp} has BOTH sources, so it is the case where substituting one for the other is
+     * possible at all. The index entry describes the same handlers with strictly fewer facts — no §8
+     * annotation obligations, no §6 constraints, no §9 binding rules, no presence markers — so serving it
+     * in place of the document would not be a fallback but a silent downgrade, and the reader would have
+     * no way to tell which one they were given.
+     *
+     * <p>Asserting both halves matters: that the two paths differ, and that the schema path is the richer
+     * one. Difference alone would also be satisfied by the schema path being worse.
+     */
+    @Test
+    public void testSchemaDrivenLibraryIsNeverSubstitutedByTheIndex() {
+        String library = "ballerina/ftp";
+        JsonArray viaOverload = load(library);
+        JsonArray viaIndex = ServiceLoader.loadAllServices(library);
+        Assert.assertNotEquals(viaOverload, viaIndex,
+                "ftp is schema-driven; the index catalog must not be what the overload returns");
+
+        JsonObject schemaService = serviceNamed(viaOverload, "Service");
+        Assert.assertTrue(schemaService.has("annotations"),
+                "the schema path carries §8 obligations the index has no column for");
+        JsonObject onFileCsv = methodNamed(schemaService, "onFileCsv");
+        Assert.assertTrue(onFileCsv.has("optional"),
+                "the schema path states whether a handler must be implemented; the index does not");
+        Assert.assertTrue(paramNamed(onFileCsv, "contents").has("binding"),
+                "the schema path carries the §9 binding rule; the index has no equivalent");
     }
 
     @Test

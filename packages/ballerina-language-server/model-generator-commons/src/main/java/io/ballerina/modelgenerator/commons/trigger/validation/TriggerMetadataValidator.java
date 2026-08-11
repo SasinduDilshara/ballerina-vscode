@@ -57,6 +57,7 @@ public final class TriggerMetadataValidator {
             new ListenerRefCheck(),
             new ImportTypeCheck(),
             new ServiceTypeRefCheck(),
+            new CardinalityCheck(),
             new AddModeCheck(),
             new PresenceScopeCheck(),
             new ResourceExtrasCheck(),

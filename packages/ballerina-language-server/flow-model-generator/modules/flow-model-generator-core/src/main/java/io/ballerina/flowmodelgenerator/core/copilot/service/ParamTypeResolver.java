@@ -49,20 +49,8 @@ import java.util.function.Predicate;
  */
 final class ParamTypeResolver {
 
-    /**
-     * Spec §10's presence vocabulary. Declared here rather than borrowed from a sibling construct's
-     * constant: {@code params[].presence} is its own slot, and coupling it to an unrelated type's
-     * constant would make a future divergence in either invisible.
-     */
-    private static final String PRESENCE_OPTIONAL = "optional";
-
     private ParamTypeResolver() {
         // Prevent instantiation
-    }
-
-    /** Spec §7 {@code presence}: {@code "optional"} is the only value that changes the signature. */
-    static boolean isOptional(TriggerMetadataModel.ServiceType.Param param) {
-        return PRESENCE_OPTIONAL.equals(param.presence());
     }
 
     /**

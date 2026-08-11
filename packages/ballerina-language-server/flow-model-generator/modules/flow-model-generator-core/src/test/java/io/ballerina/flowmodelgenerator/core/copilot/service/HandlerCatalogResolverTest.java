@@ -78,7 +78,7 @@ public class HandlerCatalogResolverTest {
         // in document order, because §7 states "Array order is meaningful".
         TriggerMetadataModel.ServiceType.HandlerOption first = option("onConsumerRecord");
         TriggerMetadataModel.ServiceType.HandlerOption second = option("onError");
-        HandlerCatalogResolver.HandlerCatalog catalog = HandlerCatalogResolver.resolve(
+        HandlerCatalogResolver.HandlerCatalog catalog = catalogOf(
                 serviceType(false, new TriggerMetadataModel.ServiceType.Handlers(
                         false, "subset", List.of(first, second))),
                 "Service", null);
@@ -100,7 +100,7 @@ public class HandlerCatalogResolverTest {
         // §4: `addMode: "many"` is "open-ended, user-named … represented as one options entry named
         // \"*\"". It is a different kind of catalog from a fixed vocabulary, not a list containing one
         // odd member, because nothing in it can be emitted as a signature.
-        HandlerCatalogResolver.HandlerCatalog catalog = HandlerCatalogResolver.resolve(
+        HandlerCatalogResolver.HandlerCatalog catalog = catalogOf(
                 serviceType(false, new TriggerMetadataModel.ServiceType.Handlers(
                         false, "many", List.of(option("*")))),
                 "Service", null);
@@ -113,7 +113,7 @@ public class HandlerCatalogResolverTest {
         // Everything §5 states about such a handler — kind, params, returns, annotations — lives on the
         // wildcard entry, so the entry itself is what the lower tiers must be given.
         TriggerMetadataModel.ServiceType.HandlerOption wildcard = option("*");
-        HandlerCatalogResolver.HandlerCatalog catalog = HandlerCatalogResolver.resolve(
+        HandlerCatalogResolver.HandlerCatalog catalog = catalogOf(
                 serviceType(false, new TriggerMetadataModel.ServiceType.Handlers(
                         false, "many", List.of(wildcard))),
                 "Service", null);
@@ -128,7 +128,7 @@ public class HandlerCatalogResolverTest {
         // Spec §4 says a many-shaped catalog is represented by a wildcard, so the document is
         // non-conformant — but its four options are fully-specified signatures, and discarding them in
         // favour of a template would lose real API over a document defect. Degrade, never drop.
-        HandlerCatalogResolver.HandlerCatalog catalog = HandlerCatalogResolver.resolve(
+        HandlerCatalogResolver.HandlerCatalog catalog = catalogOf(
                 serviceType(false, new TriggerMetadataModel.ServiceType.Handlers(
                         false, "many", List.of(option("unary"), option("serverStreaming")))),
                 "Service", null);
@@ -154,7 +154,7 @@ public class HandlerCatalogResolverTest {
         TriggerMetadataModel.ServiceType.HandlerOption query = option("*");
         TriggerMetadataModel.ServiceType.HandlerOption mutation = option("*");
         TriggerMetadataModel.ServiceType.HandlerOption subscription = option("*");
-        HandlerCatalogResolver.HandlerCatalog catalog = HandlerCatalogResolver.resolve(
+        HandlerCatalogResolver.HandlerCatalog catalog = catalogOf(
                 serviceType(false, new TriggerMetadataModel.ServiceType.Handlers(
                         false, "many", List.of(query, mutation, subscription))),
                 "Service", null);
@@ -170,7 +170,7 @@ public class HandlerCatalogResolverTest {
     public void testAWildcardIsRecognisedEvenWhenTheDocumentSaysSubset() {
         // The wildcard, not `addMode`, is what makes a catalog open-ended: a "*" entry has no name to
         // emit whatever the flag says, so trusting the flag here would render a method called `*`.
-        HandlerCatalogResolver.HandlerCatalog catalog = HandlerCatalogResolver.resolve(
+        HandlerCatalogResolver.HandlerCatalog catalog = catalogOf(
                 serviceType(false, new TriggerMetadataModel.ServiceType.Handlers(
                         false, "subset", List.of(option("*")))),
                 "Service", null);
@@ -181,14 +181,77 @@ public class HandlerCatalogResolverTest {
     @Test
     public void testAFixedVocabularyIsUnaffectedByTheWildcardRule() {
         // The overwhelmingly common shape must be untouched by the tolerance logic above.
-        HandlerCatalogResolver.HandlerCatalog catalog = HandlerCatalogResolver.resolve(
+        HandlerCatalogResolver.HandlerCatalog catalog = catalogOf(
                 serviceType(false, new TriggerMetadataModel.ServiceType.Handlers(
                         false, "subset", List.of(option("onMessage"), option("onError")))),
                 "Service", null);
         Assert.assertTrue(catalog instanceof HandlerCatalogResolver.HandlerCatalog.Options);
     }
 
+    // ---- degradations are reported, not logged ---------------------------------------
+
+    /**
+     * A conformant document degrades in no way, and says so.
+     *
+     * <p>Pinned because the interesting assertions below are all "this reports X"; without this one they
+     * would still pass if the resolver reported X for everything.
+     */
+    @Test
+    public void testAConformantCatalogReportsNoDegradation() {
+        Assert.assertTrue(HandlerCatalogResolver.resolve(
+                serviceType(false, new TriggerMetadataModel.ServiceType.Handlers(
+                        false, "subset", List.of(option("onMessage")))),
+                "Service", null).degradations().isEmpty());
+    }
+
+    /**
+     * {@code grpc}'s shape: {@code addMode: "many"} with named options and no wildcard.
+     *
+     * <p>Tolerated — the four named options are real signatures and discarding them would be worse — but
+     * the tolerance is now attributable instead of being a {@code LOGGER.warning} nothing can assert.
+     */
+    @Test
+    public void testManyWithoutAWildcardReportsWhyItWasReadAsAVocabulary() {
+        List<String> degradations = HandlerCatalogResolver.resolve(
+                serviceType(false, new TriggerMetadataModel.ServiceType.Handlers(
+                        false, "many", List.of(option("unary"), option("serverStreaming")))),
+                "Service", null).degradations();
+        Assert.assertEquals(degradations.size(), 1, "got: " + degradations);
+        Assert.assertTrue(degradations.get(0).contains("no \"*\" entry"), degradations.get(0));
+    }
+
+    /**
+     * The one degradation that costs emitted output, which is why leaving it in the log was the real
+     * defect: the named options beside a wildcard are silently not rendered.
+     */
+    @Test
+    public void testAWildcardMixedWithNamedOptionsReportsThatTheNamedOnesAreDropped() {
+        List<String> degradations = HandlerCatalogResolver.resolve(
+                serviceType(false, new TriggerMetadataModel.ServiceType.Handlers(
+                        false, "many", List.of(option("*"), option("onMessage")))),
+                "Service", null).degradations();
+        Assert.assertEquals(degradations.size(), 1, "got: " + degradations);
+        Assert.assertTrue(degradations.get(0).contains("NOT emitted"), degradations.get(0));
+    }
+
+    /** {@code graphql}'s shape: three wildcards where spec §4 allows one. All are kept, and it is said. */
+    @Test
+    public void testSeveralWildcardsReportThatAllAreRendered() {
+        List<String> degradations = HandlerCatalogResolver.resolve(
+                serviceType(false, new TriggerMetadataModel.ServiceType.Handlers(
+                        false, "many", List.of(option("*"), option("*"), option("*")))),
+                "Service", null).degradations();
+        Assert.assertEquals(degradations.size(), 1, "got: " + degradations);
+        Assert.assertTrue(degradations.get(0).contains("3 \"*\" options"), degradations.get(0));
+    }
+
     // ---- fixtures --------------------------------------------------------------------
+
+    /** The catalog alone, for the assertions that do not care how the document had to be tolerated. */
+    private static HandlerCatalogResolver.HandlerCatalog catalogOf(
+            TriggerMetadataModel.ServiceType serviceType, String typeName, TriggerSemanticFacts facts) {
+        return HandlerCatalogResolver.resolve(serviceType, typeName, facts).catalog();
+    }
 
     private static TriggerMetadataModel.ServiceType serviceType(
             boolean concrete, TriggerMetadataModel.ServiceType.Handlers handlers) {
