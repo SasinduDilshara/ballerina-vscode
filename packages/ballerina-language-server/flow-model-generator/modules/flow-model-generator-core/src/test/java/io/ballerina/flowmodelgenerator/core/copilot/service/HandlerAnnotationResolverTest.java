@@ -233,7 +233,6 @@ public class HandlerAnnotationResolverTest {
 
     static TriggerMetadataModel.Annotation annotation(String id, String name, String attachPoint,
                                                       String presence) {
-        return new TriggerMetadataModel.Annotation(id, new TypeRef(name, null), attachPoint, null,
-                presence);
+        return new TriggerMetadataModel.Annotation(id, new TypeRef(name, null), attachPoint, presence);
     }
 }

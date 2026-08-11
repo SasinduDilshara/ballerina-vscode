@@ -77,6 +77,20 @@ public class Service {
      * of this type. Same presence rule as {@link #singleListenerOnly}.
      */
     private Boolean singleServicePerListenerOnly;
+
+    /**
+     * Spec §2 {@code multipleServicesAllowed: false} — one listener hosts at most one service, of any
+     * type. The strictly stronger sibling of {@link #singleServicePerListenerOnly}, emitted instead of it
+     * rather than alongside, since "at most one service" already entails "at most one of this type".
+     */
+    private Boolean singleServiceOnly;
+
+    /**
+     * Spec §2.1 {@code listeners[].platformDependencies} — native artifacts the build cannot fetch.
+     * Carried on the service because the spec declares them on the listener, so only code that uses that
+     * listener needs them.
+     */
+    private List<PlatformDependency> platformDependencies;
     /**
      * Spec §2 {@code listeners[].services} — no listener declares it can host this service type, so it must
      * never be written as {@code service … on new …}. Boxed and emitted only when true, the same presence
@@ -88,12 +102,6 @@ public class Service {
      * {@code service class} that includes the type instead of as a listener attachment.
      */
     private Boolean notListenerAttachable;
-    /**
-     * Spec §4 — the document declares this catalog {@code addMode: "many"} while listing named
-     * options, so those names are handler <b>shapes</b> and the author names each real handler.
-     * Boxed and emitted only when true.
-     */
-    private Boolean authorNamedHandlers;
     /**
      * Spec §4 {@code addMode: "many"} — the shapes a handler of this service type may take, for a catalog
      * whose handler names are the author's to choose.
@@ -109,6 +117,17 @@ public class Service {
     @SerializedName("methods")
     private List<ServiceRemoteFunction> methods;
     private String testGenerationInstruction;
+    /**
+     * The spec's {@code deprecated} — why this construct is superseded, as the document's own prose.
+     *
+     * <p>Distinct from {@link #deprecated}, and deliberately so: that field says <i>that</i> the symbol
+     * carries a {@code @deprecated} annotation, this one says <i>why</i> and names the replacement. A
+     * document may state the latter for a construct whose symbol carries no annotation at all, which is
+     * exactly {@code ftp}'s {@code onFileChange}.
+     */
+    @SerializedName("deprecated")
+    private String deprecationNote;
+
     @SerializedName("isDeprecated")
     private Boolean deprecated;
 
@@ -211,14 +230,6 @@ public class Service {
         this.singleServicePerListenerOnly = singleServicePerListenerOnly;
     }
 
-    public Boolean isAuthorNamedHandlers() {
-        return authorNamedHandlers;
-    }
-
-    public void setAuthorNamedHandlers(Boolean authorNamedHandlers) {
-        this.authorNamedHandlers = authorNamedHandlers;
-    }
-
     public Boolean isNotListenerAttachable() {
         return notListenerAttachable;
     }
@@ -257,5 +268,29 @@ public class Service {
 
     public void setDeprecated(Boolean deprecated) {
         this.deprecated = deprecated;
+    }
+
+    public String getDeprecationNote() {
+        return deprecationNote;
+    }
+
+    public void setDeprecationNote(String deprecationNote) {
+        this.deprecationNote = deprecationNote;
+    }
+
+    public Boolean getSingleServiceOnly() {
+        return singleServiceOnly;
+    }
+
+    public void setSingleServiceOnly(Boolean singleServiceOnly) {
+        this.singleServiceOnly = singleServiceOnly;
+    }
+
+    public List<PlatformDependency> getPlatformDependencies() {
+        return platformDependencies;
+    }
+
+    public void setPlatformDependencies(List<PlatformDependency> platformDependencies) {
+        this.platformDependencies = platformDependencies;
     }
 }

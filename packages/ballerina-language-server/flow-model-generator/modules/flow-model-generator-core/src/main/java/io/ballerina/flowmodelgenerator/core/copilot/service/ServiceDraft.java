@@ -63,6 +63,20 @@ final class ServiceDraft {
     }
 
     /**
+     * Spec §3 {@code deprecated} — why this service type is superseded, as the document's own prose.
+     *
+     * <p>Text rather than a flag: the sentence names what replaces it, which is the only part a reader can
+     * act on. Distinct from the {@code isDeprecated} a compiled symbol carries — that one says <i>that</i>
+     * the type is deprecated and this one says <i>why</i>, and a document may state the latter for a type
+     * whose symbol carries no annotation at all.
+     */
+    void setDeprecated(String deprecated) {
+        if (deprecated != null && !deprecated.isBlank()) {
+            json.addProperty("deprecated", deprecated);
+        }
+    }
+
+    /**
      * Spec §3's array cardinality: this service type is one of several the document declares, so it is
      * "individually optional" rather than mandatory.
      *
@@ -89,11 +103,22 @@ final class ServiceDraft {
     }
 
     /**
-     * Spec §3 {@code multipleServicesPerListenerAllowed: false} — one listener hosts at most one service
-     * of this type. Same naming rule as {@link #setSingleListenerOnly()}.
+     * Spec §2 {@code multipleServicesOfSameTypeAllowed: false} — one listener hosts at most one service of
+     * <i>this type</i>, though it may host others. Same naming rule as {@link #setSingleListenerOnly()}.
      */
     void setSingleServicePerListenerOnly() {
         json.addProperty("singleServicePerListenerOnly", true);
+    }
+
+    /**
+     * Spec §2 {@code multipleServicesAllowed: false} — one listener hosts at most one service, of any type.
+     *
+     * <p>The strictly stronger sibling of {@link #setSingleServicePerListenerOnly()}, and emitted instead
+     * of it rather than alongside: "at most one service" already entails "at most one of this type", so
+     * stating both would present one restriction as two.
+     */
+    void setSingleServiceOnly() {
+        json.addProperty("singleServiceOnly", true);
     }
 
     /**
@@ -110,6 +135,16 @@ final class ServiceDraft {
     void setRequiredImports(JsonArray imports) {
         if (imports != null && !imports.isEmpty()) {
             json.add("requiredImports", imports);
+        }
+    }
+
+    /**
+     * Spec §2.1 {@code listeners[].platformDependencies}: native artifacts the build cannot fetch. Omitted
+     * when the connector needs none, which is every library but {@code sap.jco}.
+     */
+    void setPlatformDependencies(JsonArray dependencies) {
+        if (dependencies != null && !dependencies.isEmpty()) {
+            json.add("platformDependencies", dependencies);
         }
     }
 
@@ -168,22 +203,6 @@ final class ServiceDraft {
      */
     void setNotListenerAttachable() {
         json.addProperty("notListenerAttachable", true);
-    }
-
-    /**
-     * Spec §4 — the document declares this catalog {@code addMode: "many"} (open-ended, user-named) but
-     * supplies named options rather than the single {@code "*"} entry, so the names it lists are handler
-     * <b>shapes</b> and the author picks each real name.
-     *
-     * <p>Emitted only when true, per the omission rule. Without it a consumer renders {@code grpc}'s
-     * {@code unary}/{@code serverStreaming}/{@code clientStreaming}/{@code bidiStreaming} exactly as it
-     * renders {@code salesforce}'s {@code onCreate}/{@code onUpdate} — and only the latter are names a
-     * real program contains. A gRPC handler is named after its proto RPC ({@code SayHello}), so the four
-     * shape labels appear in no generated service; presenting them as a fixed vocabulary invites a model
-     * to write methods the compiler will never dispatch to.
-     */
-    void setAuthorNamedHandlers() {
-        json.addProperty("authorNamedHandlers", true);
     }
 
     /**
@@ -277,7 +296,9 @@ final class ServiceDraft {
      */
     JsonObject toJson() {
         // Templates precede methods, mirroring the order a consumer renders them: the rule for writing a
-        // handler comes before any fixed vocabulary. No corpus service type carries both.
+        // handler comes before any fixed vocabulary. Spec §5.1 made the two coexist -- `websocket`
+        // declares nine named handlers beside two open-ended shapes -- so this is an ordering, not a
+        // choice between branches.
         if (!handlerTemplates.isEmpty()) {
             json.add("handlerTemplates", handlerTemplates);
         }

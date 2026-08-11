@@ -24,8 +24,19 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * <b>Spec §3 {@code multipleListenersAllowed} / {@code multipleServicesPerListenerAllowed}</b>: both are
- * stated, not left to a default.
+ * <b>Spec §3.1 attachment cardinality</b>: the three facts are stated, not left to a default, and the one
+ * conditional between them holds.
+ *
+ * <p>Spec §3.1 splits the question three ways, and <b>two of the three now live on the listener</b>,
+ * because they describe what a listener instance will accept rather than anything about the service type:
+ * {@code multipleServicesAllowed} ("may one listener host more than one service at all?") and
+ * {@code multipleServicesOfSameTypeAllowed} ("may two of those be the same type?"). Only
+ * {@code multipleListenersAllowed} ("may one service attach to several listeners?") stays on the service
+ * type.
+ *
+ * <p>The conditional is spec §2's: {@code multipleServicesOfSameTypeAllowed} is omitted when
+ * {@code multipleServicesAllowed} is {@code false}, "since one service at most already rules it out".
+ * Stating both is not merely redundant but contradictory-looking, so it is an ERROR rather than a warning.
  *
  * <p>The schema already lists both in {@code serviceType.required}, so this check is not re-deciding
  * whether they are mandatory — it is the part of that requirement the pipeline can enforce at load time,
@@ -73,10 +84,25 @@ final class CardinalityCheck implements DocumentCheck {
                         "absent: read as permissive. State it explicitly — the consumer emits a note only "
                                 + "for `false`, so an omission and a `true` are indistinguishable"));
             }
-            if (serviceType.multipleServicesPerListenerAllowed() == null) {
-                findings.add(Finding.warn(this, path + ".multipleServicesPerListenerAllowed",
+        }
+
+        List<TriggerMetadataModel.Listener> listeners = DocumentWalk.safe(document.listeners());
+        for (int i = 0; i < listeners.size(); i++) {
+            TriggerMetadataModel.Listener listener = listeners.get(i);
+            if (listener == null) {
+                // Reported by ListenerRefCheck; nothing to add here.
+                continue;
+            }
+            String path = "listeners[" + i + "]";
+            if (listener.multipleServicesAllowed() == null) {
+                findings.add(Finding.warn(this, path + ".multipleServicesAllowed",
                         "absent: read as permissive. State it explicitly — the consumer emits a note only "
                                 + "for `false`, so an omission and a `true` are indistinguishable"));
+            } else if (Boolean.FALSE.equals(listener.multipleServicesAllowed())
+                    && listener.multipleServicesOfSameTypeAllowed() != null) {
+                findings.add(Finding.error(this, path + ".multipleServicesOfSameTypeAllowed",
+                        "stated alongside `multipleServicesAllowed: false`; spec §2 omits it there, since"
+                                + " one service at most already rules out two of the same type"));
             }
         }
         return findings;

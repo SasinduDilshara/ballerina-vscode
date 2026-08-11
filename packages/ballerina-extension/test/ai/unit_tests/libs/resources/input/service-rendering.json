@@ -8,8 +8,21 @@
         "type": "Record",
         "description": "Configuration for the demo listener.",
         "fields": [
-          { "name": "secureSocket", "type": { "name": "string" }, "description": "TLS material", "optional": true },
-          { "name": "timeout", "type": { "name": "decimal" }, "default": "30" }
+          {
+            "name": "secureSocket",
+            "type": {
+              "name": "string"
+            },
+            "description": "TLS material",
+            "optional": true
+          },
+          {
+            "name": "timeout",
+            "type": {
+              "name": "decimal"
+            },
+            "default": "30"
+          }
         ]
       },
       {
@@ -17,23 +30,68 @@
         "type": "Record",
         "description": "The record constraining @snapshotdemo:ServiceConfig.",
         "fields": [
-          { "name": "path", "type": { "name": "string" }, "description": "Mandatory — an empty {} would not compile" },
-          { "name": "retries", "type": { "name": "int" }, "optional": true }
+          {
+            "name": "path",
+            "type": {
+              "name": "string"
+            },
+            "description": "Mandatory — an empty {} would not compile"
+          },
+          {
+            "name": "retries",
+            "type": {
+              "name": "int"
+            },
+            "optional": true
+          }
         ]
       },
       {
         "name": "EventKind",
         "type": "Enum",
         "description": "Kinds of event the service can receive.",
-        "members": [{ "name": "CREATED" }, { "name": "UPDATED" }, { "name": "DELETED" }]
+        "members": [
+          {
+            "name": "CREATED"
+          },
+          {
+            "name": "UPDATED"
+          },
+          {
+            "name": "DELETED"
+          }
+        ]
       },
       {
         "name": "Event",
         "type": "Record",
         "description": "One delivered event.",
         "fields": [
-          { "name": "kind", "type": { "name": "EventKind", "links": [{ "category": "internal", "recordName": "EventKind" }] } },
-          { "name": "payload", "type": { "name": "Request", "links": [{ "category": "external", "recordName": "Request", "libraryName": "ballerina/http" }] } }
+          {
+            "name": "kind",
+            "type": {
+              "name": "EventKind",
+              "links": [
+                {
+                  "category": "internal",
+                  "recordName": "EventKind"
+                }
+              ]
+            }
+          },
+          {
+            "name": "payload",
+            "type": {
+              "name": "Request",
+              "links": [
+                {
+                  "category": "external",
+                  "recordName": "Request",
+                  "libraryName": "ballerina/http"
+                }
+              ]
+            }
+          }
         ]
       }
     ],
@@ -42,20 +100,54 @@
       {
         "type": "fixed",
         "name": "Service",
-        "requiredImports": [{ "module": "ballerinax/snapshotdemo.driver", "alias": "_" }],
+        "requiredImports": [
+          {
+            "module": "ballerinax/snapshotdemo.driver",
+            "alias": "_"
+          }
+        ],
         "annotations": [
           {
             "name": "ServiceConfig",
             "presence": "required",
             "attachPoint": "service",
-            "typeConstraint": { "name": "DemoServiceConfig", "links": [{ "category": "internal", "recordName": "DemoServiceConfig" }] }
+            "typeConstraint": {
+              "name": "DemoServiceConfig",
+              "links": [
+                {
+                  "category": "internal",
+                  "recordName": "DemoServiceConfig"
+                }
+              ]
+            }
           }
         ],
         "listener": {
           "name": "snapshotdemo:Listener",
           "parameters": [
-            { "name": "port", "description": "Required — must NOT be given a default", "type": { "name": "int" }, "default": "0" },
-            { "name": "config", "description": "Genuinely optional", "type": { "name": "ListenerConfiguration", "links": [{ "category": "internal", "recordName": "ListenerConfiguration" }] }, "optional": true, "default": "{}" }
+            {
+              "name": "port",
+              "description": "Required — must NOT be given a default",
+              "type": {
+                "name": "int"
+              },
+              "default": "0"
+            },
+            {
+              "name": "config",
+              "description": "Genuinely optional",
+              "type": {
+                "name": "ListenerConfiguration",
+                "links": [
+                  {
+                    "category": "internal",
+                    "recordName": "ListenerConfiguration"
+                  }
+                ]
+              },
+              "optional": true,
+              "default": "{}"
+            }
           ]
         },
         "methods": [
@@ -64,10 +156,82 @@
             "type": "remote",
             "description": "Handles one event.",
             "parameters": [
-              { "name": "event", "type": { "name": "Event", "links": [{ "category": "internal", "recordName": "Event" }] } },
-              { "name": "caller", "type": { "name": "Caller" }, "optional": true }
+              {
+                "name": "event",
+                "type": {
+                  "name": "Event",
+                  "links": [
+                    {
+                      "category": "internal",
+                      "recordName": "Event"
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "caller",
+                "type": {
+                  "name": "Caller"
+                },
+                "optional": true
+              }
             ],
-            "return": { "type": { "name": "error?" } }
+            "return": {
+              "type": {
+                "name": "error?"
+              }
+            }
+          },
+          {
+            "name": "onFileChange",
+            "type": "resource",
+            "description": "Reports which files changed.",
+            "accessor": "get",
+            "accessorValues": [
+              "get",
+              "post"
+            ],
+            "accessorRequired": true,
+            "pathRequired": true,
+            "deprecated": "Superseded by the typed content handlers, which deliver the file body already bound to a declared type.",
+            "optional": true,
+            "parameters": [
+              {
+                "name": "event",
+                "description": "The change event.",
+                "type": {
+                  "name": "Event",
+                  "links": [
+                    {
+                      "category": "internal",
+                      "recordName": "Event"
+                    }
+                  ]
+                },
+                "optional": false
+              }
+            ],
+            "return": {
+              "type": {
+                "name": "error?"
+              }
+            }
+          }
+        ],
+        "handlerTemplates": [
+          {
+            "name": "*",
+            "type": "resource",
+            "description": "One user-named route.",
+            "accessorOpen": true,
+            "accessorRequired": true,
+            "pathRequired": true,
+            "parameters": [],
+            "return": {
+              "type": {
+                "name": "error?"
+              }
+            }
           }
         ]
       },
@@ -81,10 +245,22 @@
             "module": "ballerinax/othermod",
             "presence": "optional",
             "attachPoint": "service",
-            "typeConstraint": { "name": "OtherServiceConfig", "links": [{ "category": "external", "recordName": "OtherServiceConfig", "libraryName": "ballerinax/othermod" }] }
+            "typeConstraint": {
+              "name": "OtherServiceConfig",
+              "links": [
+                {
+                  "category": "external",
+                  "recordName": "OtherServiceConfig",
+                  "libraryName": "ballerinax/othermod"
+                }
+              ]
+            }
           }
         ],
-        "listener": { "name": "snapshotdemo:Listener", "parameters": [] },
+        "listener": {
+          "name": "snapshotdemo:Listener",
+          "parameters": []
+        },
         "methods": []
       },
       {
@@ -93,12 +269,33 @@
         "instructions": "- Write resource functions with author-chosen paths.\n- The listener must be declared at module level.",
         "listener": {
           "name": "snapshotdemo:OpenListener",
-          "parameters": [{ "name": "port", "description": "Listening port", "type": { "name": "int" } }]
+          "parameters": [
+            {
+              "name": "port",
+              "description": "Listening port",
+              "type": {
+                "name": "int"
+              }
+            }
+          ]
         }
       }
     ],
     "annotations": [
-      { "name": "ServiceConfig", "attachmentPoint": "SERVICE", "description": "Configures the demo service.", "typeConstraint": { "name": "DemoServiceConfig", "links": [{ "category": "internal", "recordName": "DemoServiceConfig" }] } }
+      {
+        "name": "ServiceConfig",
+        "attachmentPoint": "SERVICE",
+        "description": "Configures the demo service.",
+        "typeConstraint": {
+          "name": "DemoServiceConfig",
+          "links": [
+            {
+              "category": "internal",
+              "recordName": "DemoServiceConfig"
+            }
+          ]
+        }
+      }
     ]
   }
 ]

@@ -24,15 +24,22 @@ import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 
 /**
- * Spec §9 {@code dataBindingRules[]} — how a parameter's raw value may be projected into a user-defined
+ * Spec §9 {@code params[].dataBinding} — how a parameter's raw value may be projected into a user-defined
  * type.
  *
  * <p>Every type name is written as a {@code {name, links}} pair rather than bare text, for one reason: the
  * type closure that decides which definitions reach the prompt walks links. A binding note naming
  * {@code AnydataConsumerRecord} with no way to reach its declaration would tell the model to include a
  * record the file never defines.
+ *
+ * <p><b>The wire shape mirrors the document's</b> — variants, each with a bound, its exclusions, and its
+ * shapes — rather than flattening back to the old {@code modes} array. Flattening would have to pick one
+ * bound per binding, and spec §9's whole point is that two variants can share shapes while differing in
+ * bound (ftp's CSV rows: {@code string[]} or {@code record {}}), or share a bound while differing in shape
+ * (kafka's bare-vs-included). Either collapse silently deletes half the surface.
  *
  * @since 1.7.0
  */
@@ -51,22 +58,20 @@ final class DataBindingAspect implements ParamAspect {
     @Override
     public void contribute(ParamScope scope, ParamDraft draft) {
         TriggerMetadataModel.ServiceType.Param param = scope.param();
-        if (param == null || param.dataBinding() == null || param.dataBinding().isBlank()) {
+        if (param == null || param.dataBinding() == null) {
             return;
         }
         TriggerScope service = scope.handler().service();
         String packageName = service.packageName();
         Optional<DataBindingResolver.BindingSpec> spec = DataBindingResolver.resolve(
-                param.dataBinding(), service.document(), packageName, service.declaresType(),
-                envelopeFields(service));
+                param.dataBinding(), packageName, service.declaresType(), envelopeFields(service));
 
         if (spec.isEmpty()) {
-            // Told apart so the diagnostic is actionable: a rule that does not exist is a broken reference,
-            // whereas a rule whose every mode was unrecognised is a vocabulary problem.
-            String reason = DataBindingResolver.declaresRule(service.document(), param.dataBinding())
-                    ? "its dataBindingRules[] entry declares no mode this version understands"
-                    : "no dataBindingRules[] entry declares the id '" + param.dataBinding() + "'";
-            draft.drop(id(), specSection(), param.dataBinding(), reason);
+            // There is no id to have mis-resolved any more — a binding is written inline — so the only way
+            // to arrive here is a binding whose every variant was unusable. Reported against the parameter,
+            // which is now also where the document author has to edit.
+            draft.drop(id(), specSection(), param.name() == null ? "<unnamed param>" : param.name(),
+                    "its dataBinding declares no variant with both a bound and a readable shape");
             return;
         }
         draft.setBinding(toJson(spec.get(), packageName));
@@ -77,51 +82,47 @@ final class DataBindingAspect implements ParamAspect {
      * compiled package is behind this scope — in which case {@code fixedFields} is simply not derived,
      * rather than guessed.
      */
-    private static java.util.function.Function<String, List<String>> envelopeFields(TriggerScope scope) {
+    private static Function<String, List<String>> envelopeFields(TriggerScope scope) {
         TriggerSemanticFacts facts = scope.facts();
         return facts == null ? name -> List.of() : facts::recordFieldNames;
     }
 
     private static JsonObject toJson(DataBindingResolver.BindingSpec spec, String packageName) {
         JsonObject json = new JsonObject();
-        if (spec.arrayCardinality()) {
-            // Emitted only when true, per the omission rule. The renderer must read it as "a mode's type is
-            // the array *element* type" — kafka's param is already `AnydataConsumerRecord[]`, so treating
-            // this as "make it an array" would pluralize twice.
-            json.addProperty("array", true);
+        JsonArray variants = new JsonArray();
+        for (DataBindingResolver.Variant variant : spec.variants()) {
+            variants.add(variantToJson(variant, packageName));
         }
-        JsonArray modes = new JsonArray();
-        for (DataBindingResolver.Mode mode : spec.modes()) {
-            modes.add(modeToJson(mode, packageName));
-        }
-        json.add("modes", modes);
+        json.add("typedescs", variants);
         return json;
     }
 
-    private static JsonObject modeToJson(DataBindingResolver.Mode mode, String packageName) {
+    private static JsonObject variantToJson(DataBindingResolver.Variant variant, String packageName) {
         JsonObject json = new JsonObject();
-        switch (mode) {
-            case DirectModeResolver.Direct direct -> {
-                json.addProperty("mode",
-                        TriggerMetadataModel.DataBindingRule.SupportedMode.MODE_DIRECT);
-                addTypes(json, "typeConstraint", direct.typeConstraint(), packageName);
-                addTypes(json, "excludes", direct.excludes(), packageName);
-            }
-            case IncludedRecordModeResolver.IncludedRecord included -> {
-                json.addProperty("mode",
-                        TriggerMetadataModel.DataBindingRule.SupportedMode.MODE_INCLUDED_RECORD);
-                if (included.envelope() != null) {
-                    json.add("includes",
-                            TypeResolver.resolveTypeWithLinks(included.envelope(), packageName));
-                }
-                addStrings(json, "bindableFields", included.bindableFields());
-                addStrings(json, "fixedFields", included.fixedFields());
-            }
-            case StreamableModeResolver.Streamable streamable -> {
-                json.addProperty("mode",
-                        TriggerMetadataModel.DataBindingRule.SupportedMode.MODE_STREAMABLE);
-                addTypes(json, "typeConstraint", streamable.typeConstraint(), packageName);
-            }
+        json.add("constraint", TypeResolver.resolveTypeWithLinks(variant.constraint(), packageName));
+        addTypes(json, "excludes", variant.excludes(), packageName);
+        JsonArray shapes = new JsonArray();
+        for (ShapeResolver.ResolvedShape shape : variant.shapes()) {
+            shapes.add(shapeToJson(shape, packageName));
+        }
+        json.add("shapes", shapes);
+        return json;
+    }
+
+    private static JsonObject shapeToJson(ShapeResolver.ResolvedShape shape, String packageName) {
+        JsonObject json = new JsonObject();
+        json.addProperty("form", shape.form());
+        if (shape.element() != null) {
+            json.addProperty("element", shape.element());
+        }
+        if (shape.envelope() != null) {
+            json.add("envelope", TypeResolver.resolveTypeWithLinks(shape.envelope(), packageName));
+        }
+        addStrings(json, "bindableFields", shape.bindableFields());
+        addStrings(json, "fixedFields", shape.fixedFields());
+        if (shape.completionType() != null) {
+            json.add("completionType",
+                    TypeResolver.resolveTypeWithLinks(shape.completionType(), packageName));
         }
         return json;
     }

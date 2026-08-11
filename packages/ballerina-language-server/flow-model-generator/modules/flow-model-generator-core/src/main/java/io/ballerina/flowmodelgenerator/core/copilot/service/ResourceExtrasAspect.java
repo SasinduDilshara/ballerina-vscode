@@ -19,22 +19,19 @@
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
 /**
- * Spec §5's GraphQL resource extras — {@code fieldName} and the informational {@code graphqlOperation}.
+ * Spec §5's resource extras — the accessor and path of {@code resource function <accessor> <path>()}.
  *
- * <p>{@code accessor} is deliberately <b>not</b> written here even though the GraphQL resolver reads it: the
- * accessor is one decision with one owner ({@link HandlerKindAspect}, via
- * {@link AccessorPrecedencePolicy}), because HTTP's {@code method} can supply it too. This component owns
- * only what is GraphQL's alone.
+ * <p>One aspect for both protocol families, because spec §5 made the two slots library-neutral. It replaces
+ * the separate HTTP and GraphQL aspects, which existed only because the schema used to name the same two
+ * positions differently per protocol.
  *
- * <p>Metadata-driven handlers only, for the same reason as {@link HttpResourceExtrasAspect}.
- *
- * @since 1.7.0
+ * @since 1.10.0
  */
-final class GraphqlResourceExtrasAspect implements HandlerAspect {
+final class ResourceExtrasAspect implements HandlerAspect {
 
     @Override
     public String id() {
-        return "graphqlResourceExtras";
+        return "resourceExtras";
     }
 
     @Override
@@ -45,11 +42,15 @@ final class GraphqlResourceExtrasAspect implements HandlerAspect {
     @Override
     public void contribute(HandlerScope scope, HandlerDraft draft) {
         if (scope.isConcrete()) {
+            // A concrete service type's methods are read from the semantic model, which already carries
+            // the accessor in the declaration itself.
             return;
         }
-        GraphqlResourceExtrasResolver.resolve(scope.option()).ifPresent(extras -> {
-            draft.setFieldName(extras.fieldNameForm(), extras.fieldNameRequired());
-            draft.setGraphqlOperation(extras.operation());
+        ResourceExtrasResolver.resolve(scope.option()).ifPresent(extras -> {
+            draft.setAccessor(extras.accessor());
+            draft.setAccessorConstraint(extras.accessorValues(), extras.accessorRequired(),
+                    extras.accessorOpen());
+            draft.setPathRequired(extras.pathRequired());
         });
     }
 }

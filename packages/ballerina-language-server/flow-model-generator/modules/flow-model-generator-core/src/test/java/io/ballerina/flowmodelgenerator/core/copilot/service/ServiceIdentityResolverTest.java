@@ -86,8 +86,8 @@ public class ServiceIdentityResolverTest {
         //   service websocket:Service on new websocket:Listener(9090) { }
         //   ERROR service type is not supported by the listener
         // Calling the two alternatives would tell a generator it may write exactly that.
-        TriggerMetadataModel.Listener hostsOne = new TriggerMetadataModel.Listener(
-                new TypeRef("Listener", null), List.of("upgradeService"), null);
+        TriggerMetadataModel.Listener hostsOne = new TriggerMetadataModel.Listener(new TypeRef("Listener", null), null,
+                List.of("upgradeService"), null, null, null, null);
         Assert.assertEquals(ListenerPairingResolver.hostedServiceTypeCount(hostsOne,
                 List.of(named("upgradeService"), named("service"))), 1);
     }
@@ -95,9 +95,8 @@ public class ServiceIdentityResolverTest {
     @Test
     public void testEveryHostableServiceTypeCounts() {
         // mcp's shape: its listener lists all four, so all four genuinely are alternatives.
-        TriggerMetadataModel.Listener hostsAll = new TriggerMetadataModel.Listener(
-                new TypeRef("Listener", null),
-                List.of("service", "advancedService", "streamableHttpService"), null);
+        TriggerMetadataModel.Listener hostsAll = new TriggerMetadataModel.Listener(new TypeRef("Listener", null), null,
+                List.of("service", "advancedService", "streamableHttpService"), null, null, null, null);
         Assert.assertEquals(ListenerPairingResolver.hostedServiceTypeCount(hostsAll,
                 List.of(named("service"), named("advancedService"), named("streamableHttpService"))), 3);
     }
@@ -107,7 +106,7 @@ public class ServiceIdentityResolverTest {
         // Spec §2's `services` is optional. A listener declaring none says nothing about hostability, so
         // the document's own count stands — the same fallback the pairing rule already applies.
         Assert.assertEquals(ListenerPairingResolver.hostedServiceTypeCount(
-                new TriggerMetadataModel.Listener(new TypeRef("Listener", null), null, null),
+                new TriggerMetadataModel.Listener(new TypeRef("Listener", null), null, null, null, null, null, null),
                 List.of(named("a"), named("b"))), 2);
         Assert.assertEquals(ListenerPairingResolver.hostedServiceTypeCount(
                 null, List.of(named("a"), named("b"))), 2);
@@ -146,12 +145,12 @@ public class ServiceIdentityResolverTest {
     }
 
     private static TriggerMetadataModel.ServiceType serviceType() {
-        return new TriggerMetadataModel.ServiceType("service", new TypeRef("Service", null), false,
-                true, true, null, null, null);
+        return new TriggerMetadataModel.ServiceType("service", new TypeRef("Service", null), false, true, null, null,
+                null, null, null);
     }
 
     private static TriggerMetadataModel.ServiceType named(String id) {
-        return new TriggerMetadataModel.ServiceType(id, new TypeRef("Service", null), false,
-                true, true, null, null, null);
+        return new TriggerMetadataModel.ServiceType(id, new TypeRef("Service", null), false, true, null, null, null,
+                null, null);
     }
 }

@@ -19,155 +19,138 @@
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
+import io.ballerina.modelgenerator.commons.trigger.models.TypeRef;
+import io.ballerina.modelgenerator.commons.trigger.utils.TypeRefResolver;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Predicate;
-import java.util.logging.Logger;
 
 /**
- * Owns <b>spec §9 {@code dataBindingRules[]}</b> at the rule level: resolving a
- * {@code params[].dataBinding} id against the registry, reading {@code cardinality}, and dispatching each
- * {@code supportedModes[]} entry to the resolver that owns its mode.
+ * Owns <b>spec §9 {@code params[].dataBinding}</b> at the variant level: reading each {@code typedescs[]}
+ * entry's bound and exclusions, and dispatching its {@code shapes[]} to {@link ShapeResolver}.
  *
- * <p>Before this component the whole registry was collapsed to a <b>boolean</b>: {@code dataBinding != null}
- * was consulted only to decide whether an unnamed parameter should be called {@code payload}. Everything
- * §9 actually says — which types the slot may be bound to, which are excluded, that a user record may
- * include the envelope and override named fields, that a stream form exists — reached the prompt nowhere.
+ * <h2>What changed from the registry form</h2>
  *
- * <p><b>The mode is the unit of change.</b> Adding a fourth mode, or changing what {@code includedRecord}
- * means, touches exactly one sibling resolver and leaves this dispatcher and the other two untouched.
+ * <p>Spec v1.0 moved the binding <b>inline onto the parameter</b> and deleted the top-level
+ * {@code dataBindingRules[]} registry, which removes an entire failure mode rather than relocating it:
+ * there is no id, so there is no dangling reference to resolve, report, or drop a parameter over. What used
+ * to be this component's most common diagnostic — "no {@code dataBindingRules[]} entry declares this id" —
+ * cannot occur.
  *
- * <p><b>Degradation.</b> Neither failure is fatal to anything: an unresolvable id yields
- * {@link Optional#empty()} so the caller can report it against the parameter that named it, and an
- * unrecognised {@code mode} is skipped with a warning so a future mode degrades instead of breaking the
- * library. Nothing here throws.
+ * <p>It also changed the unit of variation. The old {@code supportedModes[]} were alternative <i>modes</i>
+ * over one shared rule, with {@code cardinality} hoisted to the rule so every mode was batched or none
+ * was. The new {@code typedescs[]} are independent <i>variants</i>, each with its own bound, its own
+ * exclusions and its own shapes — so one variant can be batched while its sibling is not, and two variants
+ * may share a bound and differ only in shape. Nothing about the old shape could express that; kafka's
+ * "array of bare values or array of envelope-including records" was approximated by a rule-level flag.
+ *
+ * <p><b>Degradation.</b> Nothing here throws. A variant naming no bound, or one whose every shape is
+ * unreadable, is skipped; a binding whose every variant is skipped yields {@link Optional#empty()} so the
+ * caller can report it against the parameter that declared it.
  *
  * @since 1.7.0
  */
 final class DataBindingResolver {
-
-    private static final Logger LOGGER = Logger.getLogger(DataBindingResolver.class.getName());
 
     private DataBindingResolver() {
         // Prevent instantiation
     }
 
     /**
-     * One binding mode a slot supports. Sealed so a new mode cannot be added without every consumer being
-     * forced to handle it — the renderer switches over these, and a silently unhandled mode would drop a
-     * whole binding capability from the prompt.
-     */
-    sealed interface Mode permits DirectModeResolver.Direct, IncludedRecordModeResolver.IncludedRecord,
-            StreamableModeResolver.Streamable {
-    }
-
-    /**
-     * A resolved {@code dataBindingRules[]} entry.
+     * One resolved {@code typedescs[]} variant.
      *
-     * @param arrayCardinality spec §9 {@code cardinality: "array"} — "the bound value is a batch; a mode's
-     *                         type is the array <i>element</i> type, not the whole param type". Carried as
-     *                         a flag rather than folded into the mode types precisely so the renderer
-     *                         cannot pluralize a type that the parameter's own signature already pluralized
-     * @param modes            the supported modes, in document order; never empty
+     * @param constraint this variant's upper bound, as module-prefixed signature text
+     * @param excludes   instantiations a sibling variant owns, which this one must not claim. A negative
+     *                   constraint, derivable from nothing else, so a consumer states it even when every
+     *                   positive type is already visible
+     * @param shapes     the legal embeddings of this variant's bound, in document order; never empty
      */
-    record BindingSpec(boolean arrayCardinality, List<Mode> modes) {
+    record Variant(String constraint, List<String> excludes, List<ShapeResolver.ResolvedShape> shapes) {
     }
 
     /**
-     * Resolves the rule a parameter's {@code dataBinding} id names.
+     * A resolved {@code params[].dataBinding}.
+     *
+     * @param variants the independent variants, in document order; never empty
+     */
+    record BindingSpec(List<Variant> variants) {
+    }
+
+    /**
+     * Resolves a parameter's inline binding.
      *
      * <p>{@code envelopeFields} is a plain lookup function rather than a facts object on purpose: it is the
-     * only introspected input §9 needs (spec §9: "No {@code fixedFields} — always derivable as the
-     * envelope's fields minus {@code bindableFields}"), and taking it as a function keeps this resolver and
-     * {@link IncludedRecordModeResolver} unit-testable without a compiled package behind them.
+     * only introspected input §9 needs (spec §9: "No {@code fixedFields}, they are the envelope's fields
+     * minus {@code bindableFields}"), and taking it as a function keeps this resolver and
+     * {@link ShapeResolver} unit-testable without a compiled package behind them.
      *
-     * @param dataBindingId  the {@code params[].dataBinding} id; may be {@code null}
-     * @param document       the whole document, which owns the {@code dataBindingRules[]} registry
+     * @param binding        the parameter's {@code dataBinding}; may be {@code null}
      * @param packageName    the resolved package name, for rendering type references per spec §1
      * @param declaresType   whether the home module declares a type of a given name
      * @param envelopeFields the declared field names of a record, by bare type name
-     * @return the resolved rule, or empty when the slot names none or names one that does not exist
+     * @return the resolved binding, or empty when it states nothing a consumer can act on
      */
-    static Optional<BindingSpec> resolve(String dataBindingId, TriggerMetadataModel document,
-                                         String packageName, Predicate<String> declaresType,
+    static Optional<BindingSpec> resolve(TriggerMetadataModel.DataBinding binding, String packageName,
+                                         Predicate<String> declaresType,
                                          Function<String, List<String>> envelopeFields) {
-        if (dataBindingId == null || dataBindingId.isBlank() || document == null) {
+        if (binding == null || binding.typedescs() == null || binding.typedescs().isEmpty()) {
             return Optional.empty();
         }
-        TriggerMetadataModel.DataBindingRule rule = ruleById(document, dataBindingId);
-        if (rule == null) {
-            return Optional.empty();
-        }
-        List<Mode> modes = new ArrayList<>();
-        for (TriggerMetadataModel.DataBindingRule.SupportedMode supported : safe(rule.supportedModes())) {
-            if (supported == null) {
+        List<Variant> variants = new ArrayList<>();
+        for (TriggerMetadataModel.TypedescVariant variant : binding.typedescs()) {
+            if (variant == null) {
                 continue;
             }
-            Mode mode = dispatch(supported, packageName, declaresType, envelopeFields);
-            if (mode == null) {
-                LOGGER.warning("Skipped unknown dataBindingRules[].supportedModes[].mode '" + supported.mode()
-                        + "' in rule '" + dataBindingId + "' (spec §9 defines direct, includedRecord, "
-                        + "streamable)");
+            String constraint = render(variant.constraint(), packageName, declaresType);
+            if (constraint == null) {
+                // A variant with no bound constrains nothing, so there is no type for a consumer to offer.
                 continue;
             }
-            modes.add(mode);
+            List<ShapeResolver.ResolvedShape> shapes = new ArrayList<>();
+            for (TriggerMetadataModel.Shape shape : safeShapes(variant)) {
+                ShapeResolver.ResolvedShape resolved =
+                        ShapeResolver.resolve(shape, packageName, declaresType, envelopeFields);
+                if (resolved != null) {
+                    shapes.add(resolved);
+                }
+            }
+            if (shapes.isEmpty()) {
+                // The bound is known but no way of embedding it is, which describes no declarable type.
+                continue;
+            }
+            variants.add(new Variant(constraint, renderAll(variant.excludes(), packageName, declaresType),
+                    List.copyOf(shapes)));
         }
-        if (modes.isEmpty()) {
-            // A rule whose every mode was unusable states nothing a reader can act on.
-            return Optional.empty();
-        }
-        return Optional.of(new BindingSpec(isArray(rule), modes));
+        return variants.isEmpty() ? Optional.empty() : Optional.of(new BindingSpec(List.copyOf(variants)));
     }
 
-    /**
-     * Whether the document declares a rule under this id — the question a caller asks to tell "the slot
-     * names no rule" from "the slot names a rule that does not exist", which are different defects.
-     *
-     * @param document      the document; may be {@code null}
-     * @param dataBindingId the id to look for; may be {@code null}
-     * @return whether the registry holds an entry with this id
-     */
-    static boolean declaresRule(TriggerMetadataModel document, String dataBindingId) {
-        return document != null && dataBindingId != null && ruleById(document, dataBindingId) != null;
+    private static List<TriggerMetadataModel.Shape> safeShapes(TriggerMetadataModel.TypedescVariant variant) {
+        return variant.shapes() == null ? List.of() : variant.shapes();
     }
 
-    private static TriggerMetadataModel.DataBindingRule ruleById(TriggerMetadataModel document, String id) {
-        if (document.dataBindingRules() == null) {
+    private static List<String> renderAll(List<TypeRef> refs, String packageName,
+                                          Predicate<String> declaresType) {
+        if (refs == null || refs.isEmpty()) {
+            return List.of();
+        }
+        List<String> rendered = new ArrayList<>();
+        for (TypeRef ref : refs) {
+            String value = render(ref, packageName, declaresType);
+            if (value != null) {
+                rendered.add(value);
+            }
+        }
+        return rendered;
+    }
+
+    private static String render(TypeRef ref, String packageName, Predicate<String> declaresType) {
+        if (ref == null) {
             return null;
         }
-        for (TriggerMetadataModel.DataBindingRule rule : document.dataBindingRules()) {
-            if (rule != null && id.equals(rule.id())) {
-                return rule;
-            }
-        }
-        return null;
-    }
-
-    private static Mode dispatch(TriggerMetadataModel.DataBindingRule.SupportedMode supported,
-                                 String packageName, Predicate<String> declaresType,
-                                 Function<String, List<String>> envelopeFields) {
-        String mode = supported.mode();
-        if (TriggerMetadataModel.DataBindingRule.SupportedMode.MODE_DIRECT.equals(mode)) {
-            return DirectModeResolver.resolve(supported, packageName, declaresType);
-        }
-        if (TriggerMetadataModel.DataBindingRule.SupportedMode.MODE_INCLUDED_RECORD.equals(mode)) {
-            return IncludedRecordModeResolver.resolve(supported, packageName, declaresType, envelopeFields);
-        }
-        if (TriggerMetadataModel.DataBindingRule.SupportedMode.MODE_STREAMABLE.equals(mode)) {
-            return StreamableModeResolver.resolve(supported, packageName, declaresType);
-        }
-        return null;
-    }
-
-    private static boolean isArray(TriggerMetadataModel.DataBindingRule rule) {
-        return TriggerMetadataModel.DataBindingRule.CARDINALITY_ARRAY.equals(rule.cardinality());
-    }
-
-    private static List<TriggerMetadataModel.DataBindingRule.SupportedMode> safe(
-            List<TriggerMetadataModel.DataBindingRule.SupportedMode> modes) {
-        return modes == null ? List.of() : modes;
+        String rendered = TypeRefResolver.render(ref, packageName, declaresType);
+        return rendered == null || rendered.isBlank() ? null : rendered;
     }
 }

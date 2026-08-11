@@ -48,12 +48,18 @@ final class VocabularyCheck implements DocumentCheck {
     private static final Set<String> HANDLER_ADD_MODE = Set.of("subset", "many");
     private static final Set<String> PARAM_ADD_MODE = Set.of("many");
     private static final Set<String> KIND = Set.of("remote", "resource");
-    private static final Set<String> BINDING_MODE = Set.of("direct", "includedRecord", "streamable");
     private static final Set<String> ATTACH_POINT = Set.of("service", "function", "parameter", "return");
-    private static final Set<String> RULE_TYPE = Set.of("oneOf", "atMostOne");
     private static final Set<String> IMPORT_TYPE = Set.of("driver");
-    private static final Set<String> GRAPHQL_OPERATION = Set.of("query", "mutation", "subscription");
-    private static final Set<String> CARDINALITY = Set.of("array");
+    // Spec §9's shape vocabulary, which replaced the mode vocabulary. `element` is the narrower of the two:
+    // an element is only ever bare or included, never itself an array or a stream.
+    private static final Set<String> SHAPE_FORM = Set.of("bare", "array", "stream", "included");
+    private static final Set<String> SHAPE_ELEMENT = Set.of("bare", "included");
+    private static final Set<String> RULE_SEVERITY = Set.of("error", "warning");
+    private static final Set<String> SUBJECT_KIND =
+            Set.of("identifier", "annotation", "annotationField", "handler", "param");
+    // Spec §2.1's two closed vocabularies.
+    private static final Set<String> PLATFORM_SCOPE = Set.of("provided");
+    private static final Set<String> NATIVE_OS = Set.of("linux", "windows", "macos");
 
     @Override
     public String id() {
@@ -82,6 +88,25 @@ final class VocabularyCheck implements DocumentCheck {
                             "listeners[" + i + "].requiredImports[" + j + "].importType");
                 }
             }
+            List<TriggerMetadataModel.PlatformDependency> platform =
+                    DocumentWalk.safe(listener.platformDependencies());
+            for (int j = 0; j < platform.size(); j++) {
+                TriggerMetadataModel.PlatformDependency dependency = platform.get(j);
+                if (dependency == null) {
+                    continue;
+                }
+                String path = "listeners[" + i + "].platformDependencies[" + j + "]";
+                // Absent scope means "bundled", which is the common case, so only a stated value is checked.
+                optionalMember(findings, dependency.scope(), PLATFORM_SCOPE, path + ".scope");
+                List<TriggerMetadataModel.NativeLibrary> libraries =
+                        DocumentWalk.safe(dependency.nativeLibraries());
+                for (int k = 0; k < libraries.size(); k++) {
+                    if (libraries.get(k) != null) {
+                        member(findings, libraries.get(k).os(), NATIVE_OS,
+                                path + ".nativeLibraries[" + k + "].os");
+                    }
+                }
+            }
         }
 
         List<TriggerMetadataModel.ServiceType> serviceTypes = DocumentWalk.safe(document.serviceTypes());
@@ -102,19 +127,20 @@ final class VocabularyCheck implements DocumentCheck {
             member(findings, annotation.presence(), PRESENCE, path + ".presence");
         }
 
-        for (TriggerMetadataModel.DataBindingRule rule : DocumentWalk.safe(document.dataBindingRules())) {
-            if (rule == null) {
-                continue;
-            }
-            String path = "dataBindingRules[" + rule.id() + "]";
-            optionalMember(findings, rule.cardinality(), CARDINALITY, path + ".cardinality");
-            for (TriggerMetadataModel.DataBindingRule.SupportedMode mode
-                    : DocumentWalk.safe(rule.supportedModes())) {
-                if (mode != null) {
-                    member(findings, mode.mode(), BINDING_MODE, path + ".supportedModes[].mode");
+        BindingWalk.forEachBinding(document, (binding, path) -> {
+            for (TriggerMetadataModel.TypedescVariant variant : DocumentWalk.safe(binding.typedescs())) {
+                if (variant == null) {
+                    continue;
+                }
+                for (TriggerMetadataModel.Shape shape : DocumentWalk.safe(variant.shapes())) {
+                    if (shape != null) {
+                        member(findings, shape.form(), SHAPE_FORM, path + ".typedescs[].shapes[].form");
+                        optionalMember(findings, shape.element(), SHAPE_ELEMENT,
+                                path + ".typedescs[].shapes[].element");
+                    }
                 }
             }
-        }
+        });
         return findings;
     }
 
@@ -127,13 +153,19 @@ final class VocabularyCheck implements DocumentCheck {
                 member(findings, form, IDENTIFIER_FORM, path + ".identifier.form");
             }
         }
-        if (serviceType.handlers() != null) {
-            optionalMember(findings, serviceType.handlers().addMode(), HANDLER_ADD_MODE,
-                    path + ".handlers.addMode");
-        }
-        for (TriggerMetadataModel.ServiceType.Rule rule : DocumentWalk.safe(serviceType.rules())) {
-            if (rule != null) {
-                member(findings, rule.type(), RULE_TYPE, path + ".rules[" + rule.id() + "].type");
+        // `rules[].rule` is an OPEN vocabulary (spec §6: "Adding a constraint is a new registry entry, not
+        // a schema change"), so it is deliberately not checked for membership here — RuleRefCheck reports
+        // an unimplemented id as a warning instead. `severity` and the subject `kind`s are closed.
+        for (TriggerMetadataModel.Rule rule : DocumentWalk.safe(serviceType.rules())) {
+            if (rule == null) {
+                continue;
+            }
+            String rulePath = path + ".rules[" + rule.id() + "]";
+            optionalMember(findings, rule.severity(), RULE_SEVERITY, rulePath + ".severity");
+            for (TriggerMetadataModel.Subject subject : DocumentWalk.safe(rule.subjects())) {
+                if (subject != null) {
+                    member(findings, subject.kind(), SUBJECT_KIND, rulePath + ".subjects[].kind");
+                }
             }
         }
 
@@ -145,9 +177,16 @@ final class VocabularyCheck implements DocumentCheck {
             }
             String optionPath = DocumentWalk.optionPath(index, j);
             member(findings, option.kind(), KIND, optionPath + ".kind");
+            // Spec §5.1 moved addMode here from the handlers block. Absent reads as `subset`, so only a
+            // stated value is checked.
+            optionalMember(findings, option.addMode(), HANDLER_ADD_MODE, optionPath + ".addMode");
             optionalMember(findings, option.presence(), PRESENCE, optionPath + ".presence");
-            optionalMember(findings, option.graphqlOperation(), GRAPHQL_OPERATION,
-                    optionPath + ".graphqlOperation");
+            if (option.accessor() != null) {
+                member(findings, option.accessor().presence(), PRESENCE, optionPath + ".accessor.presence");
+            }
+            if (option.path() != null) {
+                member(findings, option.path().presence(), PRESENCE, optionPath + ".path.presence");
+            }
             List<TriggerMetadataModel.ServiceType.Param> params = DocumentWalk.safe(option.params());
             for (int k = 0; k < params.size(); k++) {
                 TriggerMetadataModel.ServiceType.Param param = params.get(k);

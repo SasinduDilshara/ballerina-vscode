@@ -26,17 +26,23 @@ import java.util.Optional;
  * Owns <b>spec §5 {@code options[].presence}</b>: whether a handler must be implemented or may be omitted.
  *
  * <p>Spec §5 scopes the field precisely — "{@code presence} | Only under {@code addMode: subset}" — and that
- * one sentence is the whole of this component. Under {@code addMode: "many"} the catalog is open-ended and
- * user-named, so "is this particular handler required" is not a question the document is answering; the key
- * is therefore <b>omitted entirely</b> rather than guessed at as {@code required}. That distinction is why
- * the result is an {@code Optional<Boolean>} and not a {@code boolean}: three states, not two.
+ * one sentence is the whole of this component. Under {@code addMode: "many"} the option is a shape the user
+ * instantiates, so "is this particular handler required" is not a question the document is answering; the
+ * key is therefore <b>omitted entirely</b> rather than guessed at as {@code required}. That distinction is
+ * why the result is an {@code Optional<Boolean>} and not a {@code boolean}: three states, not two.
+ *
+ * <p><b>Scoped per option, and an absent {@code addMode} reads as {@code subset}.</b> §5.1 moved the flag
+ * off the {@code handlers} block onto each option and named {@code subset} its default, so the scoping test
+ * is "this option is not {@code many}" rather than "this option says {@code subset}". Testing for the literal
+ * word would drop presence from every option in the corpus that omits {@code addMode} — which is most of
+ * them — and re-introduce exactly the defect the last paragraph describes.
  *
  * <table>
  *   <caption>The three states, and what each means downstream</caption>
  *   <tr><th>Document</th><th>Result</th><th>Rendered</th></tr>
- *   <tr><td>{@code subset} + {@code presence: "required"}</td><td>{@code Optional.of(false)}</td>
+ *   <tr><td>not {@code many} + {@code presence: "required"}</td><td>{@code Optional.of(false)}</td>
  *       <td>{@code // required}</td></tr>
- *   <tr><td>{@code subset} + {@code presence: "optional"}</td><td>{@code Optional.of(true)}</td>
+ *   <tr><td>not {@code many} + {@code presence: "optional"}</td><td>{@code Optional.of(true)}</td>
  *       <td>{@code // optional}</td></tr>
  *   <tr><td>{@code many}, or no {@code presence}</td><td>{@code Optional.empty()}</td>
  *       <td>nothing</td></tr>
@@ -60,13 +66,15 @@ final class HandlerPresenceResolver {
      * Resolves a handler's optionality.
      *
      * @param presence the option's declared {@code presence}; may be {@code null}
-     * @param addMode  the enclosing {@code handlers.addMode}; may be {@code null}
+     * @param addMode  the option's own {@code addMode} (spec §5.1); may be {@code null}, which reads as
+     *                 {@code subset}
      * @return {@code true} for an optional handler, {@code false} for a required one, or empty when the
      *         document is not answering the question
      */
     static Optional<Boolean> resolveOptional(String presence, String addMode) {
-        if (!TriggerMetadataModel.ServiceType.Handlers.ADD_MODE_SUBSET.equals(addMode)) {
-            // Spec §5: presence is meaningful "only under addMode: subset".
+        if (TriggerMetadataModel.ServiceType.HandlerOption.ADD_MODE_MANY.equals(addMode)) {
+            // Spec §5: presence is meaningful "only under addMode: subset", which §5.1 makes the reading
+            // for an absent value — so this tests for `many`, not for the literal word `subset`.
             return Optional.empty();
         }
         if (TriggerMetadataModel.Annotation.PRESENCE_OPTIONAL.equals(presence)) {

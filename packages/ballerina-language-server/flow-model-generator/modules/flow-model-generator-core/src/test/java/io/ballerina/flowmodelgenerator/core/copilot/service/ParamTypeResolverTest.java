@@ -60,14 +60,21 @@ public class ParamTypeResolverTest {
 
     // ---- §7 type, resolved per §1 -------------------------------------------------------
 
+    /**
+     * A data binding whose content is irrelevant here: these tests assert only that a slot which HAS one
+     * is named and typed differently from one that does not. Spec §9's content is ShapeResolverTest's.
+     */
+    private static final TriggerMetadataModel.DataBinding BOUND = new TriggerMetadataModel.DataBinding(
+            List.of(new TriggerMetadataModel.TypedescVariant(new TypeRef("anydata", null), null,
+                    List.of(new TriggerMetadataModel.Shape(
+                            TriggerMetadataModel.Shape.FORM_BARE, null, null, null, null)))));
+
     @Test
     public void testSignatureUsesTheUnionsFirstMember() {
         // §1: "first element = codegen default". kafka's onConsumerRecord payload slot.
-        TriggerMetadataModel.ServiceType.Param union = new TriggerMetadataModel.ServiceType.Param(
-                null,
+        TriggerMetadataModel.ServiceType.Param union = new TriggerMetadataModel.ServiceType.Param(null, null, null,
                 List.of(new TypeRef("AnydataConsumerRecord[]", null),
-                        new TypeRef("BytesConsumerRecord[]", null)),
-                "required", null, "consumerRecordPayload", null);
+                        new TypeRef("BytesConsumerRecord[]", null)), "required", null, BOUND, null);
         Assert.assertEquals(ParamTypeResolver.signature(union, "kafka", KAFKA_TYPES),
                 "kafka:AnydataConsumerRecord[]");
     }
@@ -75,7 +82,7 @@ public class ParamTypeResolverTest {
     @Test
     public void testSignatureOfAnAbsentTypeIsEmpty() {
         Assert.assertEquals(ParamTypeResolver.signature(
-                new TriggerMetadataModel.ServiceType.Param(null, null, "required", null, null, null),
+                new TriggerMetadataModel.ServiceType.Param(null, null, null, null, "required", null, null, null),
                 "kafka", KAFKA_TYPES), "");
     }
 
@@ -128,9 +135,8 @@ public class ParamTypeResolverTest {
     public void testCrossModuleTypesAreTrustedNotVetoed() {
         // §1: a packageInfo-carrying reference belongs to another module, which this module's symbols
         // cannot speak for. Vetoing it would drop every handler that reuses a foreign type.
-        TriggerMetadataModel.ServiceType.Param foreign = new TriggerMetadataModel.ServiceType.Param(
-                "cdcError",
-                List.of(new TypeRef("Error", new TypeRef.PackageInfo("ballerinax", "cdc", "cdc", "1.3.2"))),
+        TriggerMetadataModel.ServiceType.Param foreign = new TriggerMetadataModel.ServiceType.Param("cdcError", null,
+                null, List.of(new TypeRef("Error", new TypeRef.PackageInfo("ballerinax", "cdc", "cdc", "1.3.2"))),
                 "required", null, null, null);
         Assert.assertFalse(ParamTypeResolver.signatureReferencesUndeclaredType(
                 option(List.of(foreign), null), NONE));
@@ -150,10 +156,9 @@ public class ParamTypeResolverTest {
     public void testOnlyTheEmittedUnionMemberIsChecked() {
         // Only the first member reaches the signature, so an undeclared *alternative* must not cost the
         // whole handler — the emitted code never mentions it.
-        TriggerMetadataModel.ServiceType.Param union = new TriggerMetadataModel.ServiceType.Param(
-                null,
-                List.of(new TypeRef("Caller", null), new TypeRef("NotDeclaredAnywhere", null)),
-                "required", null, null, null);
+        TriggerMetadataModel.ServiceType.Param union = new TriggerMetadataModel.ServiceType.Param(null, null, null,
+                List.of(new TypeRef("Caller", null), new TypeRef("NotDeclaredAnywhere", null)), "required", null, null,
+                null);
         Assert.assertFalse(ParamTypeResolver.signatureReferencesUndeclaredType(
                 option(List.of(union), null), Set.of("Caller")::contains));
     }
@@ -226,10 +231,10 @@ public class ParamTypeResolverTest {
     @Test
     public void testACrossModuleAlternativeCarriesItsOwnAlias() {
         // §1's cross-module rule holds for an alternative exactly as for the signature member.
-        TriggerMetadataModel.ServiceType.Param param = new TriggerMetadataModel.ServiceType.Param(
-                "data", List.of(new TypeRef("Request", null),
-                        new TypeRef("Headers", new TypeRef.PackageInfo("ballerina", "http", "http", "1"))),
-                "required", null, null, null);
+        TriggerMetadataModel.ServiceType.Param param = new TriggerMetadataModel.ServiceType.Param("data", null, null,
+                List.of(new TypeRef("Request", null),
+                        new TypeRef("Headers", new TypeRef.PackageInfo("ballerina", "http", "http", "1"))), "required",
+                                null, null, null);
         Assert.assertEquals(ParamTypeResolver.resolveType(param, "mcp", NONE).alternatives(),
                 List.of("http:Headers"));
     }
@@ -241,18 +246,18 @@ public class ParamTypeResolverTest {
         for (String type : types) {
             refs.add(new TypeRef(type, null));
         }
-        return new TriggerMetadataModel.ServiceType.Param("slot", refs, "required", null, null, null);
+        return new TriggerMetadataModel.ServiceType.Param("slot", null, null, refs, "required", null, null, null);
     }
 
     private static TriggerMetadataModel.ServiceType.Param param(String name, String type, String presence,
                                                                 String addMode) {
-        return new TriggerMetadataModel.ServiceType.Param(name, List.of(new TypeRef(type, null)),
-                presence, addMode, null, null);
+        return new TriggerMetadataModel.ServiceType.Param(name, null, null, List.of(new TypeRef(type, null)), presence,
+                addMode, null, null);
     }
 
     private static TriggerMetadataModel.ServiceType.HandlerOption option(
             List<TriggerMetadataModel.ServiceType.Param> params, List<TypeRef> returns) {
-        return new TriggerMetadataModel.ServiceType.HandlerOption("onEvent", "remote", "optional", null,
-                params, returns, null, null, null, null, null);
+        return new TriggerMetadataModel.ServiceType.HandlerOption("onEvent", "remote", null, null, null, "optional",
+                null, null, params, returns, null, null);
     }
 }

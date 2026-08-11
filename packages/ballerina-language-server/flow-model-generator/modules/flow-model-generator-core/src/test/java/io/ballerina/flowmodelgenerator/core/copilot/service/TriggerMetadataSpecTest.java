@@ -69,8 +69,9 @@ public class TriggerMetadataSpecTest {
         // belongs to." A listener TypeRef carrying packageInfo therefore *defines* home; the library
         // name must not override it.
         TriggerMetadataModel.Listener declared = new TriggerMetadataModel.Listener(
-                new TypeRef("Listener", new TypeRef.PackageInfo("ballerinax", "kafka", "kafka", "4.6.5")),
-                List.of("service"), null);
+                new TypeRef("Listener",
+                        new TypeRef.PackageInfo("ballerinax", "kafka", "kafka", "4.6.5")),
+                null, List.of("service"), null, null, null, null);
         Assert.assertEquals(TriggerSchemaServiceLoader.homeModule(declared, "somethingelse"), "kafka");
     }
 
@@ -220,7 +221,8 @@ public class TriggerMetadataSpecTest {
     public void testAbsentRequiredImportsEmitNothing() {
         Assert.assertTrue(TriggerSchemaServiceLoader.requiredImports(listener()).isEmpty());
         Assert.assertTrue(TriggerSchemaServiceLoader.requiredImports(
-                new TriggerMetadataModel.Listener(new TypeRef("Listener", null), List.of(), null))
+                new TriggerMetadataModel.Listener(new TypeRef("Listener", null), null, List.of(), null, null, null,
+                        null))
                 .isEmpty());
         Assert.assertTrue(TriggerSchemaServiceLoader.requiredImports(null).isEmpty());
     }
@@ -243,13 +245,13 @@ public class TriggerMetadataSpecTest {
     }
 
     private static TriggerMetadataModel.ServiceType serviceType(TypeRef type) {
-        return new TriggerMetadataModel.ServiceType("service", type, false, true, true, null,
-                new TriggerMetadataModel.ServiceType.Handlers(false, "subset", List.of()), null);
+        return new TriggerMetadataModel.ServiceType("service", type, false, true, null, null, null,
+                new TriggerMetadataModel.ServiceType.Handlers(false, List.of()), null);
     }
 
     private static TriggerMetadataModel.Listener listener(
             TriggerMetadataModel.RequiredImport... requiredImports) {
-        return new TriggerMetadataModel.Listener(new TypeRef("Listener", null), List.of("service"),
-                requiredImports.length == 0 ? List.of() : List.of(requiredImports));
+        return new TriggerMetadataModel.Listener(new TypeRef("Listener", null), null, List.of("service"), null, null,
+                requiredImports.length == 0 ? List.of() : List.of(requiredImports), null);
     }
 }

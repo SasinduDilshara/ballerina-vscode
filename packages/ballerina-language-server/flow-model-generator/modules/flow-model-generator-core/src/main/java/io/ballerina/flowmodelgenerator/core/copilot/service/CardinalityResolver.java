@@ -21,8 +21,15 @@ package io.ballerina.flowmodelgenerator.core.copilot.service;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 
 /**
- * Owns <b>spec §3's {@code multipleListenersAllowed} and {@code multipleServicesPerListenerAllowed}</b>:
- * how many listeners one service may attach to, and how many services of this type one listener may host.
+ * Owns <b>spec §3.1's attachment cardinality</b>: how many listeners one service may attach to, how many
+ * services one listener may host, and whether two of those may be the same service type.
+ *
+ * <p><b>Two of the three facts moved onto the listener in v1.0</b>, and the move is not cosmetic. The old
+ * {@code serviceTypes[].multipleServicesPerListenerAllowed} conflated two questions that
+ * {@code sap.jco} answers differently: its one listener hosts an {@code IDocService} <i>and</i> an
+ * {@code RfcService} ({@code multipleServicesAllowed: true}) while forbidding two of either
+ * ({@code multipleServicesOfSameTypeAllowed: false}). The old shape could state one or the other, never
+ * both, so a document had to pick which half to lie about.
  *
  * <p>A pure passthrough of the document's two booleans. Which of them is worth <i>stating</i> is not
  * decided here — that is {@link CardinalityAspect}'s omission rule — so this resolver stays the single
@@ -46,28 +53,42 @@ final class CardinalityResolver {
     }
 
     /**
-     * Spec §3's two cardinality answers for one service type.
+     * Spec §3.1's three cardinality answers for one (service type x listener) pair.
      *
      * @param multipleListeners           whether one service instance may attach to more than one listener
-     *                                    at once ({@code service X on l1, l2 {}})
-     * @param multipleServicesPerListener whether one listener may host more than one service of this type
-     *                                    at once
+     *                                    at once ({@code service X on l1, l2 {}}). From the service type
+     * @param multipleServices            whether one listener instance may host more than one service at
+     *                                    all. From the listener
+     * @param multipleServicesOfSameType  whether two of those services may be of this same service type.
+     *                                    From the listener, and meaningful only when
+     *                                    {@code multipleServices} is true — spec §2 omits the key entirely
+     *                                    when it is not, "since one service at most already rules it out"
      */
-    record Cardinality(boolean multipleListeners, boolean multipleServicesPerListener) {
+    record Cardinality(boolean multipleListeners, boolean multipleServices,
+                       boolean multipleServicesOfSameType) {
     }
 
     /**
-     * Reads a service type's cardinality.
+     * Reads the cardinality of one service type paired with one listener.
      *
      * @param serviceType the service type; may be {@code null}
-     * @return its cardinality; a {@code null} service type reads as fully permissive, which states nothing
+     * @param listener    the listener it is paired with; may be {@code null}
+     * @return the cardinality; a {@code null} input reads as fully permissive, which states nothing
      */
-    static Cardinality resolve(TriggerMetadataModel.ServiceType serviceType) {
-        if (serviceType == null) {
-            return new Cardinality(true, true);
-        }
-        return new Cardinality(permissiveUnlessForbidden(serviceType.multipleListenersAllowed()),
-                permissiveUnlessForbidden(serviceType.multipleServicesPerListenerAllowed()));
+    static Cardinality resolve(TriggerMetadataModel.ServiceType serviceType,
+                               TriggerMetadataModel.Listener listener) {
+        boolean multipleServices = listener == null
+                || permissiveUnlessForbidden(listener.multipleServicesAllowed());
+        // Derived, not defaulted: with at most one service on the listener, two of the same type is
+        // already impossible, and spec §2 accordingly forbids the document from stating the key at all.
+        // Reading it as permissive there would emit a note contradicting the one above it.
+        boolean sameType = multipleServices
+                && (listener == null
+                        || permissiveUnlessForbidden(listener.multipleServicesOfSameTypeAllowed()));
+        return new Cardinality(
+                serviceType == null || permissiveUnlessForbidden(serviceType.multipleListenersAllowed()),
+                multipleServices,
+                sameType);
     }
 
     /**

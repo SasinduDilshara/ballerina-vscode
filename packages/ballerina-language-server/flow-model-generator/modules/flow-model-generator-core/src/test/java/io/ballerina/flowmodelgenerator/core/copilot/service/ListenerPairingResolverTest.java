@@ -73,7 +73,7 @@ public class ListenerPairingResolverTest {
     @Test
     public void testAbsentServicesListFallsBackToTheFirstListener() {
         TriggerMetadataModel.Listener noServices =
-                new TriggerMetadataModel.Listener(new TypeRef("Listener", null), null, null);
+                new TriggerMetadataModel.Listener(new TypeRef("Listener", null), null, null, null, null, null, null);
         Assert.assertSame(
                 ListenerPairingResolver.hostOf(List.of(noServices), serviceType("service")), noServices);
     }
@@ -134,9 +134,10 @@ public class ListenerPairingResolverTest {
         // has stated no restriction. Reading absence as prohibition would declare every service type of
         // such a document unattachable — the exact inversion `hostOf` already avoids for the same reason.
         TriggerMetadataModel.Listener unconstrained =
-                new TriggerMetadataModel.Listener(new TypeRef("Listener", null), null, null);
+                new TriggerMetadataModel.Listener(new TypeRef("Listener", null), null, null, null, null, null, null);
         TriggerMetadataModel.Listener empty =
-                new TriggerMetadataModel.Listener(new TypeRef("Listener", null), List.of(), null);
+                new TriggerMetadataModel.Listener(new TypeRef("Listener", null), null, List.of(), null, null, null,
+                        null);
 
         Assert.assertTrue(ListenerPairingResolver.isHostedByAnyListener(
                 List.of(unconstrained), serviceType("anything")));
@@ -170,11 +171,12 @@ public class ListenerPairingResolverTest {
     // ---- fixtures --------------------------------------------------------------------
 
     private static TriggerMetadataModel.Listener listener(String className, String... hostedIds) {
-        return new TriggerMetadataModel.Listener(new TypeRef(className, null), List.of(hostedIds), null);
+        return new TriggerMetadataModel.Listener(new TypeRef(className, null), null, List.of(hostedIds), null, null,
+                null, null);
     }
 
     private static TriggerMetadataModel.ServiceType serviceType(String id) {
-        return new TriggerMetadataModel.ServiceType(id, new TypeRef("Service", null), false, true, true,
-                null, new TriggerMetadataModel.ServiceType.Handlers(false, "subset", List.of()), null);
+        return new TriggerMetadataModel.ServiceType(id, new TypeRef("Service", null), false, true, null, null, null,
+                new TriggerMetadataModel.ServiceType.Handlers(false, List.of()), null);
     }
 }

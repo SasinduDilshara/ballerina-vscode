@@ -42,10 +42,26 @@ type Event record {
 # Mandatory: this service must carry the @snapshotdemo:ServiceConfig annotation. Replace {...} with its fields, which are those of snapshotdemo:DemoServiceConfig.
 @snapshotdemo:ServiceConfig {...} // required
 service snapshotdemo:Service on new snapshotdemo:Listener(int port, snapshotdemo:ListenerConfiguration config = {}) {
+    // This service type takes any number of resource handlers, and you choose each one's name.
+    // Declare as many as the requirement needs, following this shape:
+    // Only resource methods are accepted here — a remote method does not compile.
+    // One user-named route.
+    // Resource: the accessor may be any the language accepts — replace `<accessor>`; a path is required and is author-chosen — replace `pathSegment`.
+    // resource function <accessor> pathSegment() returns error?;
+
     # Handles one event.
     # Required parameters: event
     # Optional parameters (may be omitted): caller
     remote function onEvent(snapshotdemo:Event event, Caller caller) returns error?;
+
+    # Reports which files changed.
+    # Resource: the accessor must be one of `get`, `post`; a path is required and is author-chosen — replace `pathSegment`.
+    # + event - The change event.
+    #
+    # # Deprecated
+    # Superseded by the typed content handlers, which deliver the file body already bound to a declared type.
+    @deprecated
+    resource function get pathSegment(snapshotdemo:Event event) returns error?; // optional
 }
 
 # Optional: this service may carry the @othermod:OtherConfig annotation. Replace {...} with its fields, which are those of othermod:OtherServiceConfig.

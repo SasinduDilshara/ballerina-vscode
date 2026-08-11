@@ -49,20 +49,42 @@ public class ServiceRemoteFunction {
     // would silently turn that into `false` on the JSON round-trip — asserting "required" for a handler
     // nobody said anything about. Null means "not stated"; the renderer emits no marker for it.
     private Boolean optional;
-    // Spec §5 resource extras. The accessor is resolved (AccessorPrecedencePolicy); the rest are the legal
-    // vocabularies the document declares, which the renderer turns into placeholders and notes.
+    // Spec §5 resource extras — the two positions of `resource function <accessor> <path>()`, and nothing
+    // else. The spec collapsed HTTP's `method`/`path` and GraphQL's `accessor`/`fieldName` into one pair,
+    // so `methodValues`, `pathForm`, `fieldNameForm`, `fieldNameRequired` and `graphqlOperation` are gone.
+    //
+    // These fields are the JSON contract, not an internal convenience: `CopilotLibraryManager` deserializes
+    // the pipeline's own output back through this class, so a key the pipeline emits and this class does
+    // not declare is DROPPED, silently and without a compile error. That is exactly what happened to the
+    // three accessor keys below when §5 landed — the pipeline resolved every HTTP verb and the renderer had
+    // a branch to print them, and the whole vocabulary vanished on the round trip. See
+    // ServiceRemoteFunctionWireContractTest, which pins every key `HandlerDraft` writes.
     private String accessor;
-    private List<String> methodValues;
-    private Boolean methodRequired;
-    private List<String> pathForm;
+    // Spec §5 `accessor.values` — every legal accessor, for the note.
+    private List<String> accessorValues;
+    // Spec §5 `accessor.presence` — whether one must be written.
+    private Boolean accessorRequired;
+    // Spec §5 `values: ["*"]` — any accessor the language accepts. Told apart from an enumerated list
+    // because a note reading "must be one of `*`" is nonsense, whereas "any the language accepts" is usable.
+    private Boolean accessorOpen;
+    // Spec §5 `path.presence` — whether a resource path must be written. No form accompanies it: §5 dropped
+    // the `identifierSegments`/`pathParamSegments` vocabulary because the language already fixes the grammar.
     private Boolean pathRequired;
-    private List<String> fieldNameForm;
-    private Boolean fieldNameRequired;
-    private String graphqlOperation;
     // Spec §8 at `attachPoint: "function"` — annotations the generated handler must or may carry. Named
     // `annotationRefs` to match parameter scope, where `annotations` is already taken by the semantic
     // model's own attachments; consistency across the three scopes beats saving a word at the free one.
     private List<ServiceAnnotationRef> annotationRefs;
+    /**
+     * The spec's {@code deprecated} — why this construct is superseded, as the document's own prose.
+     *
+     * <p>Distinct from {@link #deprecated}, and deliberately so: that field says <i>that</i> the symbol
+     * carries a {@code @deprecated} annotation, this one says <i>why</i> and names the replacement. A
+     * document may state the latter for a construct whose symbol carries no annotation at all, which is
+     * exactly {@code ftp}'s {@code onFileChange}.
+     */
+    @SerializedName("deprecated")
+    private String deprecationNote;
+
     @SerializedName("isDeprecated")
     private Boolean deprecated;
 
@@ -134,28 +156,28 @@ public class ServiceRemoteFunction {
         this.accessor = accessor;
     }
 
-    public List<String> getMethodValues() {
-        return methodValues;
+    public List<String> getAccessorValues() {
+        return accessorValues;
     }
 
-    public void setMethodValues(List<String> methodValues) {
-        this.methodValues = methodValues;
+    public void setAccessorValues(List<String> accessorValues) {
+        this.accessorValues = accessorValues;
     }
 
-    public Boolean isMethodRequired() {
-        return methodRequired;
+    public Boolean isAccessorRequired() {
+        return accessorRequired;
     }
 
-    public void setMethodRequired(Boolean methodRequired) {
-        this.methodRequired = methodRequired;
+    public void setAccessorRequired(Boolean accessorRequired) {
+        this.accessorRequired = accessorRequired;
     }
 
-    public List<String> getPathForm() {
-        return pathForm;
+    public Boolean isAccessorOpen() {
+        return accessorOpen;
     }
 
-    public void setPathForm(List<String> pathForm) {
-        this.pathForm = pathForm;
+    public void setAccessorOpen(Boolean accessorOpen) {
+        this.accessorOpen = accessorOpen;
     }
 
     public Boolean isPathRequired() {
@@ -164,30 +186,6 @@ public class ServiceRemoteFunction {
 
     public void setPathRequired(Boolean pathRequired) {
         this.pathRequired = pathRequired;
-    }
-
-    public List<String> getFieldNameForm() {
-        return fieldNameForm;
-    }
-
-    public void setFieldNameForm(List<String> fieldNameForm) {
-        this.fieldNameForm = fieldNameForm;
-    }
-
-    public Boolean isFieldNameRequired() {
-        return fieldNameRequired;
-    }
-
-    public void setFieldNameRequired(Boolean fieldNameRequired) {
-        this.fieldNameRequired = fieldNameRequired;
-    }
-
-    public String getGraphqlOperation() {
-        return graphqlOperation;
-    }
-
-    public void setGraphqlOperation(String graphqlOperation) {
-        this.graphqlOperation = graphqlOperation;
     }
 
     public List<ServiceAnnotationRef> getAnnotationRefs() {
@@ -204,5 +202,13 @@ public class ServiceRemoteFunction {
 
     public void setDeprecated(Boolean deprecated) {
         this.deprecated = deprecated;
+    }
+
+    public String getDeprecationNote() {
+        return deprecationNote;
+    }
+
+    public void setDeprecationNote(String deprecationNote) {
+        this.deprecationNote = deprecationNote;
     }
 }

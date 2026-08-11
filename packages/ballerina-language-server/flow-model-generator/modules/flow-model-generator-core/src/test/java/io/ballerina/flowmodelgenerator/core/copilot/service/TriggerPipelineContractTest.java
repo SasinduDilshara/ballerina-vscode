@@ -370,8 +370,8 @@ public class TriggerPipelineContractTest {
         Assert.assertTrue(serviceIds.containsAll(List.of("identifier", "constraints")),
                 "§3's identifier and §6's rules must each name an owner: " + serviceIds);
         Assert.assertTrue(handlerIds.containsAll(List.of(
-                        "handlerKind", "handlerPresence", "httpResourceExtras", "graphqlResourceExtras")),
-                "§5's kind, presence and the two protocol extras must each name an owner: " + handlerIds);
+                        "handlerKind", "handlerPresence", "resourceExtras")),
+                "§5's kind, presence and the resource extras must each name an owner: " + handlerIds);
     }
 
     @Test
@@ -392,13 +392,13 @@ public class TriggerPipelineContractTest {
         // out of `handlerIdentity` would have silently reordered every handler object.
         HandlerDraft draft = new HandlerDraft();
         draft.setReturn(new JsonObject());
-        draft.setGraphqlOperation("query");
+        draft.setPathRequired(true);
         draft.setOptional(true);
         draft.setKind("resource");
         draft.setName("onEvent");
         draft.setAccessor("get");
         Assert.assertEquals(new ArrayList<>(draft.toJson().keySet()),
-                List.of("name", "type", "optional", "accessor", "graphqlOperation", "return"));
+                List.of("name", "type", "optional", "accessor", "pathRequired", "return"));
     }
 
     @Test
@@ -596,18 +596,18 @@ public class TriggerPipelineContractTest {
     // ---- fixtures --------------------------------------------------------------------
 
     private static TriggerMetadataModel.ServiceType.HandlerOption option(String name) {
-        return new TriggerMetadataModel.ServiceType.HandlerOption(name, "remote", "optional", null, null,
-                null, null, null, null, null, null);
+        return new TriggerMetadataModel.ServiceType.HandlerOption(name, "remote", null, null, null, "optional", null,
+                null, null, null, null, null);
     }
 
     private static TriggerMetadataModel.ServiceType.HandlerOption withParam(
             String name, TriggerMetadataModel.ServiceType.Param param) {
-        return new TriggerMetadataModel.ServiceType.HandlerOption(name, "remote", "optional", null,
-                List.of(param), null, null, null, null, null, null);
+        return new TriggerMetadataModel.ServiceType.HandlerOption(name, "remote", null, null, null, "optional", null,
+                null, List.of(param), null, null, null);
     }
 
     private static TriggerMetadataModel.ServiceType.Param param(String name, String type) {
-        return new TriggerMetadataModel.ServiceType.Param(name, List.of(new TypeRef(type, null)),
+        return new TriggerMetadataModel.ServiceType.Param(name, null, null, List.of(new TypeRef(type, null)),
                 "required", null, null, null);
     }
 

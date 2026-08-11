@@ -52,6 +52,7 @@ final class ParamDraft {
     private JsonArray alternatives;
     private JsonArray annotationRefs;
     private JsonObject binding;
+    private String deprecated;
 
     /** The slot's name: authored where the document states one, generated where it does not. */
     void setName(String name) {
@@ -62,6 +63,18 @@ final class ParamDraft {
     void setDescription(String description) {
         if (description != null && !description.isEmpty()) {
             this.description = description;
+        }
+    }
+
+    /**
+     * Spec §7 {@code deprecated} — why this slot is superseded, as the document's own prose.
+     *
+     * <p>Text rather than a flag, for the reason {@link HandlerDraft#setDeprecated} gives: the sentence
+     * names the replacement, which is the only part a reader can act on.
+     */
+    void setDeprecated(String deprecated) {
+        if (deprecated != null && !deprecated.isBlank()) {
+            this.deprecated = deprecated;
         }
     }
 
@@ -138,6 +151,9 @@ final class ParamDraft {
         }
         if (description != null) {
             json.addProperty("description", description);
+        }
+        if (deprecated != null) {
+            json.addProperty("deprecated", deprecated);
         }
         if (type != null) {
             json.add("type", type);

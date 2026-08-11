@@ -30,6 +30,13 @@ import java.util.List;
 public class Parameter {
     private String name;
     private String description;
+    /**
+     * Spec's {@code deprecated} — why this construct is superseded, as the document's own prose. Text
+     * rather than a flag: the sentence names the replacement, which is the only part a reader can act on.
+     */
+    @SerializedName("deprecated")
+    private String deprecationNote;
+
     private Type type;
     private Boolean optional;
     @SerializedName("default")
@@ -82,6 +89,14 @@ public class Parameter {
 
     public void setDescription(String description) {
         this.description = description;
+    }
+
+    public String getDeprecationNote() {
+        return deprecationNote;
+    }
+
+    public void setDeprecationNote(String deprecationNote) {
+        this.deprecationNote = deprecationNote;
     }
 
     public Type getType() {

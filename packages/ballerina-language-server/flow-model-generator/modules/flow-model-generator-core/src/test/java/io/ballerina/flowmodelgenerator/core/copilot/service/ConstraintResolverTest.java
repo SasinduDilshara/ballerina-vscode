@@ -23,251 +23,234 @@ import io.ballerina.modelgenerator.commons.trigger.models.TypeRef;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 
 /**
- * Pins spec §6's two rule kinds and three member shapes.
+ * Conformance tests for <b>spec §6 {@code rules[]}</b>, written against the spec text.
  *
- * <p>Every case names the corpus rule it reproduces, or states that it is synthetic — §6 has only five real
- * instances, so the degradation paths need hand-built fixtures.
+ * <p>Spec v1.0 replaced the closed {@code oneOf}/{@code atMostOne} enum with an open registry and replaced
+ * the three fixed member shapes with five subject kinds. These pin the two properties that makes that
+ * design work: every implemented registry entry resolves, and an <i>un</i>implemented one is skipped
+ * rather than failing the library.
  *
  * @since 1.7.0
  */
 public class ConstraintResolverTest {
 
-    private static final String LIB = "ballerinax/test";
-    private static final Set<String> HANDLERS = Set.of("onMessage", "onRequest", "onTextMessage");
-
-    /**
-     * Spec §8's registry, as rabbitmq and smb declare it: the id is lowercase, the annotation it names is
-     * not. Keeping them distinct is what makes the resolution observable.
-     */
-    private static final AnnotationRegistry REGISTRY = AnnotationRegistry.of(new TriggerMetadataModel(null,
-            null, null,
-            List.of(new TriggerMetadataModel.Annotation("serviceConfig",
-                    new TypeRef("ServiceConfig", null),
-                    TriggerMetadataModel.Annotation.ATTACH_POINT_SERVICE, null,
-                    TriggerMetadataModel.Annotation.PRESENCE_OPTIONAL)),
-            null));
+    private static final String LIB = "ballerinax/testlib";
+    private static final Set<String> HANDLERS = Set.of("onMessage", "onRequest", "onError");
 
     @Test
-    public void testOneOfMeansExactlyOne() {
-        // §6: `oneOf` | "Exactly one member — not zero, not more than one."
-        // Corpus: rabbitmq's messageHandlerChoice.
+    public void testEveryRegistryEntryTheSpecDefinesIsImplemented() {
+        // Spec §6.2 lists six. Only three appear in the corpus, but an unimplemented entry is silently
+        // skipped, so the first document to use `structure.requires` would otherwise render nothing.
+        for (String registryId : List.of(
+                TriggerMetadataModel.Rule.RULE_EXACTLY_ONE,
+                TriggerMetadataModel.Rule.RULE_AT_MOST_ONE,
+                TriggerMetadataModel.Rule.RULE_AT_LEAST_ONE,
+                TriggerMetadataModel.Rule.RULE_ALL_OR_NONE,
+                TriggerMetadataModel.Rule.RULE_REQUIRES,
+                TriggerMetadataModel.Rule.RULE_CONFLICTS_WITH)) {
+            Assert.assertNotNull(ConstraintResolver.Kind.of(registryId),
+                    registryId + " is defined by spec §6.2 but not implemented");
+        }
+    }
+
+    @Test
+    public void testAnUnimplementedRuleIdIsSkippedRatherThanFailing() {
+        // Spec §6: "A consumer that does not recognise a rule id ... skips that rule with a logged warning
+        // and never fails. This is what lets an older consumer read a newer manifest." That policy is what
+        // makes a new constraint kind a MINOR bump under §11.
         List<ConstraintResolver.Constraint> resolved = ConstraintResolver.resolve(LIB,
-                List.of(rule("messageHandlerChoice", TriggerMetadataModel.ServiceType.Rule.TYPE_ONE_OF,
-                        handler("onMessage"), handler("onRequest"))),
-                HANDLERS, REGISTRY);
+                List.of(rule("$r", "structure.someFutureThing", null, null,
+                        handler("onMessage", null), handler("onRequest", null))),
+                HANDLERS, null);
+        Assert.assertTrue(resolved.isEmpty());
+    }
+
+    @Test
+    public void testAnUnknownSubjectKindIsSkippedRatherThanFailing() {
+        // Same policy, one tier down. The rule survives only if enough other subjects do; here it does not.
+        List<ConstraintResolver.Constraint> resolved = ConstraintResolver.resolve(LIB,
+                List.of(rule("$r", TriggerMetadataModel.Rule.RULE_EXACTLY_ONE, null, null,
+                        subject("someFutureKind", null, null, null, null, null),
+                        handler("onMessage", null))),
+                HANDLERS, null);
+        Assert.assertTrue(resolved.isEmpty());
+    }
+
+    @Test
+    public void testExactlyOneAndAtMostOneStayDistinct() {
+        // Collapsing them would either invent an obligation (websocket does not require onMessage) or drop
+        // one (rabbitmq does require a queue-name source).
+        Assert.assertEquals(resolveKind(TriggerMetadataModel.Rule.RULE_EXACTLY_ONE),
+                ConstraintResolver.Kind.EXACTLY_ONE);
+        Assert.assertEquals(resolveKind(TriggerMetadataModel.Rule.RULE_AT_MOST_ONE),
+                ConstraintResolver.Kind.AT_MOST_ONE);
+    }
+
+    @Test
+    public void testAHandlerSubjectNamingAnUndeclaredHandlerIsDropped() {
+        // A constraint that could never be satisfied through that alternative would tell the model to
+        // choose between a real handler and a phantom. With only one usable subject left, the rule goes.
+        List<ConstraintResolver.Constraint> resolved = ConstraintResolver.resolve(LIB,
+                List.of(rule("$r", TriggerMetadataModel.Rule.RULE_EXACTLY_ONE, null, null,
+                        handler("onMessage", null), handler("onNoSuchHandler", null))),
+                HANDLERS, null);
+        Assert.assertTrue(resolved.isEmpty());
+    }
+
+    @Test
+    public void testTheHandlerCrossCheckIsSuppressedWhenTheCatalogIsNotKnowable() {
+        // A null set means "the catalog could not be determined", which must not empty every rule. An
+        // unresolvable service type is already vetoed elsewhere; it must not also silently delete rules.
+        List<ConstraintResolver.Constraint> resolved = ConstraintResolver.resolve(LIB,
+                List.of(rule("$r", TriggerMetadataModel.Rule.RULE_EXACTLY_ONE, null, null,
+                        handler("onAnything", null), handler("onAnythingElse", null))),
+                null, null);
         Assert.assertEquals(resolved.size(), 1);
-        Assert.assertEquals(resolved.get(0).kind(), ConstraintResolver.Kind.EXACTLY_ONE);
-        Assert.assertEquals(resolved.get(0).id(), "messageHandlerChoice");
-        Assert.assertEquals(resolved.get(0).members().size(), 2);
     }
 
     @Test
-    public void testAtMostOneMeansZeroOrOne() {
-        // §6: `atMostOne` | "Zero or one member — never more than one, but zero is fine."
-        // Corpus: websocket's textMessageVsGeneric. The distinction from oneOf is load-bearing — websocket
-        // does NOT require either handler, and reading this as oneOf would invent an obligation.
+    public void testAnAsymmetricRuleWithoutRolesIsDropped() {
+        // Spec §6 fixes `when`/`then` for the asymmetric entries. Without them there is no way to tell the
+        // antecedent from the consequent, and guessing inverts the constraint -- worse than saying nothing.
         List<ConstraintResolver.Constraint> resolved = ConstraintResolver.resolve(LIB,
-                List.of(rule("textMessageVsGeneric",
-                        TriggerMetadataModel.ServiceType.Rule.TYPE_AT_MOST_ONE,
-                        handler("onMessage"), handler("onTextMessage"))),
-                HANDLERS, REGISTRY);
-        Assert.assertEquals(resolved.get(0).kind(), ConstraintResolver.Kind.AT_MOST_ONE);
+                List.of(rule("$r", TriggerMetadataModel.Rule.RULE_REQUIRES, null, null,
+                        handler("onMessage", null), handler("onRequest", null))),
+                HANDLERS, null);
+        Assert.assertTrue(resolved.isEmpty());
     }
 
     @Test
-    public void testTheTwoKindsAreNotCollapsed() {
-        // Stated as its own case because collapsing them is the one mistake that silently changes meaning in
-        // both directions at once.
-        Assert.assertNotEquals(ConstraintResolver.Kind.EXACTLY_ONE, ConstraintResolver.Kind.AT_MOST_ONE);
-    }
-
-    @Test
-    public void testTheAnnotationFieldMemberShapeCarriesItsIdFieldAndPreferred() {
-        // §6: `{ "annotation": id, "field": name, "preferred"?: true }`.
-        // Corpus: rabbitmq's queueNameSource — {annotation: serviceConfig, field: queueName, preferred: true}
-        //                                       vs {part: identifier}.
+    public void testAnAsymmetricRuleWithRolesSurvives() {
         List<ConstraintResolver.Constraint> resolved = ConstraintResolver.resolve(LIB,
-                List.of(rule("queueNameSource", TriggerMetadataModel.ServiceType.Rule.TYPE_ONE_OF,
-                        annotationField("serviceConfig", "queueName", true), identifier())),
-                HANDLERS, REGISTRY);
-        List<ConstraintResolver.Member> members = resolved.get(0).members();
-        ConstraintResolver.Member.AnnotationField field =
-                (ConstraintResolver.Member.AnnotationField) members.get(0);
-        Assert.assertEquals(field.annotationId(), "serviceConfig");
-        Assert.assertEquals(field.field(), "queueName");
-        Assert.assertTrue(field.preferred(), "`preferred` marks the canonical choice and must survive");
-        Assert.assertTrue(members.get(1) instanceof ConstraintResolver.Member.Identifier);
+                List.of(rule("$r", TriggerMetadataModel.Rule.RULE_REQUIRES, null, null,
+                        handler("onMessage", TriggerMetadataModel.Rule.ROLE_WHEN),
+                        handler("onRequest", TriggerMetadataModel.Rule.ROLE_THEN))),
+                HANDLERS, null);
+        Assert.assertEquals(resolved.size(), 1);
+        Assert.assertEquals(resolved.get(0).kind(), ConstraintResolver.Kind.REQUIRES);
     }
 
     @Test
-    public void testPreferredDefaultsToFalseWhenAbsent() {
-        // §6 marks only the canonical alternative, so absence must not read as preferred.
+    public void testTheAuthoredMessageAndPreferenceAreCarried() {
+        // The document's own sentence says WHY a constraint exists, which no amount of structure
+        // reconstructs; `prefer` names a role rather than flagging a member, so it survives the move.
         List<ConstraintResolver.Constraint> resolved = ConstraintResolver.resolve(LIB,
-                List.of(rule("r", TriggerMetadataModel.ServiceType.Rule.TYPE_ONE_OF,
-                        annotationField("serviceConfig", "path", null), identifier())),
-                HANDLERS, REGISTRY);
-        ConstraintResolver.Member.AnnotationField field =
-                (ConstraintResolver.Member.AnnotationField) resolved.get(0).members().get(0);
-        Assert.assertFalse(field.preferred());
+                List.of(rule("$queueNameSource", TriggerMetadataModel.Rule.RULE_EXACTLY_ONE,
+                        "A RabbitMQ consumer needs its queue name from exactly one source.", "fromAnnotation",
+                        subject(TriggerMetadataModel.Subject.KIND_ANNOTATION_FIELD, null, "$serviceConfig",
+                                List.of("queueName"), null, "fromAnnotation"),
+                        subject(TriggerMetadataModel.Subject.KIND_IDENTIFIER, null, null, null, null,
+                                "fromIdentifier"))),
+                HANDLERS, registry());
+        Assert.assertEquals(resolved.size(), 1);
+        ConstraintResolver.Constraint constraint = resolved.get(0);
+        Assert.assertEquals(constraint.message(),
+                "A RabbitMQ consumer needs its queue name from exactly one source.");
+        Assert.assertEquals(constraint.prefer(), "fromAnnotation");
     }
 
     @Test
-    public void testTheIdentifierMemberShapeIsRecognisedByItsPart() {
-        // §6: `{ "part": "identifier" }` — "this service type's identifier". Corpus: rabbitmq, smb.
+    public void testAnAnnotationSubjectResolvesTheIdToTheNameAReaderWrites() {
+        // The document says `$serviceConfig`, a registry id; what a reader writes is `@…:ServiceConfig`.
+        // Rendering the id would put a name in the prompt that exists nowhere.
         List<ConstraintResolver.Constraint> resolved = ConstraintResolver.resolve(LIB,
-                List.of(rule("pathSource", TriggerMetadataModel.ServiceType.Rule.TYPE_ONE_OF,
-                        annotationField("serviceConfig", "path", true), identifier())),
-                HANDLERS, REGISTRY);
-        Assert.assertTrue(resolved.get(0).members().get(1) instanceof ConstraintResolver.Member.Identifier);
-    }
-
-    @Test
-    public void testAHandlerMemberNamingAnUndeclaredHandlerIsDropped() {
-        // §6: a `{handler}` member names "one of this service type's own `handlers.options[].name`". A member
-        // naming something absent could never be satisfied, so offering it as a choice would mislead.
-        List<ConstraintResolver.Constraint> resolved = ConstraintResolver.resolve(LIB,
-                List.of(rule("r", TriggerMetadataModel.ServiceType.Rule.TYPE_ONE_OF,
-                        handler("onMessage"), handler("onGhost"), handler("onRequest"))),
-                HANDLERS, REGISTRY);
-        List<String> names = resolved.get(0).members().stream()
-                .map(member -> ((ConstraintResolver.Member.Handler) member).name())
-                .toList();
-        Assert.assertEquals(names, List.of("onMessage", "onRequest"));
-    }
-
-    @Test
-    public void testARuleLeftWithFewerThanTwoUsableMembersIsDroppedWhole() {
-        // "Choose exactly one of: onMessage" is not a constraint a reader can act on.
-        Assert.assertTrue(ConstraintResolver.resolve(LIB,
-                List.of(rule("r", TriggerMetadataModel.ServiceType.Rule.TYPE_ONE_OF,
-                        handler("onMessage"), handler("onGhost"))),
-                HANDLERS, REGISTRY).isEmpty());
-    }
-
-    @Test
-    public void testANullHandlerSetSuppressesTheCrossCheckRatherThanDroppingEveryMember() {
-        // When the catalog is not knowable, a rule must degrade to "stated but unverified" — not to empty.
-        // An empty set, by contrast, genuinely means "this service type declares no handlers".
-        Assert.assertEquals(ConstraintResolver.resolve(LIB,
-                List.of(rule("r", TriggerMetadataModel.ServiceType.Rule.TYPE_ONE_OF,
-                        handler("onMessage"), handler("onRequest"))),
-                null, REGISTRY).size(), 1);
-        Assert.assertTrue(ConstraintResolver.resolve(LIB,
-                List.of(rule("r", TriggerMetadataModel.ServiceType.Rule.TYPE_ONE_OF,
-                        handler("onMessage"), handler("onRequest"))),
-                Set.of(), REGISTRY).isEmpty());
-    }
-
-    @Test
-    public void testAnUnknownRuleKindIsSkippedRatherThanSwallowedSilently() {
-        // Synthetic: no corpus instance. A future rule kind must degrade visibly — the resolver warns and
-        // emits nothing, so a constraint never half-renders as though it were oneOf.
-        Assert.assertTrue(ConstraintResolver.resolve(LIB,
-                List.of(rule("r", "allOf", handler("onMessage"), handler("onRequest"))),
-                HANDLERS, REGISTRY).isEmpty());
-        Assert.assertTrue(ConstraintResolver.resolve(LIB,
-                List.of(rule("r", null, handler("onMessage"), handler("onRequest"))),
-                HANDLERS, REGISTRY).isEmpty());
-    }
-
-    @Test
-    public void testAMemberPopulatingNoneOfTheThreeShapesIsDropped() {
-        // §6: "Exactly one of the three shapes is populated per member." An `{annotation}` with no `field` is
-        // not a usable reference into an annotation's record.
-        Assert.assertTrue(ConstraintResolver.resolve(LIB,
-                List.of(rule("r", TriggerMetadataModel.ServiceType.Rule.TYPE_ONE_OF,
-                        annotationField("serviceConfig", null, true),
-                        new TriggerMetadataModel.ServiceType.Rule.RuleMember(null, null, null, null, null))),
-                HANDLERS, REGISTRY).isEmpty());
-    }
-
-    @Test
-    public void testDocumentOrderIsPreservedAcrossRulesAndMembers() {
-        // §7's "Array order is meaningful" applies to the rendered choice list too: reordering alternatives
-        // would move which one reads as primary.
-        List<ConstraintResolver.Constraint> resolved = ConstraintResolver.resolve(LIB,
-                List.of(rule("first", TriggerMetadataModel.ServiceType.Rule.TYPE_ONE_OF,
-                                handler("onMessage"), handler("onRequest")),
-                        rule("second", TriggerMetadataModel.ServiceType.Rule.TYPE_AT_MOST_ONE,
-                                handler("onTextMessage"), handler("onMessage"))),
-                HANDLERS, REGISTRY);
-        Assert.assertEquals(resolved.stream().map(ConstraintResolver.Constraint::id).toList(),
-                List.of("first", "second"));
-        Assert.assertEquals(
-                ((ConstraintResolver.Member.Handler) resolved.get(1).members().get(0)).name(),
-                "onTextMessage");
-    }
-
-    @Test
-    public void testNullAndEmptyInputsYieldNoConstraints() {
-        // 8 of the 13 corpus documents declare no rules at all.
-        Assert.assertTrue(ConstraintResolver.resolve(LIB, null, HANDLERS, REGISTRY).isEmpty());
-        Assert.assertTrue(ConstraintResolver.resolve(LIB, List.of(), HANDLERS, REGISTRY).isEmpty());
-        Assert.assertTrue(ConstraintResolver.resolve(LIB, Arrays.asList((
-                TriggerMetadataModel.ServiceType.Rule) null), HANDLERS, REGISTRY).isEmpty());
-    }
-
-    @Test
-    public void testAnAnnotationMemberIsResolvedToTheAnnotationNameNotItsRegistryId() {
-        // §8 gives `rules[].members[].annotation` as one of the registry's access paths, and the two strings
-        // differ: rabbitmq's document says `"annotation": "serviceConfig"` while the annotation a reader has to
-        // write is `@rabbitmq:ServiceConfig`. Rendering the id would put a name in the prompt that does not
-        // exist, two lines from the real one.
-        ConstraintResolver.Member.AnnotationField field =
-                (ConstraintResolver.Member.AnnotationField) ConstraintResolver.resolve(LIB,
-                        List.of(rule("queueNameSource",
-                                TriggerMetadataModel.ServiceType.Rule.TYPE_ONE_OF,
-                                annotationField("serviceConfig", "queueName", true), identifier())),
-                        HANDLERS, REGISTRY).get(0).members().get(0);
+                List.of(rule("$r", TriggerMetadataModel.Rule.RULE_EXACTLY_ONE, null, null,
+                        subject(TriggerMetadataModel.Subject.KIND_ANNOTATION_FIELD, null, "$serviceConfig",
+                                List.of("queueName"), null, null),
+                        subject(TriggerMetadataModel.Subject.KIND_IDENTIFIER, null, null, null, null, null))),
+                HANDLERS, registry());
+        ConstraintResolver.Subject.AnnotationField field =
+                (ConstraintResolver.Subject.AnnotationField) resolved.get(0).subjects().get(0);
+        Assert.assertEquals(field.annotationId(), "$serviceConfig");
         Assert.assertEquals(field.annotationName(), "ServiceConfig");
-        Assert.assertEquals(field.annotationId(), "serviceConfig", "the reference itself is still carried");
+        Assert.assertEquals(field.path(), List.of("queueName"));
     }
 
     @Test
-    public void testAMemberReferencingAnAbsentRegistryEntryIsDropped() {
-        // Same policy as a phantom handler: a reference with no entry names no annotation a reader could
-        // attach, so offering it as an alternative would mislead.
-        Assert.assertTrue(ConstraintResolver.resolve(LIB,
-                List.of(rule("r", TriggerMetadataModel.ServiceType.Rule.TYPE_ONE_OF,
-                        annotationField("noSuchId", "queueName", true), identifier())),
-                HANDLERS, REGISTRY).isEmpty(),
-                "one usable member is not a choice, so the rule goes too");
+    public void testASubjectNamingAnUndeclaredAnnotationIsDropped() {
+        List<ConstraintResolver.Constraint> resolved = ConstraintResolver.resolve(LIB,
+                List.of(rule("$r", TriggerMetadataModel.Rule.RULE_EXACTLY_ONE, null, null,
+                        subject(TriggerMetadataModel.Subject.KIND_ANNOTATION_FIELD, null, "$nope",
+                                List.of("field"), null, null),
+                        subject(TriggerMetadataModel.Subject.KIND_IDENTIFIER, null, null, null, null, null))),
+                HANDLERS, registry());
+        Assert.assertTrue(resolved.isEmpty());
     }
 
     @Test
-    public void testWithNoRegistryTheIdIsKeptSoRuleSemanticsStayTestableAlone() {
-        // The resolver stays usable without a document behind it, which is what keeps these tests pure.
-        ConstraintResolver.Member.AnnotationField field =
-                (ConstraintResolver.Member.AnnotationField) ConstraintResolver.resolve(LIB,
-                        List.of(rule("r", TriggerMetadataModel.ServiceType.Rule.TYPE_ONE_OF,
-                                annotationField("serviceConfig", "queueName", true), identifier())),
-                        HANDLERS, null).get(0).members().get(0);
-        Assert.assertEquals(field.annotationName(), "serviceConfig");
+    public void testANestedAnnotationFieldPathIsKeptWhole() {
+        // Spec §6.1 made `path` an array precisely so a nested field is reachable; truncating it to the
+        // first segment would address the wrong field.
+        List<ConstraintResolver.Constraint> resolved = ConstraintResolver.resolve(LIB,
+                List.of(rule("$r", TriggerMetadataModel.Rule.RULE_AT_MOST_ONE, null, null,
+                        subject(TriggerMetadataModel.Subject.KIND_ANNOTATION_FIELD, null, "$serviceConfig",
+                                List.of("retryConfig", "maxCount"), null, null),
+                        subject(TriggerMetadataModel.Subject.KIND_IDENTIFIER, null, null, null, null, null))),
+                HANDLERS, registry());
+        ConstraintResolver.Subject.AnnotationField field =
+                (ConstraintResolver.Subject.AnnotationField) resolved.get(0).subjects().get(0);
+        Assert.assertEquals(field.path(), List.of("retryConfig", "maxCount"));
+    }
+
+    @Test
+    public void testAParamSubjectCarriesItsHandlerAndName() {
+        List<ConstraintResolver.Constraint> resolved = ConstraintResolver.resolve(LIB,
+                List.of(rule("$r", TriggerMetadataModel.Rule.RULE_REQUIRES, null, null,
+                        subject(TriggerMetadataModel.Subject.KIND_PARAM, "batchSize", null, null,
+                                "onMessage", TriggerMetadataModel.Rule.ROLE_WHEN),
+                        subject(TriggerMetadataModel.Subject.KIND_ANNOTATION, "$serviceConfig", null, null,
+                                null, TriggerMetadataModel.Rule.ROLE_THEN))),
+                HANDLERS, registry());
+        Assert.assertEquals(resolved.size(), 1);
+        ConstraintResolver.Subject.Param param =
+                (ConstraintResolver.Subject.Param) resolved.get(0).subjects().get(0);
+        Assert.assertEquals(param.handler(), "onMessage");
+        Assert.assertEquals(param.name(), "batchSize");
+    }
+
+    @Test
+    public void testARuleWithFewerThanTwoUsableSubjectsIsDropped() {
+        // A one-alternative "choose exactly one of" is not a constraint a reader can act on.
+        List<ConstraintResolver.Constraint> resolved = ConstraintResolver.resolve(LIB,
+                List.of(rule("$r", TriggerMetadataModel.Rule.RULE_EXACTLY_ONE, null, null,
+                        handler("onMessage", null))),
+                HANDLERS, null);
+        Assert.assertTrue(resolved.isEmpty());
     }
 
     // ---- fixtures --------------------------------------------------------------------
 
-    private static TriggerMetadataModel.ServiceType.Rule rule(
-            String id, String type, TriggerMetadataModel.ServiceType.Rule.RuleMember... members) {
-        return new TriggerMetadataModel.ServiceType.Rule(id, type, List.of(members));
+    private static ConstraintResolver.Kind resolveKind(String registryId) {
+        return ConstraintResolver.resolve(LIB,
+                List.of(rule("$r", registryId, null, null,
+                        handler("onMessage", null), handler("onRequest", null))),
+                HANDLERS, null).get(0).kind();
     }
 
-    private static TriggerMetadataModel.ServiceType.Rule.RuleMember handler(String name) {
-        return new TriggerMetadataModel.ServiceType.Rule.RuleMember(null, null, null, null, name);
+    private static AnnotationRegistry registry() {
+        return AnnotationRegistry.of(new TriggerMetadataModel("v1.0", null, null,
+                List.of(new TriggerMetadataModel.Annotation("$serviceConfig",
+                        new TypeRef("ServiceConfig", null),
+                        TriggerMetadataModel.Annotation.ATTACH_POINT_SERVICE,
+                        TriggerMetadataModel.Annotation.PRESENCE_OPTIONAL)),
+                null));
     }
 
-    private static TriggerMetadataModel.ServiceType.Rule.RuleMember identifier() {
-        return new TriggerMetadataModel.ServiceType.Rule.RuleMember(null, null, null,
-                TriggerMetadataModel.ServiceType.Rule.RuleMember.PART_IDENTIFIER, null);
+    private static TriggerMetadataModel.Rule rule(String id, String registryId, String message, String prefer,
+                                                  TriggerMetadataModel.Subject... subjects) {
+        return new TriggerMetadataModel.Rule(id, registryId, List.of(subjects), null, message, prefer);
     }
 
-    private static TriggerMetadataModel.ServiceType.Rule.RuleMember annotationField(
-            String annotation, String field, Boolean preferred) {
-        return new TriggerMetadataModel.ServiceType.Rule.RuleMember(annotation, field, preferred, null, null);
+    private static TriggerMetadataModel.Subject handler(String name, String role) {
+        return subject(TriggerMetadataModel.Subject.KIND_HANDLER, name, null, null, null, role);
+    }
+
+    private static TriggerMetadataModel.Subject subject(String kind, String name, String annotation,
+                                                        List<String> path, String handler, String role) {
+        return new TriggerMetadataModel.Subject(kind, name, annotation, path, handler, null, role);
     }
 }

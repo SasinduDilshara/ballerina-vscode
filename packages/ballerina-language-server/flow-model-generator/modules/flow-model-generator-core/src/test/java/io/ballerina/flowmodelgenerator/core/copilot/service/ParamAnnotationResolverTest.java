@@ -82,7 +82,7 @@ public class ParamAnnotationResolverTest {
         // Corpus: mcp's httpHeader names ballerina/http's Header.
         TriggerMetadataModel.Annotation header = new TriggerMetadataModel.Annotation("httpHeader",
                 new TypeRef("Header", new TypeRef.PackageInfo("ballerina", "http", "http", "2.16.5")),
-                TriggerMetadataModel.Annotation.ATTACH_POINT_PARAMETER, null, null);
+                TriggerMetadataModel.Annotation.ATTACH_POINT_PARAMETER, null);
 
         AnnotationRef ref = ParamAnnotationResolver.resolve(registryOf(header), List.of("httpHeader"),
                 "mcp", facts()).refs().get(0);
@@ -97,7 +97,7 @@ public class ParamAnnotationResolverTest {
         // neither possible nor meaningful — the same rule ServiceIdentityResolver applies to a type.
         TriggerMetadataModel.Annotation header = new TriggerMetadataModel.Annotation("httpHeader",
                 new TypeRef("Header", new TypeRef.PackageInfo("ballerina", "http", "http", "2.16.5")),
-                TriggerMetadataModel.Annotation.ATTACH_POINT_PARAMETER, null, null);
+                TriggerMetadataModel.Annotation.ATTACH_POINT_PARAMETER, null);
         Assert.assertEquals(names(ParamAnnotationResolver.resolve(registryOf(header),
                 List.of("httpHeader"), "mcp", facts("SomethingElse", "PARAMETER"))), List.of("Header"));
     }

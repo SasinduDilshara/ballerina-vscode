@@ -25,13 +25,12 @@ import org.testng.annotations.Test;
 
 import java.util.List;
 
-import static io.ballerina.flowmodelgenerator.core.copilot.service.HandlerAnnotationResolverTest.facts;
-import static io.ballerina.flowmodelgenerator.core.copilot.service.HandlerAnnotationResolverTest.names;
-import static io.ballerina.flowmodelgenerator.core.copilot.service.HandlerAnnotationResolverTest.registryOf;
-
 /**
- * Pins spec §8 at {@code attachPoint: "return"}, whose selection path is the one the component sketch got
- * wrong.
+ * Conformance tests for <b>spec §8 at {@code attachPoint: "return"}</b>, written against the spec text.
+ *
+ * <p>Spec v1.0 gave return scope its own forward reference, {@code handlers.options[].returnAnnotations}.
+ * The point of these tests is that the reference is <b>per handler</b>: selection used to be by attach
+ * point, which is a document-wide question, so every return-pointed annotation attached to every handler.
  *
  * @since 1.7.0
  */
@@ -40,65 +39,68 @@ public class ReturnAnnotationResolverTest {
     private static final String HOME = "http";
 
     @Test
-    public void testReturnScopeSelectsByAppliesToNotById() {
-        // §8, "Residual gap": "service-level/return-level annotations have no reference mechanism as
-        // precise as `params[].annotations`, so they always rely on `appliesTo`."
-        // Corpus: http's cache is filed at `attachPoint: "return"` with `appliesTo: ["service"]` and is
-        // referenced from nowhere — an id-based resolver would find nothing at all.
-        AnnotationRegistry registry = registryOf(new TriggerMetadataModel.Annotation("cache",
-                new TypeRef("Cache", null), TriggerMetadataModel.Annotation.ATTACH_POINT_RETURN,
-                List.of("service"), TriggerMetadataModel.Annotation.PRESENCE_OPTIONAL));
-
-        Assert.assertEquals(names(resolve(registry, "service", facts("Cache", "RETURN"))),
-                List.of("Cache"));
-        Assert.assertTrue(resolve(registry, "otherServiceType", facts("Cache", "RETURN")).refs().isEmpty(),
-                "`appliesTo` scopes it to the named service types");
+    public void testAReferencedReturnAnnotationIsResolved() {
+        Assert.assertEquals(names(resolve(registry(), List.of("$cache"))), List.of("Cache"));
     }
 
     @Test
-    public void testAnAbsentAppliesToAppliesToEveryServiceType() {
-        // The same reading ServiceAnnotationResolver documents for service scope, which §8's Residual gap
-        // leaves open for both: it is the reading that cannot lose a required annotation.
-        AnnotationRegistry registry = registryOf(new TriggerMetadataModel.Annotation("cache",
-                new TypeRef("Cache", null), TriggerMetadataModel.Annotation.ATTACH_POINT_RETURN, null,
-                null));
-        Assert.assertEquals(names(resolve(registry, "anyServiceType", facts("Cache", "RETURN"))),
-                List.of("Cache"));
-        Assert.assertEquals(names(resolve(registry, null, facts("Cache", "RETURN"))), List.of("Cache"));
+    public void testAHandlerReferencingNothingCarriesNoReturnAnnotation() {
+        // The whole point of the per-handler list: a handler whose return is not cacheable states nothing,
+        // where attach-point selection would have attached `$cache` to it anyway.
+        Assert.assertTrue(resolve(registry(), null).isEmpty());
+        Assert.assertTrue(resolve(registry(), List.of()).isEmpty());
     }
 
     @Test
-    public void testOnlyTheReturnPointIsSelected() {
-        // An entry at another point belongs to another component; return scope must not adopt it.
-        AnnotationRegistry registry = registryOf(new TriggerMetadataModel.Annotation("serviceConfig",
-                new TypeRef("ServiceConfig", null), TriggerMetadataModel.Annotation.ATTACH_POINT_SERVICE,
-                null, null));
-        Assert.assertTrue(resolve(registry, "service", facts("ServiceConfig", "SERVICE")).refs().isEmpty());
-    }
-
-    @Test
-    public void testAnAnnotationTheCompilerDoesNotAllowOnAReturnIsRejected() {
-        // The guard again: the document files it at `return`, the package declares it somewhere else.
-        AnnotationRegistry registry = registryOf(new TriggerMetadataModel.Annotation("cache",
-                new TypeRef("Cache", null), TriggerMetadataModel.Annotation.ATTACH_POINT_RETURN, null,
-                null));
-        AnnotationScopeResolver.Resolution resolution = resolve(registry, "service",
-                facts("Cache", "PARAMETER"));
+    public void testOnlyReturnScopedAnnotationsAreResolved() {
+        // `returns @http:Payload {...} T` is not a legal slot for a parameter-pointed annotation.
+        AnnotationScopeResolver.Resolution resolution =
+                ReturnAnnotationResolver.resolve(registry(), List.of("$payload"), HOME, null);
         Assert.assertTrue(resolution.refs().isEmpty());
         Assert.assertEquals(resolution.rejections().size(), 1);
     }
 
     @Test
-    public void testAnEmptyRegistryResolvesToNothing() {
-        Assert.assertTrue(resolve(registryOf(), "service", null).refs().isEmpty());
-        Assert.assertTrue(resolve(AnnotationRegistry.of(null), "service", null).refs().isEmpty());
+    public void testAnUnresolvableIdIsRejectedRatherThanSilentlyDropped() {
+        AnnotationScopeResolver.Resolution resolution =
+                ReturnAnnotationResolver.resolve(registry(), List.of("$nope"), HOME, null);
+        Assert.assertTrue(resolution.refs().isEmpty());
+        Assert.assertEquals(resolution.rejections().size(), 1);
+    }
+
+    @Test
+    public void testPresenceAndAttachPointAreCarried() {
+        AnnotationRef ref = resolve(registry(), List.of("$cache")).get(0);
+        Assert.assertFalse(ref.required());
+        Assert.assertEquals(ref.attachPoint(), TriggerMetadataModel.Annotation.ATTACH_POINT_RETURN);
+    }
+
+    @Test
+    public void testDocumentOrderIsPreserved() {
+        Assert.assertEquals(names(resolve(registry(), List.of("$etag", "$cache"))),
+                List.of("ETag", "Cache"));
     }
 
     // ---- fixtures --------------------------------------------------------------------
 
-    private static AnnotationScopeResolver.Resolution resolve(
-            AnnotationRegistry registry, String serviceTypeId,
-            AnnotationScopeResolver.AnnotationFacts facts) {
-        return ReturnAnnotationResolver.resolve(registry, serviceTypeId, HOME, facts);
+    private static List<AnnotationRef> resolve(AnnotationRegistry registry, List<String> ids) {
+        return ReturnAnnotationResolver.resolve(registry, ids, HOME, null).refs();
+    }
+
+    private static List<String> names(List<AnnotationRef> refs) {
+        return refs.stream().map(AnnotationRef::name).toList();
+    }
+
+    private static AnnotationRegistry registry() {
+        return AnnotationRegistry.of(new TriggerMetadataModel("v1.0", null, null, List.of(
+                annotation("$cache", "Cache", TriggerMetadataModel.Annotation.ATTACH_POINT_RETURN),
+                annotation("$etag", "ETag", TriggerMetadataModel.Annotation.ATTACH_POINT_RETURN),
+                annotation("$payload", "Payload",
+                        TriggerMetadataModel.Annotation.ATTACH_POINT_PARAMETER)), null));
+    }
+
+    private static TriggerMetadataModel.Annotation annotation(String id, String name, String attachPoint) {
+        return new TriggerMetadataModel.Annotation(id, new TypeRef(name, null), attachPoint,
+                TriggerMetadataModel.Annotation.PRESENCE_OPTIONAL);
     }
 }

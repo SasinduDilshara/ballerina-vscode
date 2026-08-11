@@ -56,6 +56,7 @@ final class HandlerKindAspect implements HandlerAspect {
             // TriggerSemanticFacts derived from its resource path, so there is nothing to resolve for it.
             return;
         }
-        AccessorPrecedencePolicy.accessorOf(scope.option()).ifPresent(draft::setAccessor);
+        // The accessor itself is ResourceExtrasAspect's: spec §5 gave the construct a single `accessor`
+        // slot, so there is no longer a precedence question for this component to answer.
     }
 }

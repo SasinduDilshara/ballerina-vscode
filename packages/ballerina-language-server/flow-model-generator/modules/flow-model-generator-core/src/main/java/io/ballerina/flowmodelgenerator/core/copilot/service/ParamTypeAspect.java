@@ -68,6 +68,12 @@ final class ParamTypeAspect implements ParamAspect {
                 ? param.name()
                 : ParamTypeResolver.resolveName(param, scope.position(),
                         TypeRefResolver.moduleAlias(packageName), scope.siblingNames());
+        // Spec §5.1's rule applies to parameters too: a documented slot of a marker-type handler has no
+        // symbol behind it, so this is the only description of what the parameter carries.
+        draft.setDescription(param.doc());
+        // Spec §7 `deprecated`, the parameter-scope twin of §5.3's. No corpus slot states one yet; the
+        // wiring is here because the alternative is that the first document to state one loses it silently.
+        draft.setDeprecated(param.deprecated());
         if (name != null) {
             scope.siblingNames().add(name);
         }

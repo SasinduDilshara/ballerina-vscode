@@ -117,54 +117,71 @@ final class ConstraintAspect implements ServiceAspect {
     }
 
     /**
-     * Wire shape: {@code {id?, kind, members[]}}, where each member names exactly one of spec §6's three
-     * shapes. The {@code kind} is emitted as the spec's own vocabulary rather than the Java enum name, so the
-     * renderer states what the document states.
+     * Wire shape: {@code {id?, rule, subjects[], message?, severity?, prefer?}}.
+     *
+     * <p>The registry id is emitted verbatim rather than a normalized enum name, so a consumer states what
+     * the document states. {@code message} is carried because the document's own sentence says <i>why</i> a
+     * constraint exists, which no amount of structure reconstructs — a renderer should prefer it over
+     * anything it can synthesize from the subjects.
      */
     private static JsonObject toJson(ConstraintResolver.Constraint constraint) {
         JsonObject json = new JsonObject();
         if (constraint.id() != null && !constraint.id().isEmpty()) {
             json.addProperty("id", constraint.id());
         }
-        json.addProperty("kind", constraint.kind() == ConstraintResolver.Kind.EXACTLY_ONE
-                ? TriggerMetadataModel.ServiceType.Rule.TYPE_ONE_OF
-                : TriggerMetadataModel.ServiceType.Rule.TYPE_AT_MOST_ONE);
-        JsonArray members = new JsonArray();
-        for (ConstraintResolver.Member member : constraint.members()) {
-            members.add(memberToJson(member));
+        json.addProperty("rule", constraint.kind().registryId());
+        JsonArray subjects = new JsonArray();
+        for (ConstraintResolver.Subject subject : constraint.subjects()) {
+            subjects.add(subjectToJson(subject));
         }
-        json.add("members", members);
+        json.add("subjects", subjects);
+        if (constraint.message() != null) {
+            json.addProperty("message", constraint.message());
+        }
+        // Emitted only when the document downgrades the rule; `error` is the default and stating it would
+        // break the omission rule.
+        if (TriggerMetadataModel.Rule.SEVERITY_WARNING.equals(constraint.severity())) {
+            json.addProperty("severity", constraint.severity());
+        }
+        if (constraint.prefer() != null) {
+            json.addProperty("prefer", constraint.prefer());
+        }
         return json;
     }
 
-    private static JsonObject memberToJson(ConstraintResolver.Member member) {
+    private static JsonObject subjectToJson(ConstraintResolver.Subject subject) {
         JsonObject json = new JsonObject();
-        switch (member) {
-            case ConstraintResolver.Member.AnnotationField field -> {
-                // The resolved name is what a reader must write; the id is kept so the wire still says which
-                // registry entry the rule referenced.
+        switch (subject) {
+            case ConstraintResolver.Subject.Identifier ignored ->
+                    json.addProperty("kind", TriggerMetadataModel.Subject.KIND_IDENTIFIER);
+            case ConstraintResolver.Subject.Annotation annotation -> {
+                json.addProperty("kind", TriggerMetadataModel.Subject.KIND_ANNOTATION);
+                // The resolved name is what a reader must write; the id is kept so the wire still says
+                // which registry entry the rule referenced.
+                json.addProperty("annotation", annotation.annotationName());
+                json.addProperty("annotationId", annotation.annotationId());
+            }
+            case ConstraintResolver.Subject.AnnotationField field -> {
+                json.addProperty("kind", TriggerMetadataModel.Subject.KIND_ANNOTATION_FIELD);
                 json.addProperty("annotation", field.annotationName());
                 json.addProperty("annotationId", field.annotationId());
-                json.addProperty("field", field.field());
-                addPreferred(json, field.preferred());
+                JsonArray path = new JsonArray();
+                field.path().forEach(path::add);
+                json.add("path", path);
             }
-            case ConstraintResolver.Member.Identifier identifier -> {
-                json.addProperty("part",
-                        TriggerMetadataModel.ServiceType.Rule.RuleMember.PART_IDENTIFIER);
-                addPreferred(json, identifier.preferred());
+            case ConstraintResolver.Subject.Handler handler -> {
+                json.addProperty("kind", TriggerMetadataModel.Subject.KIND_HANDLER);
+                json.addProperty("name", handler.name());
             }
-            case ConstraintResolver.Member.Handler handler -> {
-                json.addProperty("handler", handler.name());
-                addPreferred(json, handler.preferred());
+            case ConstraintResolver.Subject.Param param -> {
+                json.addProperty("kind", TriggerMetadataModel.Subject.KIND_PARAM);
+                json.addProperty("handler", param.handler());
+                json.addProperty("name", param.name());
             }
+        }
+        if (subject.role() != null) {
+            json.addProperty("role", subject.role());
         }
         return json;
-    }
-
-    /** Emitted only when true — spec §6's {@code preferred} is absent for a non-canonical alternative. */
-    private static void addPreferred(JsonObject json, boolean preferred) {
-        if (preferred) {
-            json.addProperty("preferred", true);
-        }
     }
 }

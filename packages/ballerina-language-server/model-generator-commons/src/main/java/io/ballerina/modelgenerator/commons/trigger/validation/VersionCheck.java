@@ -24,13 +24,17 @@ import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 import java.util.List;
 
 /**
- * The spec's top-level {@code version}: "a required top-level string (currently {@code "v1"})".
+ * The spec's top-level {@code version}: required, and of the form {@code v<major>.<minor>} (spec §11).
  *
  * <p><b>ERROR where {@link SpecVersionGate} only warns, and the asymmetry is the point.</b> The gate runs
  * at load time against documents this repo does not own — a connector may ship its own — so it must keep a
  * working library working. This check runs over the repo's own corpus in a test, where an omission is a
  * defect somebody can simply fix. Making both permissive would leave the key optional forever; making both
  * strict would take every trigger library offline the moment one document lagged.
+ *
+ * <p>That asymmetry is why the pre-release {@code "v1"} form is an ERROR here while the gate accepts it: a
+ * document this repo ships has no reason to still carry it, and leaving it would mean the corpus never
+ * finishes migrating.
  *
  * @since 1.10.0
  */
@@ -43,7 +47,7 @@ final class VersionCheck implements DocumentCheck {
 
     @Override
     public String specSection() {
-        return "§0";
+        return "§11";
     }
 
     @Override
@@ -54,9 +58,16 @@ final class VersionCheck implements DocumentCheck {
                     "the spec makes `version` a required top-level string; add \"version\": \""
                             + SpecVersionGate.VERSION_V1 + "\""));
         }
+        if (SpecVersionGate.VERSION_PRERELEASE_V1.equals(version.trim())) {
+            return List.of(Finding.error(this, "version",
+                    "declares the pre-release form '" + SpecVersionGate.VERSION_PRERELEASE_V1
+                            + "'; spec §11 requires v<major>.<minor>, so write \""
+                            + SpecVersionGate.VERSION_V1 + "\""));
+        }
         if (SpecVersionGate.evaluate(version) == SpecVersionGate.VersionVerdict.REJECT) {
             return List.of(Finding.error(this, "version",
-                    "declares version '" + version + "', which this build does not implement (expected '"
+                    "declares version '" + version + "', whose major version this build does not implement"
+                            + " (expected major " + SpecVersionGate.MAJOR_V1 + ", e.g. '"
                             + SpecVersionGate.VERSION_V1 + "')"));
         }
         return List.of();

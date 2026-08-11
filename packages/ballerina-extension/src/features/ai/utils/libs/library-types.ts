@@ -57,6 +57,8 @@ export interface ParameterDef {
     description: string;
     type: Type;
     default?: string;
+    // Spec §7 `deprecated` — why this slot is superseded, as prose. See ServiceRemoteFunction.deprecated.
+    deprecated?: string;
     // Spec §7 `presence`. An optional handler parameter may be omitted from the signature entirely — it is
     // never rendered as `T?` or given a default, neither of which is what the spec means.
     optional: boolean;
@@ -77,31 +79,43 @@ export interface ParameterDef {
     repeatable?: boolean;
 }
 
-// Spec §9 `dataBindingRules[]`, as resolved for one parameter slot.
+// Spec §9 `params[].dataBinding`, as resolved for one parameter slot.
+//
+// Written inline on the parameter rather than referenced from a registry, and shaped as independent
+// *variants* rather than alternative *modes*: two variants can share a bound and differ in shape
+// (kafka's bare-vs-included), or share shapes and differ in bound (ftp's `string[]` vs `record {}`).
+// A single flattened mode list could express neither without deleting half the surface.
 export interface ParamBinding {
-    // Spec §9 `cardinality: "array"`. Present only when true, and it means a mode's type is the array
-    // *element* type — kafka's parameter is already `AnydataConsumerRecord[]`, so a renderer that treated
-    // this as "make it an array" would pluralize twice.
-    array?: boolean;
-    modes: BindingMode[];
+    typedescs: TypedescVariant[];
 }
 
-// Spec §9 `supportedModes[]`. Exactly one shape is populated per mode, keyed by `mode`.
-export interface BindingMode {
-    mode: "direct" | "includedRecord" | "streamable";
-    // direct, streamable: every legal target type, never truncated to the first.
-    typeConstraint?: Type[];
-    // direct: types explicitly disallowed. A negative constraint, derivable from nothing else — so it
-    // survives the renderer's suppression of names already visible elsewhere.
+// Spec §9 `typedescs[]`: one independent way the slot's value may be projected.
+export interface TypedescVariant {
+    // This variant's upper bound. Exactly one type, never a union — two bounds sharing shapes are two
+    // variants.
+    constraint: Type;
+    // Instantiations another variant already owns. A negative constraint, derivable from nothing else, so
+    // it survives the renderer's suppression of names already visible elsewhere.
     excludes?: Type[];
-    // includedRecord: the envelope a user record includes with `*Envelope;`.
-    includes?: Type;
-    // includedRecord: the fields such a record may override; everything else stays pinned.
+    shapes: BindingShape[];
+}
+
+// Spec §9 `shapes[]`: how this variant's bound is embedded in the declared parameter type.
+export interface BindingShape {
+    form: "bare" | "array" | "stream" | "included";
+    // For `array`/`stream`, whether each element is bare or includes the envelope. Batching combines with
+    // either embedding, which is the case a rule-level `cardinality` flag could not express.
+    element?: "bare" | "included";
+    // The record a user type includes with `*Envelope;`. Present for `included`, and for an
+    // `array`/`stream` whose `element` is `included`.
+    envelope?: Type;
+    // The envelope's fields this variant may retype; every other field stays pinned.
     bindableFields?: string[];
-    // includedRecord: the complement, derived by the pipeline (spec §9: "always derivable"). Carried for
-    // completeness; the renderer states the prohibition instead, since the envelope's own declaration is
-    // already in the same file.
+    // The complement, derived by the pipeline (spec §9: "they are the envelope's fields minus
+    // bindableFields"). Carried for completeness; the renderer states the prohibition instead.
     fixedFields?: string[];
+    // For `stream`, the stream's completion type — `stream<T>` and `stream<T, error?>` are different types.
+    completionType?: Type;
 }
 
 export interface Return {
@@ -216,17 +230,28 @@ export interface ServiceRemoteFunction {
     // compile: the compiler reports "mismatched function signatures" whose expected and found halves print
     // identically, because it prints neither qualifier. Present only when the qualifier is declared.
     isolated?: boolean;
-    // Spec §5 resource extras. `accessor` is resolved by the Java-side AccessorPrecedencePolicy; the rest are
-    // the legal vocabularies the document declares, rendered as placeholders and notes (spec §11.2: the
-    // concrete values are intent-derived and must never be invented).
+    // Spec §5 resource extras — the two positions of `resource function <accessor> <path>()`, and nothing
+    // else. The spec replaced HTTP's `method`/`path` and GraphQL's `accessor`/`fieldName` with one pair
+    // described symmetrically ("Both are required for `kind: "resource"` and neither applies to `kind:
+    // "remote"`"), which is why `methodValues`/`pathForm`/`fieldNameForm`/`graphqlOperation` are gone.
+    //
+    // `graphqlOperation` is not lost with them: it is derivable from what remains. A query is `resource`
+    // with accessor `get`, a subscription is `resource` with accessor `subscribe`, and a mutation is
+    // `remote` — so restating it would be the spec's own "fully derivable from other fields" omission.
+    //
+    // `accessor` is the value to write (§1: the first declared value is the codegen default); the rest
+    // describe the slot's constraint. Spec §11.2 still holds: a path is intent-derived and never invented.
     accessor?: string;
-    methodValues?: string[];
-    methodRequired?: boolean;
-    pathForm?: string[];
+    accessorValues?: string[];
+    accessorRequired?: boolean;
+    // Spec §5 `values: ["*"]` — any accessor the language accepts. Carried apart from `accessorValues`
+    // because the two must be worded differently: a note reading "must be one of `*`" is nonsense.
+    accessorOpen?: boolean;
     pathRequired?: boolean;
-    fieldNameForm?: string[];
-    fieldNameRequired?: boolean;
-    graphqlOperation?: string;
+    // Spec §5.3 `deprecated` — why this handler is superseded, as the document's own prose. Distinct from
+    // `isDeprecated`, which says only *that* the symbol carries the annotation: this names the replacement,
+    // which is the part a reader can act on. `ftp`'s `onFileChange` is the corpus instance.
+    deprecated?: string;
     // Spec §8 at `attachPoint: "function"`: annotations the generated handler must or may carry.
     annotationRefs?: AnnotationRequirement[];
 }
@@ -242,6 +267,9 @@ export interface Client {
 export interface Listener {
     name: string;
     parameters: Parameter[];
+    // Spec §2 `deprecated` — why this listener is superseded, as prose. See ServiceRemoteFunction.deprecated
+    // for why it is text and not a flag.
+    deprecated?: string;
 }
 
 // Spec §2 `listeners[].requiredImports`: an import the generated code needs for its runtime side
@@ -289,26 +317,43 @@ export interface ServiceIdentifier {
     form: string[];
 }
 
-// Spec §6 `rules[].members[]`: exactly one shape is populated per member.
-export interface ConstraintMember {
-    // The annotation's actual name (`ServiceConfig`), already resolved from the document's registry id by the
-    // Java side — a reader has to write this, not the id.
+// Spec §6.1 `subjects[]`: what a rule ranges over. A tagged union discriminated by `kind`.
+export interface ConstraintSubject {
+    kind: "identifier" | "annotation" | "annotationField" | "handler" | "param";
+    // The annotation's actual name (`ServiceConfig`), already resolved from the document's registry id by
+    // the Java side — a reader has to write this, not the id. Set for `annotation`/`annotationField`.
     annotation?: string;
-    // The `annotations[].id` the rule referenced (`serviceConfig`). Carried for traceability; never rendered,
-    // because it names nothing that exists in Ballerina source.
+    // The `annotations[].id` the subject referenced (`$serviceConfig`). Carried for traceability; never
+    // rendered, because it names nothing that exists in Ballerina source.
     annotationId?: string;
-    field?: string;
-    part?: string;
+    // For `annotationField`, the field path inside the annotation record. An array, so a nested field such
+    // as `["retryConfig", "maxCount"]` is addressable — truncating it would name the wrong field.
+    path?: string[];
+    // For `handler` the handler's name; for `param` the parameter's name.
+    name?: string;
+    // For `param`, the handler the parameter belongs to.
     handler?: string;
-    preferred?: boolean;
+    // This subject's name within its rule. Asymmetric constraints fix `when`/`then`; symmetric ones use
+    // free labels, referenced by the rule's `prefer`.
+    role?: string;
 }
 
-// Spec §6 `rules[]`: `oneOf` obliges the service to pick exactly one member; `atMostOne` permits none. The
-// distinction is load-bearing and must not be flattened when rendering.
+// Spec §6 `rules[]`: a named constraint from an open registry.
+//
+// `rule` is an open vocabulary, so this is deliberately a `string` rather than a union of the six entries
+// the registry defines today: spec §6 requires an unrecognised id be skipped rather than rejected, and a
+// closed type here would make a newer manifest a compile error rather than a skipped rule.
 export interface ServiceConstraint {
     id?: string;
-    kind: "oneOf" | "atMostOne";
-    members: ConstraintMember[];
+    rule: string;
+    subjects: ConstraintSubject[];
+    // The document's own diagnostic sentence. Preferred over anything the renderer can synthesize: it says
+    // *why* the constraint exists, which no amount of structure reconstructs.
+    message?: string;
+    // Present only when the document downgrades the rule; `error` is the default and is never stated.
+    severity?: "warning";
+    // The `role` a generator should default to. A hint, not part of the constraint.
+    prefer?: string;
 }
 
 export interface Service {
@@ -346,19 +391,45 @@ export interface Service {
     // Present only when the connector forbids it; the permissive case states nothing, because the
     // one-service-one-listener shape a generator writes by default is legal either way.
     singleListenerOnly?: boolean;
-    // Spec §3 `multipleServicesPerListenerAllowed: false`. Same presence rule as `singleListenerOnly`.
+    // Spec §2 `multipleServicesOfSameTypeAllowed: false` — one listener hosts at most one service of THIS
+    // type, though it may host others. Same presence rule as `singleListenerOnly`.
     singleServicePerListenerOnly?: boolean;
+    // Spec §2 `multipleServicesAllowed: false` — one listener hosts at most one service, of any type. The
+    // strictly stronger sibling of the above, and emitted instead of it rather than alongside.
+    singleServiceOnly?: boolean;
+    // Spec §2.1 `listeners[].platformDependencies`: native artifacts the build cannot fetch. Carried on the
+    // service because the spec declares them on the listener, so only code using that listener needs them.
+    platformDependencies?: PlatformDependency[];
     // Spec §2 `listeners[].services`: no listener declares it can host this service type, so it must never
     // be written as `service … on new …` — the compiler rejects that with "service type is not supported by
     // the listener". Present only when the restriction holds. `renderFixedService` renders such a type as a
     // `service class` that includes it, which is how `websocket`'s Service is actually reached.
     notListenerAttachable?: boolean;
-    // Spec §4: the document declares this catalog `addMode: "many"` (open-ended, user-named) while listing
-    // named options instead of the single `"*"` entry, so those names are handler SHAPES and the author
-    // names each real handler. Present only when that mismatch holds. Without the note, `grpc`'s `unary` /
-    // `serverStreaming` read exactly like `salesforce`'s genuinely-fixed `onCreate` / `onUpdate` — but a
-    // real gRPC handler is named after its proto RPC, so those four labels appear in no working program.
-    authorNamedHandlers?: boolean;
+    // Spec §3 `deprecated` — why this service type is superseded, as prose. See
+    // ServiceRemoteFunction.deprecated for why it is text and not a flag.
+    deprecated?: string;
+}
+
+// Spec §2.1 — a native artifact the generated project needs on its classpath, which no public repository
+// necessarily serves.
+export interface PlatformDependency {
+    // Maven coordinate as `groupId:artifactId:version`.
+    coordinate: string;
+    // `scope: "provided"` — compile-time only, supplied by the deployment rather than bundled. Emitted only
+    // when true; absent means bundled, which needs no action from the reader.
+    provided?: boolean;
+    acquisitionUrl?: string;
+    acquisitionNote?: string;
+    nativeLibraries?: NativeLibrary[];
+}
+
+// An OS-specific native library. A missing one is not a build failure — the package compiles and the
+// service fails at run time — which is exactly why it has to be stated.
+export interface NativeLibrary {
+    os: string;
+    file: string;
+    // The environment variable that OS discovers it through, derived from `os` by the pipeline.
+    variable?: string;
 }
 
 export interface Annotation {

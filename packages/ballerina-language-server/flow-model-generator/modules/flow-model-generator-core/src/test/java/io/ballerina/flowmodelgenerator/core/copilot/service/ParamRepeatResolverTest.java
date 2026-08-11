@@ -46,7 +46,7 @@ public class ParamRepeatResolverTest {
     public void testOnlyManyMarksASlotRepeatable() {
         // §10's vocabulary for this key has exactly one value.
         Assert.assertTrue(ParamRepeatResolver.isRepeatable(
-                TriggerMetadataModel.ServiceType.Handlers.ADD_MODE_MANY));
+                TriggerMetadataModel.ServiceType.HandlerOption.ADD_MODE_MANY));
     }
 
     @Test
@@ -103,7 +103,7 @@ public class ParamRepeatResolverTest {
     }
 
     private static TriggerMetadataModel.ServiceType.Param param(String addMode) {
-        return new TriggerMetadataModel.ServiceType.Param(null, List.of(new TypeRef("anydata", null)),
+        return new TriggerMetadataModel.ServiceType.Param(null, null, null, List.of(new TypeRef("anydata", null)),
                 "optional", addMode, null, null);
     }
 }

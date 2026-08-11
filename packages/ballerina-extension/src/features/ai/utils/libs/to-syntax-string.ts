@@ -41,9 +41,11 @@ import {
     ServiceRemoteFunction,
     ServiceIdentifier,
     ServiceConstraint,
-    ConstraintMember,
+    ConstraintSubject,
     AnnotationRequirement,
-    BindingMode,
+    BindingShape,
+    TypedescVariant,
+    PlatformDependency,
 } from "./library-types";
 
 /**
@@ -681,13 +683,21 @@ function renderRepeatNotes(method: ServiceRemoteFunction, listenerAlias: string 
         const surface = [param.type, ...(param.alternatives ?? [])]
             .map((type) => qualifyDeclaredType(type, listenerAlias))
             .filter((name) => name !== "");
-        // The name when the document states one; otherwise the annotation the slot must carry, which is
-        // what actually distinguishes two same-typed slots from each other.
+        // The name when the document states one; otherwise the annotation, which is what actually
+        // distinguishes two same-typed slots from each other — `ballerina/http` declares a query slot and
+        // a header slot with an identical type union and no names, and `@http:Query`/`@http:Header` are
+        // the only things telling them apart.
+        //
+        // Phrased as identification, never as obligation. "annotated `@graphql:ID`" asserted that every
+        // such parameter carries the annotation, one line above a note correctly saying it only *may* be
+        // carried — and the same overstatement applied to http, whose two annotations are `optional` too.
+        // Naming the slot instead disambiguates without inventing a requirement, so the discriminator
+        // survives for the case that needs it.
         const annotation = (param.annotationRefs ?? [])
             .map((ref) => qualifyRequirement(ref, listenerAlias).qualifiedName)[0];
         const discriminator = param.name
             ? ` (\`${param.name}\`)`
-            : (annotation ? ` annotated \`@${annotation}\`` : "");
+            : (annotation ? ` (the \`@${annotation}\` slot)` : "");
         const types = surface.length > 1
             ? `${surface[0]} (or ${surface.slice(1).join(", ")})`
             : surface[0] ?? "";
@@ -728,92 +738,113 @@ function suppressMembersAlreadyVisible(types: Type[] | undefined, visible: Set<s
 /**
  * Spec §9 — the `#` lines describing how a parameter's value may be bound.
  *
- * One line per mode, because the modes are different capabilities: binding a value directly and binding a
- * record that *includes* the connector's envelope are different pieces of code. A mode whose every type is
- * already visible contributes no line — with one exception, `excludes`, which is a negative constraint no
- * other part of the output can express.
+ * One line per *variant*, because the variants are independent capabilities: binding a value directly and
+ * binding a record that *includes* the connector's envelope are different pieces of code. A variant whose
+ * every type is already visible contributes no line — with one exception, `excludes`, which is a negative
+ * constraint no other part of the output can express.
  */
 function renderBindingNotes(method: ServiceRemoteFunction, listenerAlias: string | null,
                             indent: string): string[] {
     const lines: string[] = [];
     for (const param of method.parameters ?? []) {
         const binding = param.binding;
-        if (!binding || !binding.modes || binding.modes.length === 0) {
+        if (!binding || !binding.typedescs || binding.typedescs.length === 0) {
             continue;
         }
         const visible = new Set<string>([
             qualifyDeclaredType(param.type, listenerAlias),
             ...(param.alternatives ?? []).map((type) => qualifyDeclaredType(type, listenerAlias)),
         ]);
-        const modeLines: string[] = [];
-        for (const mode of binding.modes) {
-            const line = renderBindingMode(mode, param.name ?? "", visible, listenerAlias,
-                binding.array === true);
-            if (line) {
-                modeLines.push(`${indent}# ${line}`);
-            }
+        for (const variant of binding.typedescs) {
+            lines.push(...renderBindingVariant(variant, param.name ?? "", visible, listenerAlias, indent));
         }
-        if (modeLines.length === 0) {
-            continue;
-        }
-        if (binding.array) {
-            // Spec §9: the bound value is a batch, so a mode's type is the array *element* type. Stated
-            // rather than applied: the parameter's own signature is already an array, and pluralizing the
-            // mode types too would describe an array of arrays.
-            lines.push(`${indent}# \`${param.name}\` binds a batch; the types below are element types.`);
-        }
-        lines.push(...modeLines);
     }
     return lines;
 }
 
-/** One §9 mode, or "" when it has nothing left to say after suppression. */
-function renderBindingMode(mode: BindingMode, paramName: string, visible: Set<string>,
-                           listenerAlias: string | null, array: boolean): string {
-    if (mode.mode === "includedRecord") {
-        if (!mode.includes) {
+/** One §9 variant, as zero or more `#` lines — one per shape it admits. */
+function renderBindingVariant(variant: TypedescVariant, paramName: string, visible: Set<string>,
+                              listenerAlias: string | null, indent: string): string[] {
+    const bound = qualifyDeclaredType(variant.constraint, listenerAlias);
+    // `excludes` is compared against an empty visible set on purpose: a prohibition is derivable from
+    // nothing else, so it survives even when every positive member is already on the page.
+    const excluded = suppressMembersAlreadyVisible(variant.excludes, new Set<string>(), listenerAlias);
+    const lines: string[] = [];
+    for (const shape of variant.shapes ?? []) {
+        const line = renderBindingShape(shape, bound, paramName, visible, listenerAlias);
+        if (line) {
+            lines.push(`${indent}# ${line}${excluded.length === 0 ? "" : ` — but never ${excluded.join(", ")}`}`);
+            continue;
+        }
+        // The shape said nothing because its bound is already visible in the signature. `excludes` is not:
+        // it is a prohibition, derivable from nothing else on the page, so it must survive the suppression
+        // that removed the positive half. Dropping the whole line here is how a "never bind the envelope
+        // itself" rule would silently vanish for any connector whose bound happens to match its parameter.
+        if (excluded.length > 0) {
+            lines.push(`${indent}# \`${paramName}\` may bind directly to any type shown above`
+                + ` — but never ${excluded.join(", ")}`);
+        }
+    }
+    return lines;
+}
+
+/** One §9 shape, or "" when it has nothing left to say after suppression. */
+function renderBindingShape(shape: BindingShape, bound: string, paramName: string, visible: Set<string>,
+                            listenerAlias: string | null): string {
+    const includesEnvelope = shape.form === "included" || shape.element === "included";
+    if (includesEnvelope) {
+        if (!shape.envelope) {
             return "";
         }
-        const envelopeLinks = collectExternalLinks(mode.includes);
+        const envelopeLinks = collectExternalLinks(shape.envelope);
         // The inclusion is written in the *user's* module, so it carries an alias — the same rule the §8
         // attachment lines follow. `applyPrefixToTypeName` handles a cross-module envelope; a home-module
         // one takes the listener's alias.
         const envelope = envelopeLinks.length > 0
-            ? applyPrefixToTypeName(mode.includes.name, envelopeLinks)
-            : (listenerAlias ? `${listenerAlias}:${mode.includes.name}` : mode.includes.name);
-        const fields = mode.bindableFields ?? [];
+            ? applyPrefixToTypeName(shape.envelope.name, envelopeLinks)
+            : (listenerAlias ? `${listenerAlias}:${shape.envelope.name}` : shape.envelope.name);
+        const fields = shape.bindableFields ?? [];
         // The prohibition, not just the permission: naming the bindable field does not say the others are
         // fixed, and that is the whole content of `bindableFields`.
+        const batched = shape.form === "array" || shape.form === "stream";
         const overrides = fields.length > 0
-            ? ` and ${array ? "override" : "overrides"} only `
+            ? ` and ${batched ? "override" : "overrides"} only `
               + fields.map((field) => `\`${field}\``).join(", ")
             : "";
-        // Under `cardinality: "array"` the parameter takes an array of these records, and this is the one
-        // line where leaving that to the reader costs a compile error: `MyRecord` where `MyRecord[]` is
+        // Under a batched form the parameter takes an array (or stream) of these records, and this is the
+        // one line where leaving that to the reader costs a compile error: `MyRecord` where `MyRecord[]` is
         // required. The English is pluralized; the type name is not — pluralizing that is what would
         // double-count against a signature that is already an array.
-        const subject = array
+        const subject = shape.form === "array"
             ? `an array of records that include \`*${envelope};\``
-            : `a record that includes \`*${envelope};\``;
+            : shape.form === "stream"
+                ? `a stream of records that include \`*${envelope};\``
+                : `a record that includes \`*${envelope};\``;
         return `\`${paramName}\` may bind to ${subject}${overrides}`;
     }
 
-    const kept = suppressMembersAlreadyVisible(mode.typeConstraint, visible, listenerAlias);
-    // `excludes` is compared against an empty visible set on purpose: a prohibition is derivable from
-    // nothing else, so it survives even when every positive member is already on the page.
-    const excluded = suppressMembersAlreadyVisible(mode.excludes, new Set<string>(), listenerAlias);
-    if (mode.mode === "streamable") {
-        // The declared members are already whole stream types; wrapping them again would emit
-        // `stream<stream<...>>`.
-        return kept.length === 0 ? "" : `\`${paramName}\` may bind to a stream: ${kept.join(", ")}`;
-    }
-    if (kept.length === 0 && excluded.length === 0) {
+    // The type the reader would actually WRITE for this shape — which is what has to be compared against
+    // what is already on the page. Comparing the bare bound instead suppressed nothing for `array` and
+    // `stream`: ftp's csv slot is declared `string[][]` while its bound is `string[]`, so the two never
+    // matched and all four of its shapes restated types the signature and the `may also be` line had
+    // already given. Spec §7 makes the document restate a slot's full static surface even where the
+    // binding implies it, so that overlap is deliberate in the document and pure noise in the prompt.
+    const completion = shape.completionType
+        ? qualifyDeclaredType(shape.completionType, listenerAlias)
+        : "";
+    const written = shape.form === "stream"
+        ? (completion ? `stream<${bound}, ${completion}>` : `stream<${bound}>`)
+        : shape.form === "array" ? `${bound}[]` : bound;
+    if (visible.has(written)) {
         return "";
     }
-    const target = kept.length === 0
-        ? `\`${paramName}\` may bind directly to any type shown above`
-        : `\`${paramName}\` may bind directly to: ${kept.join(", ")}`;
-    return excluded.length === 0 ? target : `${target} — but never ${excluded.join(", ")}`;
+    if (shape.form === "stream") {
+        return `\`${paramName}\` may bind to a stream: ${written}`;
+    }
+    if (shape.form === "array") {
+        return `\`${paramName}\` may bind to a batch: ${written}`;
+    }
+    return `\`${paramName}\` may bind directly to: ${written}`;
 }
 
 /**
@@ -896,6 +927,12 @@ function renderPresenceMarker(method: ServiceRemoteFunction): string {
  * because spec §10 defines no vocabulary for `path.form`.
  */
 const RESOURCE_PATH_PLACEHOLDER = "pathSegment";
+// Spec §5 `accessor: {values: ["*"]}` — the document admits any accessor, so there is no value to write and
+// the reader supplies one. A placeholder rather than a guess: picking `get` would be inventing API, and
+// falling back to `remote function` (which is what happened before this existed) prints a signature that
+// contradicts the very note above it saying an accessor is required. `ballerina/http`'s wildcard handler is
+// the corpus instance.
+const RESOURCE_ACCESSOR_PLACEHOLDER = "<accessor>";
 
 /**
  * Spec §5 `options[].kind` — the method's keyword and, for a resource, its accessor and path placeholder.
@@ -910,6 +947,29 @@ const RESOURCE_PATH_PLACEHOLDER = "pathSegment";
  * handler is a resource whose accessor the document leaves unstated. Inventing `get` would be inventing API.
  * No corpus document reaches that fallback.
  */
+/**
+ * The accessor to print for a resource handler, or `undefined` when it is not one.
+ *
+ * Three states, and each needs a different token. A document that names the accessor supplies it directly;
+ * one that leaves the slot open (§5's `values: ["*"]`) gets a placeholder, because the reader chooses;
+ * and a handler that is not a resource has no accessor position at all.
+ *
+ * The last branch is a genuine degradation and stays one: a `resource` handler whose document names no
+ * accessor and does not open the slot either has nothing to put in that position, and
+ * `resource function  pathSegment(...)` does not parse. Falling back to `remote function` at least yields a
+ * copyable line — but it is only correct because the document said nothing, which `ResourceExtrasCheck`
+ * reports.
+ */
+function resourceAccessor(method: ServiceRemoteFunction): string | undefined {
+    if (method.type !== "resource") {
+        return undefined;
+    }
+    if (method.accessor) {
+        return method.accessor;
+    }
+    return method.accessorOpen ? RESOURCE_ACCESSOR_PLACEHOLDER : undefined;
+}
+
 function renderMethodSignature(method: ServiceRemoteFunction): string {
     // The declared `isolated` qualifier, when the service type's own declaration carries one. It leads the
     // signature because that is the only position Ballerina accepts, and it is not decoration: implementing
@@ -917,44 +977,70 @@ function renderMethodSignature(method: ServiceRemoteFunction): string {
     // expected and a found half that are character-for-character identical — the compiler prints neither
     // qualifier, so the reader is given no way to see what differs.
     const qualifier = method.isolated ? "isolated " : "";
-    if (method.type !== "resource" || !method.accessor) {
+    const accessor = resourceAccessor(method);
+    if (!accessor) {
         return `${qualifier}remote function ${method.name}`;
     }
-    return `${qualifier}resource function ${method.accessor} ${RESOURCE_PATH_PLACEHOLDER}`;
+    return `${qualifier}resource function ${accessor} ${RESOURCE_PATH_PLACEHOLDER}`;
+}
+
+/**
+ * The spec's `deprecated`, as Ballerina's own `# # Deprecated` doc section.
+ *
+ * The spec words the obligation directly — "A generator emitting Ballerina puts it in the `# # Deprecated`
+ * doc section" — and that form is chosen over a `//` note for a reason the `@deprecated` annotation makes
+ * plain: the annotation says *that* the construct is superseded and the language already warns on it, so
+ * repeating that in prose adds nothing. What only the document can supply is *what to use instead*, and
+ * Ballerina has a section for exactly that. `ftp`'s `onFileChange` is the corpus instance: its sentence
+ * names the five typed handlers that replace it.
+ *
+ * Two placement rules, both enforced by the compiler rather than by taste:
+ *
+ * - The separator is a `#` line, never a blank one. A blank line TERMINATES a Ballerina doc comment, which
+ *   would detach the section — and everything above it — from the construct it documents.
+ * - The caller must emit this LAST among the `#` lines. `# # Deprecated` opens a markdown section, so every
+ *   `#` line after it is read as that section's body; a `# + name - text` line placed below it stops being
+ *   parameter documentation and `bal build` reports the parameter as undocumented.
+ */
+function renderDeprecationSection(deprecated: string | undefined, indent: string): string[] {
+    if (!deprecated) {
+        return [];
+    }
+    return [
+        `${indent}#`,
+        `${indent}# # Deprecated`,
+        ...deprecated.split("\n").map((line) => `${indent}# ${line.trimEnd()}`),
+    ];
 }
 
 function renderResourceNote(method: ServiceRemoteFunction, indent: string): string {
     const parts: string[] = [];
-    if (method.methodValues && method.methodValues.length > 0) {
-        const verbs = method.methodValues.map((verb) => `\`${verb}\``).join(", ");
-        parts.push(method.methodRequired === false
+    // Spec §5's `accessor`, in the three states its ValueSpec can be in. An enumerated list and an open
+    // slot must be worded differently: `values: ["*"]` means "any accessor the language accepts", and
+    // printing the literal `*` as a value would tell the reader to write an accessor called `*`.
+    if (method.accessorOpen) {
+        const slot = `— replace \`${RESOURCE_ACCESSOR_PLACEHOLDER}\``;
+        parts.push(method.accessorRequired === false
+            ? `an accessor may be written, and it may be any the language accepts ${slot}`
+            : `the accessor may be any the language accepts ${slot}`);
+    } else if (method.accessorValues && method.accessorValues.length > 0) {
+        const verbs = method.accessorValues.map((verb) => `\`${verb}\``).join(", ");
+        parts.push(method.accessorRequired === false
             ? `the accessor may be one of ${verbs}`
             : `the accessor must be one of ${verbs}`);
     }
-    if (method.pathForm && method.pathForm.length > 0) {
-        const forms = method.pathForm.join(", ");
-        parts.push(`the path is author-chosen (${forms}) — replace \`${RESOURCE_PATH_PLACEHOLDER}\``);
+    // Spec §5 dropped the `identifierSegments` / `pathParamSegments` vocabulary because "the language
+    // already fixes what a resource path may look like" — the old note was restating the grammar back at
+    // a reader who already had it. What remains is the one fact the language does NOT fix: that this
+    // particular handler needs a path at all, and that its content is the author's to choose (§11.2).
+    if (method.pathRequired) {
+        parts.push(`a path is required and is author-chosen — replace \`${RESOURCE_PATH_PLACEHOLDER}\``);
     }
-    if (method.fieldNameForm && method.fieldNameForm.length > 0) {
-        // Names the slot it replaces, exactly as the `pathForm` branch above does. Without it graphql's
-        // note said "the field name is author-chosen (identifierSegment)" above a signature reading
-        // `resource function get pathSegment(...)` — three names for one slot (`identifierSegment`, the
-        // document's form token; `pathSegment`, the placeholder; and for a remote shape `<handlerName>`),
-        // with nothing connecting them. The slot a field name occupies is whichever one the signature
-        // actually leaves open.
-        const slot = method.type === "resource" ? RESOURCE_PATH_PLACEHOLDER : "<handlerName>";
-        parts.push(`the field name is author-chosen (${method.fieldNameForm.join(", ")}) — replace `
-            + `\`${slot}\``);
-    }
-    if (method.graphqlOperation) {
-        // Spec §5 marks graphqlOperation informational, so it may only ever become prose.
-        parts.push(`this is a GraphQL ${method.graphqlOperation}`);
-    }
-    // The label follows the handler's actual kind, not the spec section the extras are filed under.
-    // Spec §5 groups `fieldName`/`graphqlOperation` as resource extras, but a GraphQL **mutation** is
-    // legitimately `kind: "remote"` and still carries both — `ResourceExtrasCheck` reports exactly that
-    // shape as a WARN for this reason, and the corpus accepts it. Labelling that handler "Resource:"
-    // states the opposite of the `remote function` signature printed two lines below it.
+    // The label follows the handler's actual kind, not the spec section the extras are filed under: a
+    // handler labelled "Resource:" above a `remote function` signature states the opposite of the line
+    // below it. Under this spec revision the two agree for every corpus handler — §5 makes both slots
+    // resource-only and `ResourceExtrasCheck` now reports a remote handler carrying either as an ERROR —
+    // but the label is still derived rather than assumed, because the check is a report, not a guarantee.
     const label = method.type === "resource" ? "Resource" : "Handler";
     return parts.length === 0 ? "" : `${indent}# ${label}: ${parts.join("; ")}.\n`;
 }
@@ -990,6 +1076,9 @@ function renderGenericService(service: GenericService): string {
     }
     if (service.isDeprecated) {
         lines.push(`// Deprecated`);
+    }
+    if (service.deprecated) {
+        lines.push(`// Deprecated: ${service.deprecated}`);
     }
     lines.push(`// Listener: ${service.listener.name}(${listenerParams})`);
     lines.push(`// Instructions:`);
@@ -1040,14 +1129,14 @@ function renderServiceAnnotationLines(
  * Parameter and return scope are NOT rendered here: their attachments go inline, in the signature, where a
  * `#` line cannot follow them.
  */
-function renderAnnotationRequirementLines(
+function splitAnnotationRequirementLines(
     annotations: ServiceAnnotationRef[] | undefined,
     listenerAlias: string | null,
     subject: string,
     indent: string
-): string[] {
+): { notes: string[]; attachments: string[] } {
     if (!annotations || annotations.length === 0) {
-        return [];
+        return { notes: [], attachments: [] };
     }
 
     // Notes and attachments are accumulated separately and concatenated, never interleaved. Ballerina
@@ -1097,6 +1186,22 @@ function renderAnnotationRequirementLines(
         attachments.push(
             `${indent}@${qualifiedName} {...} // ${required ? "required" : "optional"}${provenance}`);
     }
+    return { notes, attachments };
+}
+
+/**
+ * The flattened form, for callers with nothing to put between the documentation and the annotations.
+ *
+ * <p>Documentation first, always: Ballerina metadata requires every `#` line to precede every annotation.
+ */
+function renderAnnotationRequirementLines(
+    annotations: ServiceAnnotationRef[] | undefined,
+    listenerAlias: string | null,
+    subject: string,
+    indent: string
+): string[] {
+    const { notes, attachments } = splitAnnotationRequirementLines(
+        annotations, listenerAlias, subject, indent);
     return [...notes, ...attachments];
 }
 
@@ -1285,12 +1390,18 @@ function renderIdentifierSlot(identifier: ServiceIdentifier | undefined): {
 }
 
 /**
- * Spec §6 `rules[]` — the `#` lines stating a service type's exclusivity constraints.
+ * Spec §6 `rules[]` — the `#` lines stating a service type's constraints.
  *
- * `oneOf` and `atMostOne` are worded differently on purpose: only `oneOf` obliges the service to pick an
- * alternative, and stating "exactly one of" for an `atMostOne` rule would invent an obligation `websocket`
- * does not impose. Per plan §11.4 these can only ever be *stated* — whether the model honours them is prompt
- * adherence, not something the renderer can enforce.
+ * **The document's own `message` wins where it has one.** It is written by whoever knows the connector and
+ * says *why* the constraint exists ("a RabbitMQ consumer needs its queue name from exactly one source"),
+ * which nothing reconstructible from the subjects can match. The synthesized sentence is the fallback for a
+ * rule that states none.
+ *
+ * The six registry entries are worded differently on purpose: only `exactlyOne` and `atLeastOne` oblige the
+ * service to pick anything, and stating an obligation for `atMostOne` would invent one `websocket` does not
+ * impose. An unrecognised rule id renders nothing — spec §6 requires it be skipped, and a note that cannot
+ * say what the constraint *is* would be worse than silence. Per plan §11.4 these can only ever be *stated*;
+ * whether the model honours them is prompt adherence, not something the renderer can enforce.
  */
 function renderConstraintLines(
     constraints: ServiceConstraint[] | undefined,
@@ -1301,46 +1412,176 @@ function renderConstraintLines(
     }
     const lines: string[] = [];
     for (const constraint of constraints) {
-        if (!constraint || !constraint.members || constraint.members.length === 0) {
+        if (!constraint || !constraint.subjects || constraint.subjects.length === 0) {
             continue;
         }
-        const alternatives = constraint.members
-            .map((member) => renderConstraintMember(member, listenerAlias))
+        // A warning-severity rule is advice, not a requirement, and saying "is required" for one would
+        // overstate what the connector enforces.
+        const advisory = constraint.severity === "warning";
+        if (constraint.message) {
+            lines.push(`# ${advisory ? "Advisory: " : ""}${constraint.message}`);
+            const preferred = preferredSubject(constraint, listenerAlias);
+            if (preferred) {
+                lines.push(`# Prefer ${preferred} unless the requirement says otherwise.`);
+            }
+            continue;
+        }
+        const rendered = constraint.subjects
+            .map((subject) => renderConstraintSubject(subject, listenerAlias))
             .filter((text): text is string => text !== null);
-        if (alternatives.length === 0) {
+        if (rendered.length === 0) {
             continue;
         }
-        const lead = constraint.kind === "oneOf"
-            ? "Exactly one of the following is required"
-            : "At most one of the following may be used";
-        lines.push(`# ${lead}: ${alternatives.join(" | ")}.`);
+        const asymmetric = renderAsymmetric(constraint, listenerAlias);
+        if (asymmetric) {
+            lines.push(`# ${advisory ? "Advisory: " : ""}${asymmetric}`);
+            continue;
+        }
+        const lead = constraintLead(constraint);
+        if (!lead) {
+            continue;
+        }
+        lines.push(`# ${advisory ? "Advisory: " : ""}${lead}: ${rendered.join(" | ")}.`);
+        const preferred = preferredSubject(constraint, listenerAlias);
+        if (preferred) {
+            lines.push(`# Prefer ${preferred} unless the requirement says otherwise.`);
+        }
     }
     return lines;
 }
 
+/** The sentence opener for a symmetric registry entry, or null for one with no symmetric wording. */
+function constraintLead(constraint: ServiceConstraint): string | null {
+    switch (constraint.rule) {
+        case "structure.exactlyOne":
+            return "Exactly one of the following is required";
+        case "structure.atMostOne":
+            return "At most one of the following may be used";
+        case "structure.atLeastOne":
+            return "At least one of the following is required";
+        case "structure.allOrNone":
+            return "Use all of the following together, or none of them";
+        default:
+            // Includes the asymmetric entries, which `renderAsymmetric` has already handled, and any rule
+            // id this renderer has no wording for.
+            return null;
+    }
+}
+
 /**
- * One alternative of a constraint. `preferred` is surfaced because spec §6 uses it to mark the canonical
- * choice for a generator to default to when nothing else disambiguates.
+ * Spec §6.2's two asymmetric entries, whose subjects are NOT interchangeable.
+ *
+ * A `" | "`-joined list would read as a choice between them, which states the opposite of an implication.
+ * The roles `when`/`then` are what make the direction recoverable, and the resolver drops any asymmetric
+ * rule that lacks them — so reaching here without both is not possible, and returning null is the safe
+ * response if it ever were.
  */
-function renderConstraintMember(
-    member: ConstraintMember,
+function renderAsymmetric(constraint: ServiceConstraint, listenerAlias: string | null): string | null {
+    if (constraint.rule !== "structure.requires" && constraint.rule !== "structure.conflictsWith") {
+        return null;
+    }
+    const when = constraint.subjects.find((subject) => subject.role === "when");
+    const then = constraint.subjects.find((subject) => subject.role === "then");
+    if (!when || !then) {
+        return null;
+    }
+    const antecedent = renderConstraintSubject(when, listenerAlias);
+    const consequent = renderConstraintSubject(then, listenerAlias);
+    if (!antecedent || !consequent) {
+        return null;
+    }
+    return constraint.rule === "structure.requires"
+        ? `If you use ${antecedent}, you must also use ${consequent}.`
+        : `If you use ${antecedent}, you must NOT use ${consequent}.`;
+}
+
+/** The `prefer` hint, resolved from a role to the subject it names. */
+function preferredSubject(constraint: ServiceConstraint, listenerAlias: string | null): string | null {
+    if (!constraint.prefer) {
+        return null;
+    }
+    const subject = constraint.subjects.find((candidate) => candidate.role === constraint.prefer);
+    return subject ? renderConstraintSubject(subject, listenerAlias) : null;
+}
+
+/**
+ * One subject of a constraint.
+ *
+ * `annotation` is the resolved annotation name, so this reads as the same `@alias:Name` the §8 obligation
+ * block renders a few lines above. The registry id it came from is deliberately not shown: it names nothing
+ * that exists in Ballerina source.
+ */
+function renderConstraintSubject(
+    subject: ConstraintSubject,
     listenerAlias: string | null
 ): string | null {
-    const suffix = member.preferred ? " (preferred)" : "";
-    if (member.annotation && member.field) {
-        // `annotation` is the resolved annotation name, so this reads as the same `@alias:Name` the §8
-        // obligation block renders a few lines above. The registry id it came from is deliberately not shown:
-        // it names nothing that exists in Ballerina source.
-        const prefix = listenerAlias ? `${listenerAlias}:` : "";
-        return `the \`${member.field}\` field of @${prefix}${member.annotation}${suffix}`;
+    const prefix = listenerAlias ? `${listenerAlias}:` : "";
+    switch (subject.kind) {
+        case "identifier":
+            return "the service identifier";
+        case "annotation":
+            return subject.annotation ? `@${prefix}${subject.annotation}` : null;
+        case "annotationField": {
+            if (!subject.annotation || !subject.path || subject.path.length === 0) {
+                return null;
+            }
+            // Joined with `.` so a nested path reads as the field access it is. Spec §6.1 made this an
+            // array precisely so `["retryConfig", "maxCount"]` is expressible; rendering only the first
+            // segment would name a different field.
+            return `the \`${subject.path.join(".")}\` field of @${prefix}${subject.annotation}`;
+        }
+        case "handler":
+            return subject.name ? `\`${subject.name}\`` : null;
+        case "param":
+            return subject.name && subject.handler
+                ? `\`${subject.handler}\`'s \`${subject.name}\` parameter`
+                : null;
+        default:
+            return null;
     }
-    if (member.part === "identifier") {
-        return `the service identifier${suffix}`;
+}
+
+/**
+ * Spec §2.1 `listeners[].platformDependencies` — native artifacts the build cannot fetch.
+ *
+ * Stated because nothing else can state it: a `requiredImport` is discoverable from the import list, but a
+ * licensed jar appears in no repository the build can reach, and a missing **native** library is not even a
+ * build failure — the package compiles and the service fails at run time. That is the whole reason the spec
+ * carries this at all, so the per-OS entries are named individually rather than summarized.
+ *
+ * `#` lines rather than `//`, because they document the declaration that follows and belong with the other
+ * obligations above it.
+ */
+function renderPlatformDependencyNotes(dependencies: PlatformDependency[] | undefined): string[] {
+    if (!dependencies || dependencies.length === 0) {
+        return [];
     }
-    if (member.handler) {
-        return `\`${member.handler}\`${suffix}`;
+    const lines: string[] = [];
+    for (const dependency of dependencies) {
+        if (!dependency || !dependency.coordinate) {
+            continue;
+        }
+        const scope = dependency.provided
+            ? " with `scope = \"provided\"`"
+            : "";
+        lines.push(`# Requires the platform dependency \`${dependency.coordinate}\`${scope}, declared in `
+            + "Ballerina.toml under `[[platform.java21.dependency]]`.");
+        if (dependency.acquisitionNote) {
+            lines.push(`#   ${dependency.acquisitionNote}`);
+        }
+        if (dependency.acquisitionUrl) {
+            lines.push(`#   Obtain it from ${dependency.acquisitionUrl}`);
+        }
+        for (const library of dependency.nativeLibraries ?? []) {
+            if (!library || !library.os || !library.file) {
+                continue;
+            }
+            const via = library.variable ? `, discoverable via \`${library.variable}\`` : "";
+            lines.push(`#   Native library on ${library.os}: \`${library.file}\`${via}. `
+                + "Absent, the service compiles and then fails at run time.");
+        }
     }
-    return null;
+    return lines;
 }
 
 /**
@@ -1361,7 +1602,13 @@ function renderCardinalityNotes(service: Service): string[] {
     if (service.singleListenerOnly) {
         lines.push("# This service type attaches to exactly one listener — do not write `on l1, l2`.");
     }
-    if (service.singleServicePerListenerOnly) {
+    if (service.singleServiceOnly) {
+        // Spec §2 `multipleServicesAllowed: false`. Strictly stronger than the same-type prohibition below,
+        // and emitted instead of it: "at most one service" already entails "at most one of this type", so
+        // stating both would present one restriction as two.
+        lines.push("# This listener hosts at most one service in total — any second service, of any type, "
+            + "needs its own listener.");
+    } else if (service.singleServicePerListenerOnly) {
         lines.push("# This listener hosts at most one service of this type; a second one needs its own "
             + "listener.");
     }
@@ -1427,6 +1674,12 @@ function renderHandlerTemplates(templates: ServiceRemoteFunction[] | undefined,
         }
         lines.push(...renderHandlerTemplateBody(template, listenerAlias, indent));
     });
+    // A blank line closes the block. Spec §5.1 let a service type carry templates AND named handlers at
+    // once -- `websocket` declares nine of the latter beside two of the former -- and without this the
+    // last commented signature ran straight into the first handler's `#` doc comment, so the two blocks
+    // read as one. Every other handler in the body is blank-line separated; this makes the template block
+    // no different.
+    lines.push("");
     return lines;
 }
 
@@ -1460,8 +1713,9 @@ function renderHandlerTemplateBody(template: ServiceRemoteFunction,
     // A resource handler's *path* is what a remote handler's name is — so the author-chosen slot is the
     // path placeholder, and appending `<handlerName>` after it as well would emit
     // `resource function get pathSegment <handlerName>(...)`, which is not a signature at all.
-    const declarator = template.type === "resource" && template.accessor
-        ? `resource function ${template.accessor} ${RESOURCE_PATH_PLACEHOLDER}`
+    const templateAccessor = resourceAccessor(template);
+    const declarator = templateAccessor
+        ? `resource function ${templateAccessor} ${RESOURCE_PATH_PLACEHOLDER}`
         : "remote function <handlerName>";
 
     // The same facts a real handler states, in the same order, but as `//` prose. Reused from the shared
@@ -1475,6 +1729,23 @@ function renderHandlerTemplateBody(template: ServiceRemoteFunction,
     // nowhere at all, despite the pipeline resolving every one of them. Ordered exactly as `renderHandlers`
     // orders them: what the handler is, then what its parameters may hold, then which may be omitted.
     const notes = [
+        // Spec §5.1's authored handler description. It was reaching the wire as `description` and being
+        // dropped here, which was the one asymmetry in this block: the template's PARAMETER docs rendered
+        // while the handler's own did not. For a wildcard catalog this text is the only statement of what
+        // the handler is for, and `http`, `graphql` and `mcp` all author one.
+        ...(template.description ? [template.description] : []),
+        // Spec §5.3, in the `//` form this block uses throughout: a template is commented guidance, and a
+        // `# # Deprecated` heading inside a `//` line is not a doc section, just a stray hash. The prose
+        // still leads, for the reason `renderHandlers` gives -- it can make the reader not write it at all.
+        ...(template.deprecated ? [`Deprecated: ${template.deprecated}`] : []),
+        // Same as `renderHandlers`: a template's parameters carry authored docs too, and a wildcard catalog
+        // is the ONLY shape such a service type renders, so omitting them here loses them entirely.
+        ...(template.parameters ?? [])
+            .filter((param) => param.name && param.description)
+            .map((param) => `+ ${param.name} - ${param.description}`),
+        ...(template.parameters ?? [])
+            .filter((param) => param.name && param.deprecated)
+            .map((param) => `Deprecated \`${param.name}\`: ${param.deprecated}`),
         renderResourceNote(template, "").trimEnd(),
         ...renderAlternativeNotes(template, listenerAlias, ""),
         ...renderRepeatNotes(template, listenerAlias, ""),
@@ -1505,30 +1776,6 @@ function renderHandlerTemplateBody(template: ServiceRemoteFunction,
     return lines;
 }
 
-/**
- * Spec §4 — the handlers below are *shapes*, not names.
- *
- * A document that declares `addMode: "many"` while listing named options is describing an open-ended,
- * author-named catalog whose members happen to come in a fixed set of signature shapes. `grpc` is the
- * corpus instance: its `unary`, `serverStreaming`, `clientStreaming` and `bidiStreaming` are labels for the
- * four RPC shapes, and a real gRPC handler is named after its proto RPC (`SayHello`) — so those four names
- * appear in no working program.
- *
- * Rendered as a note rather than by suppressing the signatures, because the signatures are the valuable
- * part: they state the parameter and return shape of each kind of RPC, which is exactly what a generator
- * needs. What was missing was any signal distinguishing them from a genuinely fixed vocabulary —
- * `salesforce`'s `onCreate`/`onUpdate` render identically and *are* the real method names.
- */
-function renderAuthorNamedHandlerNote(service: FixedService): string[] {
-    if (!service.authorNamedHandlers) {
-        return [];
-    }
-    return [
-        "# The handlers below are signature SHAPES, not handler names — this service type takes any",
-        "# number of handlers and you choose each one's name (for gRPC, the name of the proto RPC).",
-        "# Match the shape your RPC needs; do not write a handler literally named after a shape.",
-    ];
-}
 
 /**
  * The handler block shared by both shapes a fixed service can take.
@@ -1543,8 +1790,43 @@ function renderHandlers(service: FixedService, listenerAlias: string | null,
                         terminator: string): string[] {
     const lines: string[] = [];
     for (const method of service.methods ?? []) {
-        const desc = method.description ? `    # ${method.description}\n` : "";
-        const dep = method.isDeprecated ? "    @deprecated\n" : "";
+        // `.trimEnd()` is load-bearing, not tidiness. An index-served description arrives with a trailing
+        // newline ("Triggers on a new record create event.\n"), and appending another produced a BLANK LINE
+        // between the description and the `# + param` lines below it. A blank line terminates a Ballerina
+        // doc comment, so the description became a dangling comment and what attached to the handler was a
+        // block containing only parameter docs. Harmless until parameter docs existed; now four of
+        // salesforce's handlers are affected.
+        const desc = method.description ? `    # ${method.description.trimEnd()}\n` : "";
+        // Spec §5.1 makes the document author a `doc` for every parameter of a non-concrete handler,
+        // because no symbol carries one. Rendered as Ballerina's own `# + name - text` parameter
+        // documentation, the same form `renderStandaloneFunction` uses — without this the ~150 authored
+        // parameter descriptions in the corpus reach the prompt nowhere.
+        const paramDocs = (method.parameters ?? [])
+            .filter((param) => param.name && param.description)
+            .map((param) => `    # + ${param.name} - ${param.description}`);
+        // Spec §7's per-slot `deprecated`. Kept out of the `# + name - text` line rather than appended to
+        // the description: those lines are Ballerina's parameter documentation and a reader copying one
+        // into their own doc comment would carry the deprecation notice with it.
+        const paramDeprecations = (method.parameters ?? [])
+            .filter((param) => param.name && param.deprecated)
+            .map((param) => `    # Deprecated \`${param.name}\`: ${param.deprecated}`);
+        // Spec §5.3's prose, as its own doc section. It must be the LAST `#` block of the comment, which
+        // the compiler decides rather than taste: `# # Deprecated` opens a markdown section, so every `#`
+        // line after it becomes that section's BODY. Emitting it first swallowed the `# + watchEvent` line
+        // below it and `bal build` reported `undocumented parameter 'watchEvent'` -- the parameter doc was
+        // present and inert. Placed here it is preceded by the description, the notes and the obligations,
+        // and followed only by the annotation and the signature.
+        const deprecationSection = renderDeprecationSection(method.deprecated, "    ");
+        const depBlock = deprecationSection.length > 0 ? deprecationSection.join("\n") + "\n" : "";
+        // The annotation is not optional beside the section: `bal build` rejects the documentation without
+        // it -- "'Deprecated' documentation is only allowed on constructs annotated as '@deprecated'". So
+        // the document's prose is sufficient reason to write `@deprecated`, and gating it on `isDeprecated`
+        // alone emitted a warning-generating pair for `ftp`'s `onFileChange`, whose marker service type
+        // declares no method for the compiler to have annotated.
+        //
+        // The two still say different things and neither replaces the other: the annotation makes the
+        // compiler warn, the section names the replacement.
+        const dep = method.isDeprecated || method.deprecated ? "    @deprecated\n" : "";
         // Spec §7: a repeatable slot is never written into the signature — the document states no name
         // for it, so emitting one would invent a parameter. `renderRepeatNotes` states it instead.
         const params = (method.parameters ?? [])
@@ -1567,20 +1849,30 @@ function renderHandlers(service: FixedService, listenerAlias: string | null,
         // parameters may hold (alternatives, then how they bind), then which of them may be omitted, then
         // what their annotations mean. Each layer is narrower than the one above it.
         const notes = [
+            paramDocs,
+            paramDeprecations,
             renderAlternativeNotes(method, listenerAlias, "    "),
             renderRepeatNotes(method, listenerAlias, "    "),
             renderBindingNotes(method, listenerAlias, "    "),
             renderParamAnnotationNotes(method, listenerAlias, "    "),
         ].flat();
         const noteBlock = notes.length > 0 ? notes.join("\n") + "\n" : "";
-        const obligations = renderAnnotationRequirementLines(
+        // Split rather than flattened, because §5.3's section has to go BETWEEN the two halves. §8's
+        // obligation block is a `#` note plus an `@X {...}` attachment, and Ballerina requires every `#`
+        // line to precede every annotation — so appending the deprecation section after the whole block
+        // put documentation below an annotation, which is the same class of error the section was moved
+        // to avoid. `ftp`'s `onFileChange` is the one handler that is both annotated and deprecated.
+        const obligations = splitAnnotationRequirementLines(
             method.annotationRefs, listenerAlias, "handler", "    ");
-        const obligationBlock = obligations.length > 0 ? obligations.join("\n") + "\n" : "";
+        const obligationNotes = obligations.notes.length > 0
+            ? obligations.notes.join("\n") + "\n" : "";
+        const obligationAttachments = obligations.attachments.length > 0
+            ? obligations.attachments.join("\n") + "\n" : "";
         const presence = renderParamPresenceNotes(method, "    ");
         const presenceBlock = presence.length > 0 ? presence.join("\n") + "\n" : "";
 
         lines.push(`${desc}${renderResourceNote(method, "    ")}${noteBlock}`
-            + `${presenceBlock}${obligationBlock}`
+            + `${presenceBlock}${obligationNotes}${depBlock}${obligationAttachments}`
             + `${dep}    ${renderMethodSignature(method)}(${params})${returnStr}${terminator}`
             + `${renderPresenceMarker(method)}`);
         lines.push("");
@@ -1624,6 +1916,7 @@ function renderServiceClass(service: FixedService, listenerAlias: string | null)
             lines.push(`# Requires: import ${directive.module}${alias};`);
         }
     }
+    lines.push(...renderPlatformDependencyNotes(service.platformDependencies));
     lines.push(...renderConstraintLines(service.constraints, listenerAlias));
 
     const foreignModule = service.serviceTypeModule;
@@ -1638,7 +1931,8 @@ function renderServiceClass(service: FixedService, listenerAlias: string | null)
     lines.push(`// Write it as a \`service class\` that includes the type, and return an instance of that `
         + `class`);
     lines.push(`// wherever a \`${qualifiedType}\` is required.`);
-    if (service.isDeprecated) {
+    lines.push(...renderDeprecationSection(service.deprecated, ""));
+    if (service.isDeprecated || service.deprecated) {
         lines.push("@deprecated");
     }
     // A concrete, legal identifier rather than a `<placeholder>`: the reader renames it, and an unlexable
@@ -1729,8 +2023,8 @@ function renderFixedService(service: FixedService): string {
     // identifier as one of its alternatives.
     // Spec §3's cardinality, first among the service-level notes because it is the only one that can make
     // the reader write a *different number* of declarations rather than a different declaration.
+    lines.push(...renderPlatformDependencyNotes(service.platformDependencies));
     lines.push(...renderCardinalityNotes(service));
-    lines.push(...renderAuthorNamedHandlerNote(service));
 
     const identifierSlot = renderIdentifierSlot(service.identifier);
     lines.push(...identifierSlot.notes);
@@ -1738,7 +2032,22 @@ function renderFixedService(service: FixedService): string {
 
     lines.push(...renderServiceAnnotationLines(service.annotations, listenerAlias));
 
-    if (service.isDeprecated) {
+    // Spec §3 and §2 `deprecated`, as doc sections rather than notes -- see `renderDeprecationSection`.
+    // Last among the `#` lines and immediately before the annotations, because Ballerina metadata puts
+    // every `#` line ahead of every annotation and `@deprecated` is the annotation this pairs with.
+    //
+    // The listener's own deprecation is stated here too: a service is written `on new <listener>(...)`, so
+    // a superseded listener is a fact about the declaration a reader is about to write, and stating it
+    // anywhere else would be stating it nowhere they would look.
+    lines.push(...renderDeprecationSection(service.deprecated, ""));
+    lines.push(...renderDeprecationSection(
+        service.listener.deprecated ? `Listener \`${service.listener.name}\`: `
+            + service.listener.deprecated : undefined, ""));
+
+    // Paired with the section above for the compiler's reason, not for symmetry: `bal build` rejects
+    // `# # Deprecated` documentation on a construct that is not annotated `@deprecated`. The document's
+    // prose is therefore sufficient reason to write the annotation, even where no symbol carries one.
+    if (service.isDeprecated || service.deprecated || service.listener.deprecated) {
         lines.push("@deprecated");
     }
 

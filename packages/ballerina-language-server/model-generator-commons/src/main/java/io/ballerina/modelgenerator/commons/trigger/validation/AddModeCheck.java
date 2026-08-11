@@ -24,43 +24,36 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * <b>Spec §4 {@code handlers.addMode}</b> and the wildcard it pairs with.
+ * <b>Spec §5.1 {@code handlers.options[].addMode}</b> and the wildcard it pairs with.
  *
- * <p>Spec §4 ties the two together in one sentence: {@code "many"} is "an open-ended, user-named set …
- * represented as one {@code options} entry named {@code "*"}". Three separate corpus documents break that
- * tie in three different ways, and each currently degrades silently behind a log line:
+ * <h2>What spec §5.1 fixed, and why this check shrank</h2>
+ *
+ * <p>{@code addMode} used to sit on the {@code handlers} block, which forced a service type to be entirely
+ * fixed-name or entirely open-ended. Three corpus documents could not be said in that vocabulary, and this
+ * check existed largely to report the resulting damage:
  *
  * <ul>
- *   <li><b>{@code grpc}</b> — {@code addMode: "many"} with four <i>named</i> options and no wildcard. The
- *       consuming pipeline treats the named options as a fixed vocabulary so their signatures are not
- *       lost, which is the least-bad reading of a document that cannot be read as written.</li>
- *   <li><b>{@code graphql}</b> — three {@code "*"} entries where §4 allows one. The first is taken; the
- *       other two (a mutation and a subscription) are dropped entirely.</li>
- *   <li>a wildcard under {@code addMode: "subset"} — the reverse mismatch, unseen in the corpus.</li>
+ *   <li><b>{@code grpc}</b> declared {@code many} with four <i>named</i> options and no wildcard, so the
+ *       consumer read them as a fixed vocabulary and had to add a separate "these are shapes, not names"
+ *       note to stop four labels that appear in no real program reading like {@code salesforce}'s genuinely
+ *       fixed {@code onCreate}.</li>
+ *   <li><b>{@code graphql}</b> declared three {@code "*"} entries where the block-level reading allowed
+ *       one, and two thirds of its handler surface — the mutation and the subscription — were dropped.</li>
+ *   <li>A service type offering fixed lifecycle handlers <i>alongside</i> open user-named ones could not be
+ *       expressed at all.</li>
  * </ul>
  *
- * <p>Both live instances are <b>reported as WARN, not ERROR</b>, because the underlying limitation is the
- * spec's, not the documents': §4 provides no way to say "an open-ended catalog whose handlers take one of
- * N shapes", which is exactly what gRPC (four RPC shapes, proto-derived names) and GraphQL
- * (query/mutation/subscription) are. Erroring would block the build on a defect no document author can
- * fix within the schema.
- *
- * <p><b>What this does NOT justify.</b> An earlier version of this note claimed that erroring "would force
- * a document edit that makes the rendered output worse — gRPC's four shape names would become literal,
- * copyable handler names". That was self-refuting: they are <i>already</i> rendered as literal, copyable
- * handler names, because the renderer reads the surviving {@code options} and ignores {@code addMode}.
- * A real gRPC service names its handlers after the proto's RPCs ({@code SayHello}), so {@code unary} and
- * its three siblings appear in no real program. The consumer therefore states the catalog is author-named
- * (see the {@code authorNamedHandlers} wire key) rather than letting four shape labels read as a fixed
- * vocabulary — which is what {@code salesforce}'s genuinely-fixed {@code onCreate}/{@code onUpdate} look
- * like, and an LLM could not tell the two apart.
+ * <p>Spec §5.1 moved the flag onto each option and says so outright: "One service type may carry several
+ * {@code "*"} options when it offers several distinct shapes. gRPC has four, one per RPC kind, and GraphQL
+ * has three, one per operation." All three situations are now simply legal, so the warnings that reported
+ * them are gone rather than downgraded. What remains is the small set of things that are still genuinely
+ * contradictory.
  *
  * @since 1.10.0
  */
 final class AddModeCheck implements DocumentCheck {
 
     private static final String WILDCARD = TriggerMetadataModel.ServiceType.HandlerOption.WILDCARD_NAME;
-    private static final String MANY = TriggerMetadataModel.ServiceType.Handlers.ADD_MODE_MANY;
 
     @Override
     public String id() {
@@ -69,6 +62,8 @@ final class AddModeCheck implements DocumentCheck {
 
     @Override
     public String specSection() {
+        // §4 for the block-level invariants (backedByConcreteType vs options) it still owns; the
+        // option-level addMode rules it also checks are §5.1.
         return "§4";
     }
 
@@ -85,52 +80,66 @@ final class AddModeCheck implements DocumentCheck {
             String path = DocumentWalk.serviceTypePath(i) + ".handlers";
             List<TriggerMetadataModel.ServiceType.HandlerOption> options = DocumentWalk.options(serviceType);
 
-            long wildcards = options.stream()
-                    .filter(option -> option != null && WILDCARD.equals(option.name())).count();
-            boolean declaresMany = MANY.equals(handlers.addMode());
-
             if (handlers.backedByConcreteType()) {
-                // §4: "true -> options: [], nothing else to say."
+                // Spec §4: "A concrete backed type says nothing further, so `options` is omitted too."
                 if (!options.isEmpty()) {
                     findings.add(Finding.error(this, path,
                             "backedByConcreteType is true, so the type's own methods are the handlers; "
                                     + options.size() + " option(s) here can never be read"));
                 }
-                if (handlers.addMode() != null) {
-                    findings.add(Finding.error(this, path + ".addMode",
-                            "absent when backedByConcreteType is true"));
-                }
+                continue;
+            }
+            if (options.isEmpty()) {
+                findings.add(Finding.error(this, path + ".options",
+                        "required when backedByConcreteType is false; options are the only source of truth"));
                 continue;
             }
 
-            if (handlers.addMode() == null) {
-                findings.add(Finding.error(this, path + ".addMode",
-                        "required when backedByConcreteType is false; options are the only source of truth"));
-            }
-            if (wildcards > 1) {
-                findings.add(Finding.warn(this, path + ".options",
-                        wildcards + " \"*\" entries where spec §4 allows one; only the first is rendered, "
-                                + "the rest are dropped. The spec has no way to express an open-ended "
-                                + "catalog with several handler shapes"));
-            }
-            if (wildcards > 0 && !declaresMany) {
-                findings.add(Finding.error(this, path,
-                        "a \"*\" option under addMode '" + handlers.addMode()
-                                + "'; spec §4 pairs the wildcard with \"many\""));
-            }
-            if (wildcards == 0 && declaresMany && !options.isEmpty()) {
-                findings.add(Finding.warn(this, path,
-                        "addMode \"many\" with " + options.size() + " named option(s) and no \"*\" entry; "
-                                + "read as a fixed vocabulary so the signatures are not lost. The spec has "
-                                + "no way to express an open-ended catalog with named handler shapes"));
-            }
-            if (wildcards > 0 && options.size() > wildcards) {
-                findings.add(Finding.warn(this, path + ".options",
-                        "mixes a \"*\" option with " + (options.size() - wildcards)
-                                + " named option(s); spec §4 defines the two as alternative shapes, so the "
-                                + "named options are not emitted"));
+            for (int j = 0; j < options.size(); j++) {
+                TriggerMetadataModel.ServiceType.HandlerOption option = options.get(j);
+                if (option == null) {
+                    continue;
+                }
+                checkOption(findings, option, DocumentWalk.optionPath(i, j));
             }
         }
         return findings;
+    }
+
+    private void checkOption(List<Finding> findings,
+                             TriggerMetadataModel.ServiceType.HandlerOption option, String path) {
+        boolean wildcard = WILDCARD.equals(option.name());
+        String addMode = option.addMode();
+
+        if (addMode != null
+                && !TriggerMetadataModel.ServiceType.HandlerOption.ADD_MODE_SUBSET.equals(addMode)
+                && !TriggerMetadataModel.ServiceType.HandlerOption.ADD_MODE_MANY.equals(addMode)) {
+            findings.add(Finding.error(this, path + ".addMode",
+                    "'" + addMode + "'; spec §5.1 defines only 'subset' and 'many'"));
+            return;
+        }
+
+        if (option.isMany()) {
+            // Spec §5.1: "A `many` option is always named `\"*\"`. The user picks the real name, so there
+            // is none to record." A real name here would be rendered as a literal handler nobody writes.
+            if (!wildcard) {
+                findings.add(Finding.error(this, path + ".name",
+                        "'" + option.name() + "' under addMode \"many\"; the user names each instance, so"
+                                + " the name must be \"*\""));
+            }
+            // Spec §5.1: "A `many` shape has no fixed occurrence count to require."
+            if (option.presence() != null) {
+                findings.add(Finding.error(this, path + ".presence",
+                        "stated under addMode \"many\", which has no fixed occurrence count to require"));
+            }
+            return;
+        }
+
+        // Absent addMode reads as `subset`, where the name is the method to emit -- and "*" is not one.
+        if (wildcard) {
+            findings.add(Finding.error(this, path + ".name",
+                    "\"*\" under addMode \"" + (addMode == null ? "subset\" (the reading when absent)"
+                            : addMode + "\"") + "; spec §5.1 pairs the wildcard with \"many\""));
+        }
     }
 }

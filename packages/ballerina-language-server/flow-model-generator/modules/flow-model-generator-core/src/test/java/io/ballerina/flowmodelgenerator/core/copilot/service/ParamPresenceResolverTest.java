@@ -99,7 +99,7 @@ public class ParamPresenceResolverTest {
     }
 
     private static TriggerMetadataModel.ServiceType.Param param(String presence) {
-        return new TriggerMetadataModel.ServiceType.Param("caller",
-                List.of(new TypeRef("Caller", null)), presence, null, null, null);
+        return new TriggerMetadataModel.ServiceType.Param("caller", null, null, List.of(new TypeRef("Caller", null)),
+                presence, null, null, null);
     }
 }

@@ -338,9 +338,8 @@ final class TriggerSchemaServiceLoader {
                                         String typeName, Predicate<String> declaresType,
                                         String packageName) {
         TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType(
-                null, new TypeRef(typeName, null), false, false, false, null,
-                new TriggerMetadataModel.ServiceType.Handlers(
-                        false, TriggerMetadataModel.ServiceType.Handlers.ADD_MODE_SUBSET, options),
+                null, new TypeRef(typeName, null), false, null, null, null, null,
+                new TriggerMetadataModel.ServiceType.Handlers(false, options),
                 null);
         TriggerScope scope = new TriggerScope(packageName, null, packageName, packageName, null,
                 AnnotationRegistry.of(null), serviceType, null, null, null, declaresType);

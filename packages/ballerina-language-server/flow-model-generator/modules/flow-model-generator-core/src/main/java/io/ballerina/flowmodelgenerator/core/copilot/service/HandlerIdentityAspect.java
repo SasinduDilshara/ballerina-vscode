@@ -56,6 +56,15 @@ final class HandlerIdentityAspect implements HandlerAspect {
         }
         TriggerMetadataModel.ServiceType.HandlerOption option = scope.option();
         draft.setName(option.name());
-        // No description: neither the document nor the library has one for a marker-type handler.
+        // Spec §5.1 inverts the DRY rule here, and only here. A marker service type declares no method, so
+        // no symbol carries a doc comment for its handlers — which is why this used to emit no description
+        // at all. The document now authors one, and it is the ONLY description a generator will ever see
+        // for such a handler.
+        draft.setDescription(option.doc());
+        // Spec §5.3 `deprecated`: prose, and its own doc section rather than a flag. `ftp`'s `onFileChange`
+        // is the corpus instance, and its sentence names the five typed handlers that replace it — the
+        // whole point of the field. A boolean would tell a reader to stop using the handler without saying
+        // what to use instead, which is the one thing they need.
+        draft.setDeprecated(option.deprecated());
     }
 }

@@ -666,17 +666,23 @@ function collectServiceTypeRefs(service: Service): Type[] {
             for (const annotation of param.annotationRefs ?? []) {
                 add(annotation?.typeConstraint);
             }
-            // Spec §9: every type a binding note can name. `includes` is the one that matters most — the
+            // Spec §9: every type a binding note can name. The envelope is the one that matters most — the
             // renderer tells the reader to write `*kafka:AnydataConsumerRecord;`, which is unusable unless
             // that record is defined in the same prompt.
-            for (const mode of param.binding?.modes ?? []) {
-                for (const type of mode.typeConstraint ?? []) {
+            //
+            // Walks `typedescs[]`, the shape §9 now takes. It walked the removed `modes[]` until this was
+            // fixed, which silently emptied the whole branch: `param.binding?.modes` is `undefined` on
+            // every parameter, so the loop ran zero times and every envelope, bound and excluded type
+            // dropped out of the closure — the exact failure the comment above warns about.
+            for (const variant of param.binding?.typedescs ?? []) {
+                add(variant.constraint);
+                for (const type of variant.excludes ?? []) {
                     add(type);
                 }
-                for (const type of mode.excludes ?? []) {
-                    add(type);
+                for (const shape of variant.shapes ?? []) {
+                    add(shape.envelope);
+                    add(shape.completionType);
                 }
-                add(mode.includes);
             }
         }
         add(method.return?.type);

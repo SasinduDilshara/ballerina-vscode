@@ -45,9 +45,9 @@ public class HandlerPresenceResolverTest {
 
     @Test
     public void testUnderManyPresenceIsOmittedRatherThanGuessed() {
-        // §5: "presence | Only under `addMode: subset`". Under `many` the catalog is open-ended and
-        // user-named, so the document is not answering "is this handler required" at all.
-        // Corpus: grpc's four options and http's/mcp's wildcards carry no presence.
+        // §5: "presence | Only under `addMode: subset`". A `many` option is a shape the user instantiates
+        // any number of times, so the document is not answering "is this handler required" at all.
+        // Corpus: http's and mcp's `many` options carry no presence.
         Assert.assertTrue(HandlerPresenceResolver.resolveOptional(null, MANY).isEmpty());
         // Even if a `many`-mode document did state one, it is out of scope and must not be read.
         Assert.assertTrue(HandlerPresenceResolver.resolveOptional("required", MANY).isEmpty(),
@@ -56,11 +56,13 @@ public class HandlerPresenceResolverTest {
     }
 
     @Test
-    public void testAnAbsentAddModeIsNotSubsetSoNothingIsStated() {
-        // `addMode` is "absent when `backedByConcreteType` is `true`" (§4), where handlers come from the
-        // semantic model and presence has no meaning.
-        Assert.assertTrue(HandlerPresenceResolver.resolveOptional("required", null).isEmpty());
-        Assert.assertTrue(HandlerPresenceResolver.resolveOptional("optional", "").isEmpty());
+    public void testAnAbsentAddModeReadsAsSubsetSoPresenceIsStated() {
+        // §5.1 names `subset` the default when `addMode` is absent, and most of the corpus omits it. Testing
+        // for the literal word instead would drop presence from nearly every option in the corpus, making a
+        // mandatory handler indistinguishable from a skippable one -- the exact defect this resolver exists
+        // to fix.
+        Assert.assertEquals(HandlerPresenceResolver.resolveOptional("required", null), Optional.of(false));
+        Assert.assertEquals(HandlerPresenceResolver.resolveOptional("optional", ""), Optional.of(true));
     }
 
     @Test

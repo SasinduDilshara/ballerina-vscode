@@ -20,6 +20,7 @@ package io.ballerina.modelgenerator.commons.trigger.utils;
 
 import io.ballerina.modelgenerator.commons.trigger.models.TypeRef;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Predicate;
@@ -51,6 +52,9 @@ import java.util.function.Predicate;
  * @since 1.10.0
  */
 public final class TypeRefResolver {
+
+    /** Spec §1: nil, written {@code ()}, and the member that makes a union nilable. */
+    private static final String NIL = "()";
 
     private TypeRefResolver() {
         // Prevent instantiation
@@ -160,12 +164,23 @@ public final class TypeRefResolver {
     }
 
     /**
-     * Renders a {@link TypeRef} as module-prefixed signature text.
+     * Renders a {@link TypeRef} tree as module-prefixed signature text.
      *
      * <p>A cross-module reference gets its own module's alias ({@code cdc:Error}); a reference to a type
      * the home module declares gets the home alias ({@code kafka:Caller}), which a downstream link
-     * resolver strips back off while recording the link; built-ins and anonymous shapes
+     * resolver strips back off while recording the link; language types and anonymous shapes
      * ({@code json}, {@code record {}}, {@code ()}) stay bare.
+     *
+     * <p><b>Qualification is per leaf</b>, which is the whole point of spec §1 making this a tree. A
+     * composite is rendered by rendering its parts and re-assembling the syntax around them, so
+     * {@code stream<anydata, Error?>} qualifies its {@code Error} and leaves {@code anydata} alone —
+     * producing {@code stream<anydata, grpc:Error?>}. The previous string form could do neither: the
+     * leading identifier was {@code stream}, so the whole expression either gained a prefix it must not
+     * have or kept an inner name that does not resolve.
+     *
+     * <p>A nilable part is a union containing {@code ()}, so {@code [Error, ()]} renders as {@code Error?}
+     * rather than {@code Error|()} — both compile, but only the first is what a reader writes, and this is
+     * the position (a stream's completion type) where the verbose form is most jarring.
      *
      * @param ref                  the reference; may be {@code null}
      * @param homePackageName      the resolved library's package name, whose alias prefixes home types
@@ -173,7 +188,13 @@ public final class TypeRefResolver {
      * @return the signature text, or {@code ""} for a missing reference
      */
     public static String render(TypeRef ref, String homePackageName, Predicate<String> declaredByHomeModule) {
-        if (ref == null || ref.name() == null) {
+        if (ref == null) {
+            return "";
+        }
+        if (ref.isComposite()) {
+            return renderComposite(ref, homePackageName, declaredByHomeModule);
+        }
+        if (ref.name() == null) {
             return "";
         }
         String name = ref.name();
@@ -191,6 +212,81 @@ public final class TypeRefResolver {
             return moduleAlias(homePackageName) + ":" + name;
         }
         return name;
+    }
+
+    /** Spec §1.1's shape table, as syntax. An unknown shape renders its element rather than inventing one. */
+    private static String renderComposite(TypeRef ref, String homePackageName,
+                                          Predicate<String> declaredByHomeModule) {
+        String element = renderPart(ref.elementType(), homePackageName, declaredByHomeModule);
+        if (element.isEmpty()) {
+            // A composite with no element states no type at all; emitting `[]` or `stream<>` would be
+            // uncompilable, so it degrades to nothing and the caller's own emptiness check applies.
+            return "";
+        }
+        if (TypeRef.SHAPE_ARRAY.equals(ref.shape())) {
+            // A union element needs parentheses: `(A|B)[]` is an array of A-or-B, whereas `A|B[]` is
+            // A-or-array-of-B, which is a different type.
+            return needsParens(ref.elementType()) ? "(" + element + ")[]" : element + "[]";
+        }
+        if (TypeRef.SHAPE_STREAM.equals(ref.shape())) {
+            String completion = renderPart(ref.completionType(), homePackageName, declaredByHomeModule);
+            return completion.isEmpty() ? "stream<" + element + ">"
+                    : "stream<" + element + ", " + completion + ">";
+        }
+        // Spec §1.1 closes the shape vocabulary precisely so this cannot be reached silently; returning the
+        // element alone would misdescribe the type, so nothing is emitted and the slot reads as unstated.
+        return "";
+    }
+
+    /**
+     * One part of a composite: a single type, or a union.
+     *
+     * <p>A union whose last member is {@code ()} is written with {@code ?}, the form spec §1 says a nilable
+     * type takes in source.
+     */
+    private static String renderPart(List<TypeRef> part, String homePackageName,
+                                     Predicate<String> declaredByHomeModule) {
+        if (part == null || part.isEmpty()) {
+            return "";
+        }
+        if (part.size() == 1) {
+            return render(part.get(0), homePackageName, declaredByHomeModule);
+        }
+        List<TypeRef> members = new ArrayList<>(part);
+        boolean nilable = false;
+        for (int i = members.size() - 1; i >= 0; i--) {
+            TypeRef member = members.get(i);
+            if (member != null && member.isNamed() && NIL.equals(member.name())) {
+                members.remove(i);
+                nilable = true;
+            }
+        }
+        if (members.isEmpty()) {
+            return NIL;
+        }
+        StringBuilder joined = new StringBuilder();
+        for (int i = 0; i < members.size(); i++) {
+            if (i > 0) {
+                joined.append("|");
+            }
+            joined.append(render(members.get(i), homePackageName, declaredByHomeModule));
+        }
+        String rendered = joined.toString();
+        if (!nilable) {
+            return rendered;
+        }
+        // `A|B?` parses as `A|(B?)`, which is the same set, but the parenthesised form is what makes the
+        // nilability apply to the whole union unambiguously.
+        return members.size() > 1 ? "(" + rendered + ")?" : rendered + "?";
+    }
+
+    /** Whether a part must be parenthesised before an array suffix. */
+    private static boolean needsParens(List<TypeRef> part) {
+        if (part == null || part.size() <= 1) {
+            return false;
+        }
+        // One member plus a nil is rendered `T?`, which still needs parentheses before `[]`.
+        return true;
     }
 
     /**
@@ -220,5 +316,23 @@ public final class TypeRefResolver {
             joined.append(render(refs.get(i), homePackageName, declaredByHomeModule));
         }
         return joined.toString();
+    }
+
+    /**
+     * A union written the way source does: a trailing {@code ()} member becomes {@code ?}.
+     *
+     * <p>Distinct from {@link #renderUnion}, which joins every member with {@code |}. Both are correct
+     * Ballerina for the same set, but a stream's completion type reads as {@code error?} in every real
+     * program and as {@code error|()} in none, and this is the position where the difference is most
+     * visible.
+     *
+     * @param refs                 the union members; may be {@code null} or empty
+     * @param homePackageName      the resolved library's package name
+     * @param declaredByHomeModule whether the home module declares a type of the given base name
+     * @return the joined signature, or {@code ""} when there are no members
+     */
+    public static String renderNilableUnion(List<TypeRef> refs, String homePackageName,
+                                            Predicate<String> declaredByHomeModule) {
+        return renderPart(refs, homePackageName, declaredByHomeModule);
     }
 }

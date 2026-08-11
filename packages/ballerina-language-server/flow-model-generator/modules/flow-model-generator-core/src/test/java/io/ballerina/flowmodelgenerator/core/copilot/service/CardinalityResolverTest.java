@@ -18,199 +18,96 @@
 
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 import io.ballerina.modelgenerator.commons.trigger.models.TypeRef;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
- * Conformance tests for <b>spec §3's {@code multipleListenersAllowed} and
- * {@code multipleServicesPerListenerAllowed}</b>, written against the spec text.
+ * Conformance tests for <b>spec §3.1's attachment cardinality</b>, written against the spec text.
  *
- * <p>Spec statements pinned:
- * <ul>
- *   <li>"{@code multipleListenersAllowed} | Can one service instance attach to more than one listener at
- *       once ({@code service X on l1, l2 {}})?"</li>
- *   <li>"{@code multipleServicesPerListenerAllowed} | Can one listener host more than one service of this
- *       type at once?"</li>
- * </ul>
- *
- * <p>The corpus pin at the bottom is the load-bearing one. {@code TriggerMetadataModel.ServiceType}
- * declares both fields as a primitive {@code boolean}, so a document omitting a key deserializes to
- * {@code false} — indistinguishable from a document that states {@code false}. Since a {@code false} is
- * what makes the pipeline emit a prohibition, an omission would silently manufacture a restriction the
- * connector never declared. That is safe only while every document states both keys, and this suite is
- * what keeps that true.
+ * <p>Spec v1.0 split the question three ways and moved two of the three onto the listener. These pin both
+ * halves of that: where each fact is read from, and the tri-state reading that keeps an omission from
+ * becoming a prohibition.
  *
  * @since 1.7.0
  */
 public class CardinalityResolverTest {
 
-    /** Every bundled document. Listed rather than discovered, so a document going missing fails here. */
-    private static final List<String> BUNDLED_DOCUMENTS = List.of(
-            "ftp", "graphql", "grpc", "http", "kafka", "mcp", "mssql.cdc", "rabbitmq", "smb",
-            "trigger.github", "trigger.google.calendar", "websocket", "websub");
-
-    // ---- §3 — the resolver is a faithful passthrough ------------------------------------
-
     @Test
-    public void testBothPermissiveValuesAreReadAsDeclared() {
-        CardinalityResolver.Cardinality cardinality = CardinalityResolver.resolve(serviceType(true, true));
+    public void testAllThreeFactsArePermissiveWhenTheDocumentStatesNothing() {
+        // Every field is boxed precisely so an absent key stays null. A consumer states only prohibitions,
+        // so reading an omission as `false` would invent a restriction the document never made.
+        CardinalityResolver.Cardinality cardinality =
+                CardinalityResolver.resolve(serviceType(null), listener(null, null));
         Assert.assertTrue(cardinality.multipleListeners());
-        Assert.assertTrue(cardinality.multipleServicesPerListener());
+        Assert.assertTrue(cardinality.multipleServices());
+        Assert.assertTrue(cardinality.multipleServicesOfSameType());
     }
 
     @Test
-    public void testTheTwoAnswersAreIndependent() {
-        // ballerinax/trigger.google.calendar's real shape: one service may span listeners, but a listener
-        // hosts only one such service. Collapsing the pair into a single answer would state something
-        // false for it, which is why the aspect emits two separate lines.
-        CardinalityResolver.Cardinality mixed = CardinalityResolver.resolve(serviceType(true, false));
-        Assert.assertTrue(mixed.multipleListeners());
-        Assert.assertFalse(mixed.multipleServicesPerListener());
-
-        CardinalityResolver.Cardinality opposite = CardinalityResolver.resolve(serviceType(false, true));
-        Assert.assertFalse(opposite.multipleListeners());
-        Assert.assertTrue(opposite.multipleServicesPerListener());
+    public void testMultipleListenersIsReadFromTheServiceType() {
+        // Spec §3.1: "May one service attach to several listeners at once?" is the one fact that stays on
+        // the service type, because it describes the service rather than the listener.
+        Assert.assertFalse(CardinalityResolver.resolve(serviceType(false), listener(true, true))
+                .multipleListeners());
+        Assert.assertTrue(CardinalityResolver.resolve(serviceType(true), listener(false, null))
+                .multipleListeners());
     }
 
     @Test
-    public void testKafkaShapeForbidsBoth() {
-        // ballerinax/kafka is the only corpus service type where both prohibitions fire.
-        CardinalityResolver.Cardinality cardinality = CardinalityResolver.resolve(serviceType(false, false));
-        Assert.assertFalse(cardinality.multipleListeners());
-        Assert.assertFalse(cardinality.multipleServicesPerListener());
+    public void testMultipleServicesIsReadFromTheListener() {
+        // Spec §3.1: "May one listener instance host more than one service?" -- a property of the listener,
+        // which is why v1.0 moved it there.
+        Assert.assertFalse(CardinalityResolver.resolve(serviceType(true), listener(false, null))
+                .multipleServices());
+        Assert.assertTrue(CardinalityResolver.resolve(serviceType(true), listener(true, null))
+                .multipleServices());
     }
 
     @Test
-    public void testAnAbsentServiceTypeStatesNothing() {
-        // Read as fully permissive, which the aspect then renders as no note at all — never as a
-        // prohibition invented from missing input.
-        CardinalityResolver.Cardinality cardinality = CardinalityResolver.resolve(null);
+    public void testSameTypeIsReadFromTheListener() {
+        // The SAP JCo case spec §3.1 is written around: one listener hosts an IDocService AND an
+        // RfcService, but never two of either.
+        CardinalityResolver.Cardinality cardinality =
+                CardinalityResolver.resolve(serviceType(true), listener(true, false));
+        Assert.assertTrue(cardinality.multipleServices());
+        Assert.assertFalse(cardinality.multipleServicesOfSameType());
+    }
+
+    @Test
+    public void testSameTypeIsDerivedFalseWhenTheListenerHostsOneServiceAtMost() {
+        // Spec §2 forbids the document from stating `multipleServicesOfSameTypeAllowed` when
+        // `multipleServicesAllowed` is false, "since one service at most already rules it out". Reading the
+        // absent key as permissive there would emit a note contradicting the stronger one above it.
+        CardinalityResolver.Cardinality cardinality =
+                CardinalityResolver.resolve(serviceType(true), listener(false, null));
+        Assert.assertFalse(cardinality.multipleServices());
+        Assert.assertFalse(cardinality.multipleServicesOfSameType());
+    }
+
+    @Test
+    public void testNullInputsReadAsFullyPermissive() {
+        // A caller exercising the resolver without a document must not have restrictions invented for it.
+        CardinalityResolver.Cardinality cardinality = CardinalityResolver.resolve(null, null);
         Assert.assertTrue(cardinality.multipleListeners());
-        Assert.assertTrue(cardinality.multipleServicesPerListener());
-    }
-
-    /**
-     * An <b>absent</b> key is permissive, and that is the reason both fields are boxed.
-     *
-     * <p>The aspect states only the prohibition, so if {@code null} were read as {@code false} a document
-     * that simply omitted the key would gain a restriction its author never wrote — "this service type
-     * attaches to exactly one listener" asserted on no evidence at all. Only an explicit {@code false} is
-     * a prohibition. Every bundled service type states both keys today
-     * ({@link #testEveryBundledServiceTypeStatesBothCardinalityKeys}), so this pins the behaviour for the
-     * documents not yet written, which is exactly when it will matter.
-     */
-    @Test
-    public void testAnAbsentKeyIsPermissiveRatherThanForbidden() {
-        CardinalityResolver.Cardinality absent =
-                CardinalityResolver.resolve(serviceType(null, null));
-        Assert.assertTrue(absent.multipleListeners(),
-                "an omitted multipleListenersAllowed must not read as a prohibition");
-        Assert.assertTrue(absent.multipleServicesPerListener(),
-                "an omitted multipleServicesPerListenerAllowed must not read as a prohibition");
-
-        // ...and the aspect therefore writes nothing, which is the observable half of the same rule.
-        Assert.assertFalse(contribute(null, null).has("singleListenerOnly"));
-        Assert.assertFalse(contribute(null, null).has("singleServicePerListenerOnly"));
-    }
-
-    @Test
-    public void testAnAbsentKeyIsIndependentOfItsSibling() {
-        // A document may state one and omit the other; the omitted one must not inherit the stated one.
-        CardinalityResolver.Cardinality mixed =
-                CardinalityResolver.resolve(serviceType(false, null));
-        Assert.assertFalse(mixed.multipleListeners(), "the stated prohibition survives");
-        Assert.assertTrue(mixed.multipleServicesPerListener(), "the omitted key stays permissive");
-    }
-
-    // ---- the aspect's omission rule -----------------------------------------------------
-
-    @Test
-    public void testOnlyAProhibitionIsEmitted() {
-        // The permissive case must write nothing: the one-service-one-listener shape a generator produces
-        // by default is legal either way, so a note there would spend context to change no output.
-        Assert.assertFalse(contribute(true, true).has("singleListenerOnly"));
-        Assert.assertFalse(contribute(true, true).has("singleServicePerListenerOnly"));
-    }
-
-    @Test
-    public void testEachProhibitionIsEmittedIndependently() {
-        JsonObject listenerBound = contribute(false, true);
-        Assert.assertTrue(listenerBound.get("singleListenerOnly").getAsBoolean());
-        Assert.assertFalse(listenerBound.has("singleServicePerListenerOnly"));
-
-        JsonObject serviceBound = contribute(true, false);
-        Assert.assertFalse(serviceBound.has("singleListenerOnly"));
-        Assert.assertTrue(serviceBound.get("singleServicePerListenerOnly").getAsBoolean());
-    }
-
-    // ---- the corpus pin the primitive-boolean hazard depends on --------------------------
-
-    @Test
-    public void testEveryBundledServiceTypeStatesBothCardinalityKeys() throws IOException {
-        // The guard described in the class javadoc. If this fails, a document has started relying on the
-        // default and the pipeline is now emitting a prohibition nobody wrote: box the two fields in
-        // TriggerMetadataModel (or reject such a document at the reader) before shipping.
-        int serviceTypes = 0;
-        for (String key : BUNDLED_DOCUMENTS) {
-            JsonArray declared = serviceTypesOf(key);
-            Assert.assertFalse(declared.isEmpty(), key + " declares no service types");
-            for (JsonElement element : declared) {
-                JsonObject serviceType = element.getAsJsonObject();
-                String id = serviceType.has("id") ? serviceType.get("id").getAsString() : "?";
-                Assert.assertTrue(serviceType.has("multipleListenersAllowed"),
-                        key + "/" + id + " omits multipleListenersAllowed; an absent key deserializes to"
-                                + " false and would render a prohibition the document never stated");
-                Assert.assertTrue(serviceType.has("multipleServicesPerListenerAllowed"),
-                        key + "/" + id + " omits multipleServicesPerListenerAllowed; same hazard");
-                serviceTypes++;
-            }
-        }
-        Assert.assertEquals(serviceTypes, 26,
-                "The corpus is 26 service types across 13 documents; a change here means the measured"
-                        + " render surface of this construct has moved");
+        Assert.assertTrue(cardinality.multipleServices());
+        Assert.assertTrue(cardinality.multipleServicesOfSameType());
     }
 
     // ---- fixtures --------------------------------------------------------------------
 
-    private static JsonObject contribute(Boolean multipleListeners, Boolean multipleServicesPerListener) {
-        ServiceDraft draft = new ServiceDraft();
-        new CardinalityAspect().contribute(
-                scopeOf(serviceType(multipleListeners, multipleServicesPerListener)), draft);
-        return draft.toJson();
+    private static TriggerMetadataModel.ServiceType serviceType(Boolean multipleListenersAllowed) {
+        return new TriggerMetadataModel.ServiceType("$service", new TypeRef("Service", null), false,
+                multipleListenersAllowed, null, null, null,
+                new TriggerMetadataModel.ServiceType.Handlers(true, null), null);
     }
 
-    private static TriggerScope scopeOf(TriggerMetadataModel.ServiceType serviceType) {
-        return new TriggerScope("ballerinax/probe", "ballerinax", "probe", "probe", null,
-                AnnotationRegistry.of(null), serviceType, null, null, null, name -> false);
-    }
-
-    // Boxed, so a test can express the third state the document has: the key is simply not there.
-    private static TriggerMetadataModel.ServiceType serviceType(Boolean multipleListeners,
-                                                                Boolean multipleServicesPerListener) {
-        return new TriggerMetadataModel.ServiceType("service", new TypeRef("Service", null), false,
-                multipleListeners, multipleServicesPerListener, null, null, null);
-    }
-
-    private static JsonArray serviceTypesOf(String documentKey) throws IOException {
-        String resource = "trigger-metadata-models/" + documentKey + "/trigger-metadata.json";
-        try (InputStream stream = CardinalityResolverTest.class.getClassLoader()
-                .getResourceAsStream(resource)) {
-            Assert.assertNotNull(stream, "Bundled document not on the classpath: " + resource);
-            try (InputStreamReader reader = new InputStreamReader(stream, StandardCharsets.UTF_8)) {
-                return JsonParser.parseReader(reader).getAsJsonObject().getAsJsonArray("serviceTypes");
-            }
-        }
+    private static TriggerMetadataModel.Listener listener(Boolean multipleServicesAllowed,
+                                                          Boolean multipleServicesOfSameTypeAllowed) {
+        return new TriggerMetadataModel.Listener(new TypeRef("Listener", null), null, List.of("$service"),
+                multipleServicesAllowed, multipleServicesOfSameTypeAllowed, null, null);
     }
 }

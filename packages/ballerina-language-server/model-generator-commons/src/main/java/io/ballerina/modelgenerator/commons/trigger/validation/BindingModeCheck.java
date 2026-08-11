@@ -24,19 +24,18 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * <b>Spec §9 mode shapes</b>: which fields each {@code supportedModes[]} entry may populate, and the
- * rule-level {@code envelopeType} condition.
+ * <b>Spec §9 shape conditionals</b>: which fields each {@code shapes[]} entry must and may populate.
  *
- * <p>Spec §9's mode table assigns fields per mode — {@code direct} takes {@code typeConstraint} and
- * optionally {@code excludes}, {@code includedRecord} takes {@code includes} and {@code bindableFields},
- * {@code streamable} takes {@code typeConstraint} — and states two prohibitions outright: "No rule-level
- * {@code envelopeType} unless the rule has an {@code includedRecord} mode (otherwise it falsely implies a
- * partial-envelope relationship that isn't there)" and "No {@code fixedFields} — always derivable".
+ * <p>Spec §9's shape table assigns fields per form — {@code bare} takes none, {@code array} takes
+ * {@code element}, {@code stream} takes {@code element} and {@code completionType}, {@code included} takes
+ * {@code envelope} and {@code bindableFields}.
  *
- * <p>The first prohibition has a live corpus instance: {@code mssql.cdc}'s {@code rowState} declares
- * {@code envelopeType: {"name": "record {}"}} with only a {@code direct} mode. It reaches the prompt as
- * nothing at all — the pipeline reads {@code envelopeType} nowhere — so the claim is invisible rather than
- * wrong, which is precisely why only a validator can find it.
+ * <p><b>One conditional the published {@code spec.json} does not enforce.</b> Its {@code shape} definition
+ * requires {@code envelope}/{@code bindableFields} only when {@code form} is {@code "included"}, but the
+ * corpus's real batched-envelope shape is {@code {form: "array", element: "included", envelope: …,
+ * bindableFields: …}} — kafka's. Nothing in the schema requires an envelope there, so a document could say
+ * {@code element: "included"} and omit the record being included, leaving a consumer describing an
+ * inclusion of nothing. That gap is closed here, since a JSON-schema validator would not catch it.
  *
  * @since 1.10.0
  */
@@ -55,67 +54,82 @@ final class BindingModeCheck implements DocumentCheck {
     @Override
     public List<Finding> check(TriggerMetadataModel document) {
         List<Finding> findings = new ArrayList<>();
-        for (TriggerMetadataModel.DataBindingRule rule : DocumentWalk.safe(document.dataBindingRules())) {
-            if (rule == null) {
-                continue;
-            }
-            String path = "dataBindingRules[" + rule.id() + "]";
-            List<TriggerMetadataModel.DataBindingRule.SupportedMode> modes =
-                    DocumentWalk.safe(rule.supportedModes());
-            if (modes.isEmpty()) {
-                findings.add(Finding.error(this, path + ".supportedModes",
-                        "a rule with no modes describes no binding at all"));
-            }
-
-            boolean hasIncludedRecord = false;
-            for (TriggerMetadataModel.DataBindingRule.SupportedMode mode : modes) {
-                if (mode == null) {
+        BindingWalk.forEachBinding(document, (binding, path) -> {
+            List<TriggerMetadataModel.TypedescVariant> variants = DocumentWalk.safe(binding.typedescs());
+            for (int i = 0; i < variants.size(); i++) {
+                TriggerMetadataModel.TypedescVariant variant = variants.get(i);
+                if (variant == null) {
                     continue;
                 }
-                hasIncludedRecord |= TriggerMetadataModel.DataBindingRule.SupportedMode.MODE_INCLUDED_RECORD
-                        .equals(mode.mode());
-                checkMode(findings, mode, path);
+                String variantPath = path + ".typedescs[" + i + "]";
+                List<TriggerMetadataModel.Shape> shapes = DocumentWalk.safe(variant.shapes());
+                if (shapes.isEmpty()) {
+                    findings.add(Finding.error(this, variantPath + ".shapes",
+                            "a variant with no shapes states no way to embed its bound type"));
+                }
+                for (int j = 0; j < shapes.size(); j++) {
+                    if (shapes.get(j) != null) {
+                        checkShape(findings, shapes.get(j), variantPath + ".shapes[" + j + "]");
+                    }
+                }
             }
-
-            if (rule.envelopeType() != null && !hasIncludedRecord) {
-                findings.add(Finding.error(this, path + ".envelopeType",
-                        "declared without an `includedRecord` mode; spec §9 forbids it because it implies "
-                                + "a partial-envelope relationship the rule does not have"));
-            }
-        }
+        });
         return findings;
     }
 
-    private void checkMode(List<Finding> findings, TriggerMetadataModel.DataBindingRule.SupportedMode mode,
-                           String rulePath) {
-        String path = rulePath + ".supportedModes[" + mode.mode() + "]";
-        boolean included = TriggerMetadataModel.DataBindingRule.SupportedMode.MODE_INCLUDED_RECORD
-                .equals(mode.mode());
-        boolean direct = TriggerMetadataModel.DataBindingRule.SupportedMode.MODE_DIRECT.equals(mode.mode());
-        boolean streamable = TriggerMetadataModel.DataBindingRule.SupportedMode.MODE_STREAMABLE
-                .equals(mode.mode());
+    private void checkShape(List<Finding> findings, TriggerMetadataModel.Shape shape, String path) {
+        String form = shape.form();
+        boolean array = TriggerMetadataModel.Shape.FORM_ARRAY.equals(form);
+        boolean stream = TriggerMetadataModel.Shape.FORM_STREAM.equals(form);
+        boolean included = TriggerMetadataModel.Shape.FORM_INCLUDED.equals(form);
+        boolean bare = TriggerMetadataModel.Shape.FORM_BARE.equals(form);
 
-        if (included) {
-            if (mode.includes() == null) {
+        if (array || stream) {
+            if (shape.element() == null || shape.element().isBlank()) {
                 findings.add(Finding.error(this, path,
-                        "`includedRecord` states no `includes`, so there is no envelope to include"));
+                        "`" + form + "` states no `element`, so whether each item is bare or included is "
+                                + "unstated"));
             }
-            if (mode.typeConstraint() != null) {
-                findings.add(Finding.error(this, path,
-                        "`typeConstraint` belongs to `direct`/`streamable`, not `includedRecord`"));
-            }
-        } else if (direct || streamable) {
-            if (mode.typeConstraint() == null || mode.typeConstraint().isEmpty()) {
-                findings.add(Finding.error(this, path,
-                        "`" + mode.mode() + "` states no `typeConstraint`, so it names no legal target"));
-            }
-            if (mode.includes() != null || mode.bindableFields() != null) {
-                findings.add(Finding.error(this, path,
-                        "`includes`/`bindableFields` belong to `includedRecord`, not `" + mode.mode() + "`"));
-            }
+        } else if (shape.element() != null) {
+            findings.add(Finding.error(this, path,
+                    "`element` belongs to `array`/`stream`, not `" + form + "`"));
         }
-        if (streamable && mode.excludes() != null) {
-            findings.add(Finding.error(this, path, "spec §9 scopes `excludes` to `direct`"));
+
+        if (stream && DocumentWalk.safe(shape.completionType()).isEmpty()) {
+            // Not fatal to a reader, but a stream whose completion type is unstated cannot be written:
+            // `stream<T>` and `stream<T, error?>` are different types.
+            findings.add(Finding.warn(this, path,
+                    "`stream` states no `completionType`; a reader cannot tell `stream<T>` from "
+                            + "`stream<T, error?>`"));
+        }
+        if (!stream && shape.completionType() != null) {
+            findings.add(Finding.error(this, path, "`completionType` belongs to `stream`, not `" + form + "`"));
+        }
+
+        // The envelope is required by `included`, and equally by an array/stream OF included elements —
+        // the conditional spec.json omits.
+        boolean includesElements = included
+                || ((array || stream) && TriggerMetadataModel.Shape.FORM_INCLUDED.equals(shape.element()));
+        if (includesElements) {
+            if (shape.envelope() == null) {
+                findings.add(Finding.error(this, path,
+                        "an included shape states no `envelope`, so there is no record to include"));
+            }
+            if (shape.bindableFields() == null || shape.bindableFields().isEmpty()) {
+                findings.add(Finding.error(this, path,
+                        "an included shape states no `bindableFields`, so every field of the envelope "
+                                + "stays fixed and the binding projects nothing"));
+            }
+        } else {
+            if (shape.envelope() != null) {
+                findings.add(Finding.error(this, path,
+                        "`envelope` belongs to an included shape, not `" + form
+                                + (bare ? "" : "`/`element: " + shape.element()) + "`"));
+            }
+            if (shape.bindableFields() != null) {
+                findings.add(Finding.error(this, path,
+                        "`bindableFields` belongs to an included shape, not `" + form + "`"));
+            }
         }
     }
 }

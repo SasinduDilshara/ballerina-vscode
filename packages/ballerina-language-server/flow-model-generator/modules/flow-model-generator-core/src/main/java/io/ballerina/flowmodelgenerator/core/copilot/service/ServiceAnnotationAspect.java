@@ -58,7 +58,7 @@ final class ServiceAnnotationAspect implements ServiceAspect {
     public void contribute(TriggerScope scope, ServiceDraft draft) {
         AnnotationScopeResolver.Resolution resolution = ServiceAnnotationResolver.resolve(
                 scope.annotations(),
-                scope.serviceType() == null ? null : scope.serviceType().id(),
+                scope.serviceType() == null ? null : scope.serviceType().annotations(),
                 scope.homeModule(),
                 scope.facts());
 

@@ -21,19 +21,36 @@ package io.ballerina.modelgenerator.commons.trigger.validation;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
 /**
- * <b>Spec §8 registry integrity</b>: every {@code annotations[]} id is unique, and every reference to one
- * resolves.
+ * <b>Spec §8 registry integrity</b>: every {@code annotations[]} id is unique, every reference to one
+ * resolves, every reference sits at the attach point its entry declares, and every declared entry is
+ * reachable from somewhere.
  *
  * <p>This is the class of defect a JSON schema cannot catch, which is why the validator tier exists at
- * all: {@code "annotations": ["payload"]} is a perfectly well-formed array of strings whether or not any
- * registry entry declares {@code payload}. A dangling reference is silently dropped by the pipeline (with
- * a non-fatal diagnostic), so the obligation it was meant to state simply never reaches the prompt.
+ * all: {@code "annotations": ["$payload"]} is a perfectly well-formed array of strings whether or not any
+ * registry entry declares {@code $payload}.
+ *
+ * <h2>Reachability, which is new and load-bearing</h2>
+ *
+ * <p>Spec §8 replaced the reverse {@code appliesTo} list with a forward reference from the construct that
+ * carries the annotation, and states that "every annotation in the corpus is now reachable by forward
+ * reference". That turns an unreferenced entry from a stylistic wart into a <b>silent loss</b>: with no
+ * reverse list and no fallback, an annotation nothing points at attaches nowhere, and its obligation
+ * reaches the prompt as nothing.
+ *
+ * <p>The failure is not hypothetical. Two documents in the published corpus — {@code smb} and
+ * {@code rabbitmq} — declare a service-scope {@code $serviceConfig} and reference it only from a rule
+ * subject, never from {@code serviceTypes[].annotations}. {@code smb}'s is {@code presence: "required"},
+ * so a literal reading emits a service that is missing a mandatory annotation. Reported here as an ERROR
+ * so the document is fixed rather than the consumer growing an implicit second way to attach.
+ *
+ * <p>A rule subject naming an annotation is deliberately <b>not</b> counted as a reference for this
+ * purpose: §8's table maps each attach point to exactly one referencing field, and a rule says what an
+ * annotation <i>relates to</i>, not where it attaches.
  *
  * @since 1.10.0
  */
@@ -70,68 +87,109 @@ final class AnnotationRefCheck implements DocumentCheck {
             }
         }
 
-        Set<String> serviceTypeIds = new HashSet<>();
-        List<TriggerMetadataModel.ServiceType> serviceTypes = DocumentWalk.safe(document.serviceTypes());
-        for (TriggerMetadataModel.ServiceType serviceType : serviceTypes) {
-            if (serviceType != null && serviceType.id() != null) {
-                serviceTypeIds.add(serviceType.id());
-            }
-        }
-        for (TriggerMetadataModel.Annotation annotation : DocumentWalk.safe(document.annotations())) {
-            if (annotation == null) {
-                continue;
-            }
-            for (String applied : DocumentWalk.safe(annotation.appliesTo())) {
-                if (!serviceTypeIds.contains(applied)) {
-                    findings.add(Finding.error(this, "annotations[" + annotation.id() + "].appliesTo",
-                            "names service type '" + applied + "', which no serviceTypes[] entry declares"));
-                }
-            }
-        }
+        // Every id referenced from a construct that carries an annotation, with the attach point that
+        // reference site implies. Collected while walking so the reachability check below needs no second
+        // pass.
+        Set<String> referenced = new LinkedHashSet<>();
 
+        List<TriggerMetadataModel.ServiceType> serviceTypes = DocumentWalk.safe(document.serviceTypes());
         for (int i = 0; i < serviceTypes.size(); i++) {
             TriggerMetadataModel.ServiceType serviceType = serviceTypes.get(i);
             if (serviceType == null) {
                 continue;
             }
-            for (TriggerMetadataModel.ServiceType.Rule rule : DocumentWalk.safe(serviceType.rules())) {
-                for (TriggerMetadataModel.ServiceType.Rule.RuleMember member
-                        : DocumentWalk.safe(rule == null ? null : rule.members())) {
-                    if (member != null && member.annotation() != null
-                            && !declared.contains(member.annotation())) {
-                        findings.add(Finding.error(this,
-                                DocumentWalk.serviceTypePath(i) + ".rules[" + rule.id() + "].members",
-                                "references annotation id '" + member.annotation()
-                                        + "', which no annotations[] entry declares"));
-                    }
-                }
-            }
+            String servicePath = DocumentWalk.serviceTypePath(i);
+            checkRefs(findings, referenced, serviceType.annotations(), declared, document,
+                    TriggerMetadataModel.Annotation.ATTACH_POINT_SERVICE, servicePath + ".annotations");
+
             List<TriggerMetadataModel.ServiceType.HandlerOption> options = DocumentWalk.options(serviceType);
             for (int j = 0; j < options.size(); j++) {
                 TriggerMetadataModel.ServiceType.HandlerOption option = options.get(j);
                 if (option == null) {
                     continue;
                 }
-                unresolved(findings, option.annotations(), declared, DocumentWalk.optionPath(i, j));
+                String optionPath = DocumentWalk.optionPath(i, j);
+                checkRefs(findings, referenced, option.annotations(), declared, document,
+                        TriggerMetadataModel.Annotation.ATTACH_POINT_FUNCTION, optionPath + ".annotations");
+                checkRefs(findings, referenced, option.returnAnnotations(), declared, document,
+                        TriggerMetadataModel.Annotation.ATTACH_POINT_RETURN,
+                        optionPath + ".returnAnnotations");
+
                 List<TriggerMetadataModel.ServiceType.Param> params = DocumentWalk.safe(option.params());
                 for (int k = 0; k < params.size(); k++) {
                     if (params.get(k) != null) {
-                        unresolved(findings, params.get(k).annotations(), declared,
-                                DocumentWalk.paramPath(i, j, k));
+                        checkRefs(findings, referenced, params.get(k).annotations(), declared, document,
+                                TriggerMetadataModel.Annotation.ATTACH_POINT_PARAMETER,
+                                DocumentWalk.paramPath(i, j, k) + ".annotations");
                     }
                 }
             }
         }
+
+        for (TriggerMetadataModel.Annotation annotation : DocumentWalk.safe(document.annotations())) {
+            if (annotation == null || annotation.id() == null || referenced.contains(annotation.id())) {
+                continue;
+            }
+            findings.add(Finding.error(this, "annotations[" + annotation.id() + "]",
+                    "declared but never referenced from " + referencingField(annotation.attachPoint())
+                            + "; spec §8 reaches every annotation by forward reference, so an unreferenced"
+                            + " entry attaches nowhere and its obligation reaches a consumer as nothing"));
+        }
         return findings;
     }
 
-    private void unresolved(List<Finding> findings, List<String> ids, Set<String> declared, String path) {
-        for (String id : DocumentWalk.safe(ids)) {
-            if (!declared.contains(id)) {
-                findings.add(Finding.error(this, path + ".annotations",
-                        "references annotation id '" + id
+    /**
+     * Checks one reference list: that every id resolves, and that the entry it resolves to declares the
+     * attach point this reference site implies.
+     */
+    private void checkRefs(List<Finding> findings, Set<String> referenced, List<String> refs,
+                           Set<String> declared, TriggerMetadataModel document, String expectedAttachPoint,
+                           String path) {
+        for (String ref : DocumentWalk.safe(refs)) {
+            if (ref == null || ref.isBlank()) {
+                findings.add(Finding.error(this, path, "a blank annotation reference names nothing"));
+                continue;
+            }
+            referenced.add(ref);
+            if (!declared.contains(ref)) {
+                findings.add(Finding.error(this, path,
+                        "references annotation id '" + ref
                                 + "', which no annotations[] entry declares"));
+                continue;
+            }
+            String actual = attachPointOf(document, ref);
+            if (actual != null && !expectedAttachPoint.equals(actual)) {
+                findings.add(Finding.error(this, path,
+                        "references '" + ref + "', whose attachPoint is '" + actual + "'; "
+                                + referencingField(expectedAttachPoint)
+                                + " may only reference an annotation with attachPoint '"
+                                + expectedAttachPoint + "'"));
             }
         }
+    }
+
+    private String attachPointOf(TriggerMetadataModel document, String id) {
+        for (TriggerMetadataModel.Annotation annotation : DocumentWalk.safe(document.annotations())) {
+            if (annotation != null && id.equals(annotation.id())) {
+                return annotation.attachPoint();
+            }
+        }
+        return null;
+    }
+
+    /** Spec §8's attach-point-to-referencing-field table, as prose for a diagnostic. */
+    private String referencingField(String attachPoint) {
+        if (attachPoint == null) {
+            return "any reference site";
+        }
+        return switch (attachPoint) {
+            case TriggerMetadataModel.Annotation.ATTACH_POINT_SERVICE -> "`serviceTypes[].annotations`";
+            case TriggerMetadataModel.Annotation.ATTACH_POINT_FUNCTION ->
+                    "`handlers.options[].annotations`";
+            case TriggerMetadataModel.Annotation.ATTACH_POINT_RETURN ->
+                    "`handlers.options[].returnAnnotations`";
+            case TriggerMetadataModel.Annotation.ATTACH_POINT_PARAMETER -> "`params[].annotations`";
+            default -> "any reference site";
+        };
     }
 }

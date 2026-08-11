@@ -26,29 +26,21 @@ import java.util.List;
  * Owns <b>spec §8 at {@code attachPoint: "service"}</b>: which annotations the generated service must or
  * may carry.
  *
- * <p>Spec §8 gives the registry two access paths — "by id" from a sibling construct's reference, and by
- * {@code appliesTo} for the scopes that have no more precise reference. Service scope is squarely the
- * second: §8's own <b>"Residual gap"</b> says "service-level/return-level annotations have no reference
- * mechanism as precise as {@code params[].annotations}, so they always rely on {@code appliesTo}". So
- * this resolver reads the registry by attach point and filters by {@code appliesTo}, never by id.
+ * <p><b>Spec v1.0 closed §8's "Residual gap".</b> Service scope used to be the one point with no precise
+ * reference, so it was selected by attach point and filtered by a reverse {@code appliesTo} list. It now
+ * has the same forward reference every other point has — {@code serviceTypes[].annotations} — so this
+ * resolver reads the registry <b>by id</b>, exactly as the handler, parameter and return scopes do. The
+ * reverse list, and the ambiguity of what an absent one meant, are both gone.
  *
- * <h2>Two decisions of ours, not the spec's</h2>
+ * <p><b>There is deliberately no fallback.</b> An annotation the service type does not reference attaches
+ * nowhere, and that is reported by the validator rather than guessed at here. Two published corpus
+ * documents ({@code smb}, {@code rabbitmq}) reach their service annotation only from a rule subject, which
+ * §8's table does not make a reference site; treating a rule as one would give an annotation a second,
+ * implicit way to attach, and a rule says what an annotation <i>relates to</i>, not where it goes.
  *
- * <p><b>1. An absent {@code appliesTo} applies to every service type.</b> Spec §8 says to include
- * {@code appliesTo} "only when no other reference already links this annotation" — but a service-level
- * annotation has no other reference available, so an omission here is under-specification rather than a
- * signal, and the spec's Residual gap explicitly leaves the case open. Attaching to every service type is
- * the reading that cannot lose a <i>required</i> annotation: {@code ballerina/smb} declares one with
- * {@code presence: "required"} and no {@code appliesTo}, and dropping it would emit code that does not
- * work. The opposite reading — applies to none — makes a required annotation unreachable, which no
- * document author can have meant. Decided here and nowhere else, per plan §11.5.
+ * <h2>One decision of ours, not the spec's</h2>
  *
- * <p>The choice is unobservable in the current corpus: both documents that omit {@code appliesTo}
- * ({@code rabbitmq}, {@code smb}) declare exactly one service type, so "every" and "the only one"
- * coincide. It is stated and tested anyway, because the next document to omit the key while declaring
- * several service types would otherwise silently inherit whichever reading the code happened to have.
- *
- * <p><b>2. {@code annotations[].type} names the annotation, not its constraint.</b> Verified against the
+ * <p><b>{@code annotations[].type} names the annotation, not its constraint.</b> Verified against the
  * corpus: {@code ballerina/ftp}'s document declares {@code type: {"name": "ServiceConfig"}} while the
  * package declares {@code public annotation ServiceConfiguration ServiceConfig on service;} — so the
  * document's name is the tag written after {@code @}, and the constraining record carries a different
@@ -79,38 +71,20 @@ final class ServiceAnnotationResolver {
      * service type for the same reason. A cross-module entry cannot be checked against this module's
      * symbols, so it is trusted rather than dropped.
      *
-     * @param registry      the document's annotation registry
-     * @param serviceTypeId the {@code serviceTypes[].id} of the service type being built; {@code null}
-     *                      when the document names none
-     * @param homeModule    spec §1's home module, which decides whether an entry is cross-module
-     * @param facts         the resolved package's symbols, for the constraint and the existence check;
-     *                      {@code null} skips both, so nothing is dropped for want of a compiled package
+     * @param registry   the document's annotation registry
+     * @param ids        the {@code serviceTypes[].annotations} ids this service type references; may be
+     *                   {@code null}
+     * @param homeModule spec §1's home module, which decides whether an entry is cross-module
+     * @param facts      the resolved package's symbols, for the constraint and the existence check;
+     *                   {@code null} skips both, so nothing is dropped for want of a compiled package
      * @return the references to emit and the entries dropped
      */
-    static AnnotationScopeResolver.Resolution resolve(AnnotationRegistry registry, String serviceTypeId,
+    static AnnotationScopeResolver.Resolution resolve(AnnotationRegistry registry, List<String> ids,
                                                       String homeModule, TriggerSemanticFacts facts) {
-        // Selection is this component's own (attach point + `appliesTo`, per the decisions above); the
-        // mechanics of turning a selected entry into an AnnotationRef are shared with the other three
-        // attach points, so they live in one place rather than four.
-        return AnnotationScopeResolver.byAttachPoint(registry, serviceTypeId,
-                AnnotationScopeResolver.Scope.SERVICE, homeModule,
-                AnnotationScopeResolver.factsOf(facts));
-    }
-
-    /**
-     * Spec §8 {@code appliesTo}: "{@code serviceTypes[].id} array". An absent or empty list applies to
-     * every service type — decision 1 in the class javadoc.
-     *
-     * @param annotation    the registry entry
-     * @param serviceTypeId the service type being built
-     * @return whether this entry attaches to that service type
-     */
-    static boolean appliesTo(TriggerMetadataModel.Annotation annotation, String serviceTypeId) {
-        List<String> appliesTo = annotation == null ? null : annotation.appliesTo();
-        if (appliesTo == null || appliesTo.isEmpty()) {
-            return true;
-        }
-        return serviceTypeId != null && appliesTo.contains(serviceTypeId);
+        // Selection is now the same by-id lookup every other attach point uses, so this component owns only
+        // what is genuinely service-specific: the scope, and the two constants below.
+        return AnnotationScopeResolver.byIds(registry, ids, AnnotationScopeResolver.Scope.SERVICE,
+                homeModule, AnnotationScopeResolver.factsOf(facts));
     }
 
     /**

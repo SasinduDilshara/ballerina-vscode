@@ -65,6 +65,10 @@ final class ServiceIdentityAspect implements ServiceAspect {
         draft.setName(identity.typeName());
         draft.setServiceTypeModule(identity.serviceTypeModule());
         draft.setAlternatives(identity.alternatives());
+        // Spec §3 `deprecated`, in the same prose form as §5.3's. Set here rather than in an aspect of its
+        // own: it is a property of the service type's identity, and it must not survive the two vetoes
+        // above -- a deprecation note on an entry that never renders is a note about nothing.
+        draft.setDeprecated(scope.serviceType().deprecated());
     }
 
     /**

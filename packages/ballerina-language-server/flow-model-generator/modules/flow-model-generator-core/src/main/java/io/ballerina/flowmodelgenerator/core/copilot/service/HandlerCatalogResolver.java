@@ -28,10 +28,10 @@ import java.util.Optional;
 /**
  * Owns <b>spec §4 {@code handlers}</b>: which of the two sources a service type's handlers come from.
  *
- * <p>Spec §4 states the rule directly — {@code backedByConcreteType} "{@code true} → {@code options: []},
- * nothing else to say. {@code false} → {@code options} is the only source of truth." This is the one
- * component that knows how many handlers exist, and therefore the one that drives the handler and
- * parameter tiers.
+ * <p>Spec §4 states the rule directly — {@code backedByConcreteType} "{@code true} means the type's own
+ * methods are the handlers, so introspection already answers everything this file could say. {@code false}
+ * means {@code options} is the only source of truth." This is the one component that knows how many
+ * handlers exist, and therefore the one that drives the handler and parameter tiers.
  *
  * @since 1.7.0
  */
@@ -45,11 +45,11 @@ final class HandlerCatalogResolver {
      * Where a service type's handlers come from.
      *
      * <p>Sealed so a new source cannot be added without every consumer being forced to handle it: the
-     * catalog decides whether a service body is built from the semantic model, from a fixed vocabulary, or
-     * from an open-ended template, and a silently unhandled variant would emit an empty body.
+     * catalog decides whether a service body is built from the semantic model or from the document, and a
+     * silently unhandled variant would emit an empty body.
      */
-    sealed interface HandlerCatalog permits HandlerCatalog.Concrete, HandlerCatalog.Options,
-            HandlerCatalog.Many, HandlerCatalog.None {
+    sealed interface HandlerCatalog permits HandlerCatalog.Concrete, HandlerCatalog.Documented,
+            HandlerCatalog.None {
 
         /**
          * The service type declares its own methods; the semantic model is authoritative.
@@ -62,41 +62,20 @@ final class HandlerCatalogResolver {
         /**
          * A marker type: the metadata document's {@code options} are the only source of truth.
          *
-         * @param options     the documented handler vocabulary, in document order
-         * @param authorNamed whether the document declared this catalog {@code addMode: "many"} — i.e.
-         *                    open-ended and user-named — while supplying <i>named</i> options instead of
-         *                    the single {@code "*"} entry spec §4 prescribes. The names are then shapes,
-         *                    not handler names: {@code grpc}'s {@code unary}/{@code serverStreaming} appear
-         *                    in no real program, because a gRPC handler is named after its proto RPC.
-         *                    Carried so a consumer can say so; without it these are indistinguishable from
-         *                    a genuinely fixed vocabulary like {@code salesforce}'s {@code onCreate}
+         * <p><b>One variant carrying two lists, because spec §5.1 lets them coexist.</b> {@code addMode}
+         * used to sit on the {@code handlers} block, so a service type was entirely fixed-name or entirely
+         * open-ended, and the two were modelled as separate catalog kinds. §5.1 moved the flag onto each
+         * option precisely so that "fixed lifecycle handlers alongside open user-named ones" is
+         * expressible, and a service type mixing them has one catalog rather than two.
+         *
+         * @param named     the {@code subset} options — real method names a reader writes verbatim, each
+         *                  governed by its own {@code presence}
+         * @param templates the {@code many} options — shapes whose instances the author names, which
+         *                  therefore cannot be written as-is and are rendered as commented guidance
+         *                  (spec §11.1: such a handler "cannot yield a compilable signature")
          */
-        record Options(List<TriggerMetadataModel.ServiceType.HandlerOption> options, boolean authorNamed)
-                implements HandlerCatalog {
-        }
-
-        /**
-         * An open-ended catalog: spec §4's {@code addMode: "many"}, "user-named (HTTP resource methods,
-         * GraphQL fields, MCP tools); represented as one {@code options} entry named {@code "*"}".
-         *
-         * <p>Distinct from {@link Options} because the shape it describes is not a handler but the
-         * <i>rule for writing</i> handlers: the author names each one, so there is no fixed signature to
-         * emit and consequently no entry in {@code methods}.
-         *
-         * <p><b>Plural, though spec §4 says "one".</b> A catalog can be open-ended <i>and</i> admit more than
-         * one legal shape, and {@code graphql} is exactly that: three {@code "*"} entries — a query
-         * ({@code resource}/{@code get}), a mutation ({@code remote}) and a subscription
-         * ({@code resource}/{@code subscribe}, returning a stream). They differ in kind, accessor and return,
-         * so no one of them can stand for the others. This record used to hold a single option and the
-         * resolver took {@code wildcards.get(0)}, which silently deleted GraphQL's mutations and
-         * subscriptions from the catalog with only a log line to show for it. The document defect is real and
-         * {@code AddModeCheck} still reports it; what changed is that tolerating it no longer costs two
-         * thirds of the connector's API surface.
-         *
-         * @param templates the wildcard options in document order, each stating everything about such a
-         *                  handler except its name; never empty
-         */
-        record Many(List<TriggerMetadataModel.ServiceType.HandlerOption> templates)
+        record Documented(List<TriggerMetadataModel.ServiceType.HandlerOption> named,
+                          List<TriggerMetadataModel.ServiceType.HandlerOption> templates)
                 implements HandlerCatalog {
         }
 
@@ -112,14 +91,14 @@ final class HandlerCatalogResolver {
     /**
      * A resolved catalog, plus every way the document had to be tolerated to reach it.
      *
-     * <p>Tolerating a non-conformant document is right — dropping a service type over a spec deviation
-     * would lose far more than it protects — but tolerating it <i>silently</i> is not. These used to be
-     * {@code LOGGER.warning} calls, which no test can assert and no veto report can show, so a document
-     * defect that cost real output ({@code grpc}'s wildcard-less {@code many}, a wildcard mixed with named
-     * options) was visible only to whoever happened to be reading the language server's log.
-     *
-     * <p>Returned rather than reported from here so the resolver stays pure: it decides what the document
-     * means, and the aspect decides where that goes.
+     * <p><b>Now always empty, and that is the headline of this spec revision.</b> It used to carry three
+     * kinds of degradation — {@code grpc} declaring {@code many} with four <i>named</i> options and no
+     * wildcard, {@code graphql} declaring three {@code "*"} entries where the block-level reading allowed
+     * one, and a wildcard mixed with named options. Every one was a document stating something true that
+     * the schema could not express, and every one cost real output: graphql lost its mutation and
+     * subscription shapes entirely. Spec §5.1 made all three legal, so they are no longer deviations to
+     * report — they are just documents. The field is kept because the shape of the contract should not
+     * change with the corpus, and a future deviation still needs somewhere to go.
      *
      * @param catalog      where this service type's handlers come from
      * @param degradations spec deviations that changed how the document was read or cost emitted output,
@@ -151,7 +130,7 @@ final class HandlerCatalogResolver {
     static CatalogResolution resolve(TriggerMetadataModel.ServiceType serviceType, String typeName,
                                      TriggerSemanticFacts facts) {
         if (!isConcrete(serviceType)) {
-            return openOrFixed(serviceType.handlers(), typeName);
+            return documented(serviceType.handlers());
         }
         Optional<ObjectTypeSymbol> objectType = facts.serviceObjectType(typeName);
         if (objectType.isEmpty()) {
@@ -165,79 +144,32 @@ final class HandlerCatalogResolver {
     }
 
     /**
-     * Splits a marker type's vocabulary into the open-ended and the fixed shape.
+     * Partitions a marker type's vocabulary by each option's own {@code addMode}.
      *
-     * <p><b>The wildcard, not {@code addMode}, is the discriminator.</b> Spec §4 ties the two together —
-     * {@code "many"} is "represented as one options entry named {@code \"*\"}" — but two corpus documents
-     * break that tie, and reading the pair rather than the flag is what lets both degrade sensibly instead
-     * of rendering nothing:
-     *
-     * <ul>
-     *   <li><b>{@code grpc}</b> declares {@code addMode: "many"} with four <i>named</i> options
-     *       ({@code unary}, {@code serverStreaming}, {@code clientStreaming}, {@code bidiStreaming}) and no
-     *       wildcard. Those four are real, fully-specified signatures; treating the type as open-ended
-     *       because of the flag would discard all of them and emit a template instead.</li>
-     *   <li><b>{@code graphql}</b> declares three {@code "*"} entries under one {@code options} list where
-     *       spec §4 allows one. <b>All three are kept</b> — they are the query, mutation and subscription
-     *       shapes, and they differ in kind, accessor and return, so taking only the first (as this did
-     *       until now) deleted two thirds of the connector's handler surface. The defect is still reported
-     *       by {@code AddModeCheck}; it is simply no longer paid for in lost output.</li>
-     * </ul>
-     *
-     * <p>Both are document defects belonging to the validator phase; this component's job is to tolerate
-     * them visibly, never to fix them silently.
+     * <p>Spec §5.1 makes {@code subset} the reading for an absent {@code addMode}, so an option is a
+     * template only when it says so. A {@code many} option is always named {@code "*"} — the author picks
+     * the real name — which is why it can never join the named list; a {@code subset} option with no name
+     * has nothing to emit and is dropped.
      */
-    private static CatalogResolution openOrFixed(TriggerMetadataModel.ServiceType.Handlers handlers,
-                                                 String typeName) {
-        List<TriggerMetadataModel.ServiceType.HandlerOption> options = handlers.options();
-        boolean declaresMany =
-                TriggerMetadataModel.ServiceType.Handlers.ADD_MODE_MANY.equals(handlers.addMode());
-        List<TriggerMetadataModel.ServiceType.HandlerOption> wildcards = wildcardsOf(options);
-        List<String> degradations = new ArrayList<>();
-
-        if (wildcards.isEmpty()) {
-            if (declaresMany && options != null && !options.isEmpty()) {
-                degradations.add("declares addMode: \"many\" with " + options.size()
-                        + " named option(s) and no \"*\" entry (spec §4 represents an open-ended catalog"
-                        + " as one option named \"*\"); the named options are read as a fixed vocabulary"
-                        + " so their signatures are not lost");
+    private static CatalogResolution documented(TriggerMetadataModel.ServiceType.Handlers handlers) {
+        List<TriggerMetadataModel.ServiceType.HandlerOption> named = new ArrayList<>();
+        List<TriggerMetadataModel.ServiceType.HandlerOption> templates = new ArrayList<>();
+        for (TriggerMetadataModel.ServiceType.HandlerOption option : safe(handlers)) {
+            if (option == null) {
+                continue;
             }
-            return new CatalogResolution(
-                    new HandlerCatalog.Options(options, declaresMany && options != null
-                            && !options.isEmpty()),
-                    List.copyOf(degradations));
+            if (option.isMany()) {
+                templates.add(option);
+            } else if (option.name() != null) {
+                named.add(option);
+            }
         }
-
-        if (wildcards.size() > 1) {
-            degradations.add("declares " + wildcards.size() + " \"*\" options where spec §4 allows one;"
-                    + " all of them are rendered as alternative handler shapes");
-        }
-        if (options.size() > wildcards.size()) {
-            // The only one of these that costs emitted output, which is why it must not stay a log line.
-            degradations.add("mixes a \"*\" option with " + (options.size() - wildcards.size())
-                    + " named option(s); spec §4 defines the two as alternative shapes, so the named"
-                    + " options are NOT emitted");
-        }
-        if (!declaresMany) {
-            degradations.add("declares a \"*\" option under addMode: " + handlers.addMode()
-                    + " (spec §4 pairs the wildcard with \"many\")");
-        }
-        return new CatalogResolution(new HandlerCatalog.Many(List.copyOf(wildcards)),
-                List.copyOf(degradations));
+        return new CatalogResolution(
+                new HandlerCatalog.Documented(List.copyOf(named), List.copyOf(templates)), List.of());
     }
 
-    private static List<TriggerMetadataModel.ServiceType.HandlerOption> wildcardsOf(
-            List<TriggerMetadataModel.ServiceType.HandlerOption> options) {
-        List<TriggerMetadataModel.ServiceType.HandlerOption> wildcards = new ArrayList<>();
-        if (options == null) {
-            return wildcards;
-        }
-        for (TriggerMetadataModel.ServiceType.HandlerOption option : options) {
-            if (option != null && TriggerMetadataModel.ServiceType.HandlerOption.WILDCARD_NAME
-                    .equals(option.name())) {
-                wildcards.add(option);
-            }
-        }
-        return wildcards;
+    private static List<TriggerMetadataModel.ServiceType.HandlerOption> safe(
+            TriggerMetadataModel.ServiceType.Handlers handlers) {
+        return handlers == null || handlers.options() == null ? List.of() : handlers.options();
     }
 }

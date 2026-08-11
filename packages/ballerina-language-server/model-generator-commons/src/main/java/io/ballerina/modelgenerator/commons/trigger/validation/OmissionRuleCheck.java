@@ -29,6 +29,7 @@ import java.util.List;
  *
  * <p>Five corpus instances motivated this check: {@code kafka}'s {@code annotations: []} and the
  * {@code dataBindingRules: []} carried by {@code graphql}, {@code grpc}, {@code mcp} and {@code websub}.
+ * That key is gone in v1.0, but the same rule now governs {@code rules} and the per-construct arrays.
  * None changes behaviour, which is exactly why they survived — an empty array and an absent key
  * deserialize alike, so nothing downstream could ever notice.
  *
@@ -55,7 +56,7 @@ final class OmissionRuleCheck implements DocumentCheck {
     public List<Finding> check(TriggerMetadataModel document) {
         List<Finding> findings = new ArrayList<>();
         emptyArray(findings, document.annotations(), "annotations");
-        emptyArray(findings, document.dataBindingRules(), "dataBindingRules");
+        emptyArray(findings, document.rules(), "rules");
 
         List<TriggerMetadataModel.ServiceType> serviceTypes = DocumentWalk.safe(document.serviceTypes());
         for (int i = 0; i < serviceTypes.size(); i++) {

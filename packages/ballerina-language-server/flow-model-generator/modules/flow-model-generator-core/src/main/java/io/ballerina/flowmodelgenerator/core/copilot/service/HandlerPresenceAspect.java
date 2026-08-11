@@ -18,7 +18,6 @@
 
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
-import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 
 /**
  * Spec §5 {@code options[].presence} — whether a handler must be implemented or may be omitted.
@@ -47,10 +46,10 @@ final class HandlerPresenceAspect implements HandlerAspect {
         if (scope.isConcrete()) {
             return;
         }
-        TriggerMetadataModel.ServiceType.Handlers handlers = scope.service().serviceType() == null
-                ? null : scope.service().serviceType().handlers();
-        String addMode = handlers == null ? null : handlers.addMode();
-        HandlerPresenceResolver.resolveOptional(scope.option().presence(), addMode)
+        // Spec §5.1 moved addMode onto the option, so presence scoping is a per-handler question: a
+        // service type may mix fixed handlers with open-ended shapes, and only the fixed ones have an
+        // occurrence count to state.
+        HandlerPresenceResolver.resolveOptional(scope.option().presence(), scope.option().addMode())
                 .ifPresent(draft::setOptional);
     }
 }

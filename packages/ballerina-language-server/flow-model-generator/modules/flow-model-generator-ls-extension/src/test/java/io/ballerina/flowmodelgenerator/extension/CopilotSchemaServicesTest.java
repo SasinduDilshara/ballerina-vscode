@@ -274,10 +274,14 @@ public class CopilotSchemaServicesTest {
 
         JsonObject onConsumerRecord = methodNamed(service, "onConsumerRecord");
         Assert.assertEquals(onConsumerRecord.get("type").getAsString(), "remote");
-        // FLAG: a marker service type declares no methods, so neither the metadata document nor the
-        // library carries a handler description — the key is omitted, never fabricated.
-        Assert.assertFalse(onConsumerRecord.has("description"),
-                "Marker-type handlers have no description source");
+        // Spec §5.1 reversed this. A marker service type still declares no method, so there is no doc
+        // comment to introspect — which is exactly why the document now AUTHORS one, and why it is the only
+        // description a generator will ever see for such a handler.
+        Assert.assertTrue(onConsumerRecord.has("description"),
+                "spec §5.1 makes `doc` the authored description of a marker-type handler");
+        Assert.assertTrue(onConsumerRecord.get("description").getAsString()
+                        .startsWith("Invoked with each batch of records polled"),
+                onConsumerRecord.toString());
         // Spec §5 scopes `presence` to `addMode: "subset"`, which is kafka's mode — so the document's
         // `presence: "required"` must reach the wire. It used to be dropped, which left a mandatory handler
         // indistinguishable from a skippable one; `onError` below is the optional counterpart.
@@ -289,8 +293,8 @@ public class CopilotSchemaServicesTest {
         // The metadata document states no names for these slots (a handler param name is the service
         // author's choice), so they are generated: the AnydataX|BytesX union collapses to one stable
         // name, and the first union member supplies the type.
-        Assert.assertEquals(paramNames(onConsumerRecord), List.of("consumerRecords", "caller"));
-        JsonObject records = paramNamed(onConsumerRecord, "consumerRecords");
+        Assert.assertEquals(paramNames(onConsumerRecord), List.of("records", "caller"));
+        JsonObject records = paramNamed(onConsumerRecord, "records");
         Assert.assertEquals(records.getAsJsonObject("type").get("name").getAsString(),
                 "AnydataConsumerRecord[]");
         assertInternalLink(records, "AnydataConsumerRecord[]");
@@ -303,8 +307,8 @@ public class CopilotSchemaServicesTest {
 
         JsonObject onError = methodNamed(service, "onError");
         // A bare `Error` slot is generated as <alias>Error — never the keyword `error`.
-        Assert.assertEquals(paramNames(onError), List.of("kafkaError"));
-        Assert.assertEquals(paramNamed(onError, "kafkaError").getAsJsonObject("type")
+        Assert.assertEquals(paramNames(onError), List.of("err"));
+        Assert.assertEquals(paramNamed(onError, "err").getAsJsonObject("type")
                 .get("name").getAsString(), "Error");
         // The optional counterpart of onConsumerRecord above: both states are expressible, which is the
         // whole point of stating presence at all.
@@ -322,14 +326,17 @@ public class CopilotSchemaServicesTest {
         Assert.assertEquals(methodNames(service), List.of("onMessage", "onRequest", "onError"));
 
         JsonObject onRequest = methodNamed(service, "onRequest");
-        // Generated names, which here reproduce exactly what the retired service-index carried.
+        // Authored names. Spec §7 makes `params[].name` required on every fixed slot, so these come
+        // from the document rather than from the generator -- which is why they no longer have to
+        // coincide with what the retired service-index happened to carry.
         Assert.assertEquals(paramNames(onRequest), List.of("message", "caller"));
         Assert.assertEquals(onRequest.getAsJsonObject("return")
                 .getAsJsonObject("type").get("name").getAsString(), "anydata|error");
-        Assert.assertFalse(onRequest.has("description"), "Marker-type handler: no description source");
+        Assert.assertTrue(onRequest.has("description"),
+                "spec §5.1 makes `doc` the authored description of a marker-type handler");
 
         JsonObject onError = methodNamed(service, "onError");
-        Assert.assertEquals(paramNames(onError), List.of("message", "rabbitmqError"));
+        Assert.assertEquals(paramNames(onError), List.of("message", "err"));
     }
 
     // ---- ftp ---------------------------------------------------------------------------
@@ -618,8 +625,9 @@ public class CopilotSchemaServicesTest {
         Assert.assertEquals(paramNames(onFileJson), List.of("content", "caller", "fileInfo"));
         Assert.assertTrue(paramNamed(onFileJson, "caller").get("optional").getAsBoolean());
         assertInternalLink(paramNamed(onFileJson, "fileInfo"), "FileInfo");
-        // FLAG: no description source exists for smb's marker handlers — no fabricated text.
-        Assert.assertFalse(onFileJson.has("description"));
+        // Spec §5.1: smb's handlers are marker-type, so the document authors their descriptions.
+        Assert.assertTrue(onFileJson.has("description"),
+                "spec §5.1 makes `doc` the authored description of a marker-type handler");
     }
 
     @Test
@@ -639,14 +647,16 @@ public class CopilotSchemaServicesTest {
         Assert.assertEquals(methodNames(service), List.of("onEventNotification",
                 "onSubscriptionVerification", "onUnsubscriptionVerification",
                 "onSubscriptionValidationDenied", "onHubError"));
-        assertInternalLink(paramNamed(methodNamed(service, "onHubError"), "internalHubError"),
-                "InternalHubError");
+        // The parameter is now AUTHORED by the document (spec §7 makes `name` required on a fixed slot)
+        // rather than generated from the type, so it is `err` where the generator produced
+        // `internalHubError`. The type is what matters and is unchanged.
+        assertInternalLink(paramNamed(methodNamed(service, "onHubError"), "err"), "InternalHubError");
 
         // The metadata deliberately leaves these params unnamed: names are generated from the
         // declared type — idiomatic, compilable Ballerina.
         JsonObject onEventNotification = methodNamed(service, "onEventNotification");
-        Assert.assertEquals(paramNames(onEventNotification), List.of("contentDistributionMessage"));
-        assertInternalLink(paramNamed(onEventNotification, "contentDistributionMessage"),
+        Assert.assertEquals(paramNames(onEventNotification), List.of("event"));
+        assertInternalLink(paramNamed(onEventNotification, "event"),
                 "ContentDistributionMessage");
 
         JsonObject onSubscriptionVerification = methodNamed(service, "onSubscriptionVerification");

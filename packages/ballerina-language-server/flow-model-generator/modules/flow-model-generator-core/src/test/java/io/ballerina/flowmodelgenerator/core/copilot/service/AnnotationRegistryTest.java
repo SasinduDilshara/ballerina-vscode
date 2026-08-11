@@ -104,11 +104,9 @@ public class AnnotationRegistryTest {
     @Test
     public void testCrossModuleAnnotationTypesArePreserved() {
         // mssql.cdc's required `@cdc:ServiceConfig`: the coordinates decide the prefix it renders with.
-        AnnotationRegistry registry = registryOf(new TriggerMetadataModel.Annotation(
-                "serviceConfig",
+        AnnotationRegistry registry = registryOf(new TriggerMetadataModel.Annotation("serviceConfig",
                 new TypeRef("ServiceConfig",
-                        new TypeRef.PackageInfo("ballerinax", "cdc", "cdc", "1.3.2")),
-                "service", List.of("service"), "required"));
+                        new TypeRef.PackageInfo("ballerinax", "cdc", "cdc", "1.3.2")), "service", "required"));
         TriggerMetadataModel.Annotation resolved = registry.byId("serviceConfig").orElseThrow();
         Assert.assertEquals(resolved.type().packageInfo().moduleName(), "cdc");
         Assert.assertEquals(resolved.presence(), "required");
@@ -134,7 +132,6 @@ public class AnnotationRegistryTest {
 
     private static TriggerMetadataModel.Annotation annotation(String id, String type, String attachPoint,
                                                               List<String> appliesTo, String presence) {
-        return new TriggerMetadataModel.Annotation(id, new TypeRef(type, null), attachPoint, appliesTo,
-                presence);
+        return new TriggerMetadataModel.Annotation(id, new TypeRef(type, null), attachPoint, presence);
     }
 }

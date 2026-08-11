@@ -58,13 +58,13 @@ final class HandlerDraft {
     // answering the question" (addMode: many). See HandlerPresenceResolver.
     private Boolean optional;
     private String accessor;
-    private JsonArray methodValues;
-    private Boolean methodRequired;
-    private JsonArray pathForm;
-    private Boolean pathRequired;
-    private JsonArray fieldNameForm;
-    private Boolean fieldNameRequired;
-    private String graphqlOperation;
+    private JsonArray accessorValues;
+    private boolean accessorRequired;
+    // Spec §5 `values: ["*"]` -- any accessor the language accepts. Kept apart from an enumerated list so a
+    // consumer can word the two cases differently; see setAccessorConstraint.
+    private boolean accessorOpen;
+    private boolean pathRequired;
+    private String deprecated;
     private JsonObject returnObj;
 
     /** Spec §5 {@code options[].name}, or a concrete type's declared method name. */
@@ -103,7 +103,7 @@ final class HandlerDraft {
         this.optional = optional;
     }
 
-    /** The accessor a resource handler is written with, per {@link AccessorPrecedencePolicy}. */
+    /** The accessor a resource handler is written with, per {@link ResourceExtrasResolver}. */
     void setAccessor(String accessor) {
         if (accessor != null && !accessor.isEmpty()) {
             this.accessor = accessor;
@@ -111,52 +111,44 @@ final class HandlerDraft {
     }
 
     /**
-     * Spec §5's {@code method} extra: the legal HTTP verbs, and whether the slot must be filled.
+     * Spec §5's {@code accessor} constraint: the legal accessors, whether one must be written, and whether
+     * the document leaves the choice open ({@code values: ["*"]}).
      *
-     * @param values   the legal verbs; a null or empty list omits both keys
-     * @param required whether the verb slot is mandatory
+     * <p>{@code open} is carried separately rather than encoded as a magic {@code "*"} in the list, because
+     * a consumer must word the two cases differently: an enumerated list becomes "must be one of `get`,
+     * `post`", whereas an open slot becomes "any accessor the language accepts". Rendering the literal
+     * {@code *} as a value would produce a note instructing the reader to write an accessor called `*`.
      */
-    void setMethod(List<String> values, boolean required) {
-        if (values == null || values.isEmpty()) {
-            return;
+    void setAccessorConstraint(List<String> values, boolean required, boolean open) {
+        this.accessorRequired = required;
+        this.accessorOpen = open;
+        if (values != null && !values.isEmpty()) {
+            this.accessorValues = toArray(values);
         }
-        this.methodValues = toArray(values);
-        this.methodRequired = required;
     }
 
     /**
-     * Spec §5's {@code path} extra: the legal path shapes, and whether the slot must be filled.
+     * Spec §5's {@code path}: whether a resource path must be written.
      *
-     * @param form     the legal shapes; a null or empty list omits both keys
-     * @param required whether the path slot is mandatory
+     * <p>No form accompanies it any more. Spec §5 dropped the {@code identifierSegments} /
+     * {@code pathParamSegments} vocabulary because "the language already fixes what a resource path may
+     * look like" — the old list was restating the grammar, and a consumer that quoted it was telling the
+     * reader something Ballerina already guarantees.
      */
-    void setPath(List<String> form, boolean required) {
-        if (form == null || form.isEmpty()) {
-            return;
-        }
-        this.pathForm = toArray(form);
+    void setPathRequired(boolean required) {
         this.pathRequired = required;
     }
 
     /**
-     * Spec §5's GraphQL {@code fieldName} extra: the legal field-name shapes, and whether the slot must be
-     * filled.
+     * Spec §5.3 {@code deprecated} — why this handler is superseded, as the document's own prose.
      *
-     * @param form     the legal shapes; a null or empty list omits both keys
-     * @param required whether the field-name slot is mandatory
+     * <p>Carried as text rather than as a flag because the sentence <i>is</i> the useful part: {@code ftp}'s
+     * {@code onFileChange} note names the five typed handlers that replace it, and a bare {@code true} would
+     * tell a reader to stop using the handler while withholding what to use instead.
      */
-    void setFieldName(List<String> form, boolean required) {
-        if (form == null || form.isEmpty()) {
-            return;
-        }
-        this.fieldNameForm = toArray(form);
-        this.fieldNameRequired = required;
-    }
-
-    /** Spec §5's informational {@code graphqlOperation}; renders as prose only, never as syntax. */
-    void setGraphqlOperation(String operation) {
-        if (operation != null && !operation.isEmpty()) {
-            this.graphqlOperation = operation;
+    void setDeprecated(String deprecated) {
+        if (deprecated != null && !deprecated.isBlank()) {
+            this.deprecated = deprecated;
         }
     }
 
@@ -243,23 +235,23 @@ final class HandlerDraft {
             json.addProperty("isolated", isolated);
         }
         addIfPresent(json, "description", description);
+        addIfPresent(json, "deprecated", deprecated);
         if (optional != null) {
             json.addProperty("optional", optional);
         }
         addIfPresent(json, "accessor", accessor);
-        if (methodValues != null) {
-            json.add("methodValues", methodValues);
-            json.addProperty("methodRequired", methodRequired);
+        if (accessorValues != null) {
+            json.add("accessorValues", accessorValues);
         }
-        if (pathForm != null) {
-            json.add("pathForm", pathForm);
-            json.addProperty("pathRequired", pathRequired);
+        if (accessorRequired) {
+            json.addProperty("accessorRequired", true);
         }
-        if (fieldNameForm != null) {
-            json.add("fieldNameForm", fieldNameForm);
-            json.addProperty("fieldNameRequired", fieldNameRequired);
+        if (accessorOpen) {
+            json.addProperty("accessorOpen", true);
         }
-        addIfPresent(json, "graphqlOperation", graphqlOperation);
+        if (pathRequired) {
+            json.addProperty("pathRequired", true);
+        }
         if (annotationRefs != null) {
             json.add("annotationRefs", annotationRefs);
         }

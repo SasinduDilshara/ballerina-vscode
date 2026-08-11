@@ -26,28 +26,17 @@ import java.util.List;
  * @since 1.7.0
  */
 public class ParamBinding {
-    // Spec §9 `cardinality: "array"`: a mode's type is the array *element* type, not the whole parameter
-    // type. Boxed and emitted only when true, so a renderer can tell "the document says batch" from "the
-    // document says nothing" — and must not pluralize a parameter whose signature is already an array.
-    private Boolean array;
-    private List<BindingMode> modes;
+
+    private List<TypedescVariant> typedescs;
 
     public ParamBinding() {
     }
 
-    public Boolean isArray() {
-        return array;
+    public List<TypedescVariant> getTypedescs() {
+        return typedescs;
     }
 
-    public void setArray(Boolean array) {
-        this.array = array;
-    }
-
-    public List<BindingMode> getModes() {
-        return modes;
-    }
-
-    public void setModes(List<BindingMode> modes) {
-        this.modes = modes;
+    public void setTypedescs(List<TypedescVariant> typedescs) {
+        this.typedescs = typedescs;
     }
 }

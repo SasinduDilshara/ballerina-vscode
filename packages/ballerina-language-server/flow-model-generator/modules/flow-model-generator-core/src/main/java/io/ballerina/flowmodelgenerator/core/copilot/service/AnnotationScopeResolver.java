@@ -239,34 +239,6 @@ final class AnnotationScopeResolver {
     }
 
     /**
-     * Resolves the annotations a scope selects <b>by attach point and {@code appliesTo}</b> — spec §8's
-     * fallback path for the scopes its own "Residual gap" says "have no reference mechanism as precise as
-     * {@code params[].annotations}".
-     *
-     * @param registry      the document's §8 registry
-     * @param serviceTypeId the enclosing service type's id; {@code null} when the document names none
-     * @param scope         the scope selecting and validating the entries
-     * @param homeModule    spec §1's home module
-     * @param facts         the resolved package's symbols; {@code null} skips every compiler-backed check
-     * @return the references to emit and the entries dropped
-     */
-    static Resolution byAttachPoint(AnnotationRegistry registry, String serviceTypeId, Scope scope,
-                                    String homeModule, AnnotationFacts facts) {
-        List<AnnotationRef> refs = new ArrayList<>();
-        List<Rejection> rejections = new ArrayList<>();
-        if (registry == null) {
-            return new Resolution(refs, rejections);
-        }
-        for (TriggerMetadataModel.Annotation annotation : registry.byAttachPoint(scope.attachPoint())) {
-            if (!ServiceAnnotationResolver.appliesTo(annotation, serviceTypeId)) {
-                continue;
-            }
-            accept(annotation, scope, homeModule, facts, refs, rejections);
-        }
-        return new Resolution(refs, rejections);
-    }
-
-    /**
      * The checks and the construction every scope shares: the entry must name something, the home module
      * must declare it, and the resolved package must admit it at this scope.
      */

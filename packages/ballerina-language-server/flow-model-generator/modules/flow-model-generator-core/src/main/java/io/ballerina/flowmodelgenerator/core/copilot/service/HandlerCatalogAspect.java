@@ -70,16 +70,12 @@ final class HandlerCatalogAspect implements ServiceAspect {
                     draft.veto(id(), specSection(), typeName, none.reason());
             case HandlerCatalogResolver.HandlerCatalog.Concrete concrete ->
                     buildDeclared(scope, draft, concrete.methods());
-            case HandlerCatalogResolver.HandlerCatalog.Options options -> {
-                if (options.authorNamed()) {
-                    draft.setAuthorNamedHandlers();
-                }
-                buildFromOptions(scope, draft, options.options());
-            }
-            case HandlerCatalogResolver.HandlerCatalog.Many many -> {
-                // Document order is preserved: graphql's query, mutation and subscription shapes are read
-                // in the order the document declares them, the same rule §7 states for parameters.
-                for (TriggerMetadataModel.ServiceType.HandlerOption template : many.templates()) {
+            case HandlerCatalogResolver.HandlerCatalog.Documented documented -> {
+                // Spec §5.1 lets the two coexist, so both lists are built rather than one branch winning.
+                // Named options come first: a reader looking for a method to copy should meet the ones that
+                // are copyable before the shapes that have to be instantiated.
+                buildFromOptions(scope, draft, documented.named());
+                for (TriggerMetadataModel.ServiceType.HandlerOption template : documented.templates()) {
                     buildTemplate(scope, draft, template);
                 }
             }

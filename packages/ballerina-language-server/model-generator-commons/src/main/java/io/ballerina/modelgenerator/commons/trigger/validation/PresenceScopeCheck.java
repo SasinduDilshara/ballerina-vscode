@@ -40,7 +40,6 @@ import java.util.List;
  */
 final class PresenceScopeCheck implements DocumentCheck {
 
-    private static final String SUBSET = TriggerMetadataModel.ServiceType.Handlers.ADD_MODE_SUBSET;
     private static final String WILDCARD = TriggerMetadataModel.ServiceType.HandlerOption.WILDCARD_NAME;
 
     @Override
@@ -62,13 +61,16 @@ final class PresenceScopeCheck implements DocumentCheck {
             if (serviceType == null || serviceType.handlers() == null) {
                 continue;
             }
-            boolean subset = SUBSET.equals(serviceType.handlers().addMode());
             List<TriggerMetadataModel.ServiceType.HandlerOption> options = DocumentWalk.options(serviceType);
             for (int j = 0; j < options.size(); j++) {
                 TriggerMetadataModel.ServiceType.HandlerOption option = options.get(j);
                 if (option == null || WILDCARD.equals(option.name())) {
                     continue;
                 }
+                // Spec §5.1 moved addMode onto the option, so scoping is now a per-handler question: one
+                // service type may mix fixed handlers with open-ended shapes, and only the fixed ones have
+                // an occurrence count to require.
+                boolean subset = !option.isMany();
                 String path = DocumentWalk.optionPath(i, j) + ".presence";
                 if (subset && option.presence() == null) {
                     findings.add(Finding.warn(this, path,

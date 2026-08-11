@@ -31,8 +31,31 @@ public class SpecVersionGateTest {
 
     @Test
     public void testTheImplementedVersionIsAccepted() {
-        // Spec: "`version` is a required top-level string (currently "v1")."
-        Assert.assertEquals(SpecVersionGate.evaluate("v1"), SpecVersionGate.VersionVerdict.ACCEPT);
+        // Spec §11: "`version` has the form v<major>.<minor>, such as "v1.0"."
+        Assert.assertEquals(SpecVersionGate.evaluate("v1.0"), SpecVersionGate.VersionVerdict.ACCEPT);
+    }
+
+    @Test
+    public void testAnyMinorOfTheImplementedMajorIsAccepted() {
+        // Spec §11.3: a consumer built for v1.3 must READ a v1.5 instance, skipping what it does not
+        // recognise. Gating on the minor would refuse documents the spec requires be read, so the minor is
+        // never compared — not even a minor far ahead of this build.
+        Assert.assertEquals(SpecVersionGate.evaluate("v1.5"), SpecVersionGate.VersionVerdict.ACCEPT);
+        Assert.assertEquals(SpecVersionGate.evaluate("v1.99"), SpecVersionGate.VersionVerdict.ACCEPT);
+        // And the other direction: "a minor bump never removes anything", so an older minor is readable too.
+        Assert.assertEquals(SpecVersionGate.evaluate("v1.0"), SpecVersionGate.VersionVerdict.ACCEPT);
+    }
+
+    @Test
+    public void testThePreReleaseFormIsAcceptedWithAWarning() {
+        // "v1" predates §11's two-component scheme. Strictly the m1-era documents carrying it are
+        // structurally different from v1.0, but refusing would take a working library offline over a
+        // version string, whereas accepting only means a removed key is ignored — which is what the
+        // omission rule does with any absent key anyway. The warning keeps that visible, and VersionCheck
+        // reports it as an ERROR against this repo's own corpus so the migration still finishes.
+        Assert.assertEquals(SpecVersionGate.evaluate("v1"),
+                SpecVersionGate.VersionVerdict.ACCEPT_WITH_WARNING);
+        Assert.assertTrue(SpecVersionGate.evaluate("v1").isUsable());
     }
 
     @Test
@@ -54,28 +77,42 @@ public class SpecVersionGateTest {
     }
 
     @Test
-    public void testAnUnimplementedVersionIsRejected() {
-        // The spec says to bump `version` "whenever a field's meaning changes incompatibly", so reading a
-        // v2 document with v1 semantics would produce confident, wrong API guidance. Rejection degrades to
-        // the service index instead, which is a poorer catalog rather than a wrong one.
-        Assert.assertEquals(SpecVersionGate.evaluate("v2"), SpecVersionGate.VersionVerdict.REJECT);
-        Assert.assertFalse(SpecVersionGate.evaluate("v2").isUsable());
+    public void testAnUnimplementedMajorIsRejected() {
+        // Spec §11: a major bump means "a field is renamed, removed, re-nested, retyped, or changes
+        // meaning", and the consumer "must refuse the instance". Reading one with the wrong semantics
+        // would produce confident, wrong API guidance; rejection degrades to the service index instead,
+        // which is a poorer catalog rather than a wrong one.
+        Assert.assertEquals(SpecVersionGate.evaluate("v2.0"), SpecVersionGate.VersionVerdict.REJECT);
+        Assert.assertFalse(SpecVersionGate.evaluate("v2.0").isUsable());
+        Assert.assertEquals(SpecVersionGate.evaluate("v10.3"), SpecVersionGate.VersionVerdict.REJECT);
+    }
+
+    @Test
+    public void testAMalformedVersionIsRejected() {
+        // Not the pre-release form and not v<major>.<minor>, so there is no reading of it this build can
+        // claim to implement. "v2" in particular must not be mistaken for the tolerated pre-release form:
+        // only "v1" is that.
         Assert.assertEquals(SpecVersionGate.evaluate("1"), SpecVersionGate.VersionVerdict.REJECT);
-        Assert.assertEquals(SpecVersionGate.evaluate("V1"), SpecVersionGate.VersionVerdict.REJECT);
+        Assert.assertEquals(SpecVersionGate.evaluate("V1.0"), SpecVersionGate.VersionVerdict.REJECT);
+        Assert.assertEquals(SpecVersionGate.evaluate("v1.0.0"), SpecVersionGate.VersionVerdict.REJECT);
+        Assert.assertEquals(SpecVersionGate.evaluate("v2"), SpecVersionGate.VersionVerdict.REJECT);
+        Assert.assertEquals(SpecVersionGate.evaluate("v1.x"), SpecVersionGate.VersionVerdict.REJECT);
     }
 
     @Test
     public void testSurroundingWhitespaceDoesNotChangeTheVerdict() {
-        Assert.assertEquals(SpecVersionGate.evaluate(" v1 "), SpecVersionGate.VersionVerdict.ACCEPT);
+        Assert.assertEquals(SpecVersionGate.evaluate(" v1.0 "), SpecVersionGate.VersionVerdict.ACCEPT);
+        Assert.assertEquals(SpecVersionGate.evaluate(" v1 "),
+                SpecVersionGate.VersionVerdict.ACCEPT_WITH_WARNING);
     }
 
     @Test
     public void testTheDocumentOverloadReadsTheDeclaredVersion() {
         Assert.assertEquals(
-                SpecVersionGate.evaluate(new TriggerMetadataModel("v1", null, null, null, null)),
+                SpecVersionGate.evaluate(new TriggerMetadataModel("v1.0", null, null, null, null)),
                 SpecVersionGate.VersionVerdict.ACCEPT);
         Assert.assertEquals(
-                SpecVersionGate.evaluate(new TriggerMetadataModel("v9", null, null, null, null)),
+                SpecVersionGate.evaluate(new TriggerMetadataModel("v9.0", null, null, null, null)),
                 SpecVersionGate.VersionVerdict.REJECT);
         Assert.assertEquals(SpecVersionGate.evaluate((TriggerMetadataModel) null),
                 SpecVersionGate.VersionVerdict.ACCEPT_WITH_WARNING);

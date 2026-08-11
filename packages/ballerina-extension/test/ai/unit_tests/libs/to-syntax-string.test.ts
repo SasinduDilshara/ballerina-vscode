@@ -1099,8 +1099,7 @@ suite("toSyntaxString", () => {
                 type: "fixed", name: "UpgradeService", listener: wsListener,
                 methods: [method({
                     name: "get", type: "resource", accessor: "get",
-                    methodValues: ["get"], methodRequired: true,
-                    pathForm: ["stringLiteralSegment"], pathRequired: true,
+                    accessorValues: ["get"], accessorRequired: true, pathRequired: true,
                     parameters: [{ name: "request", description: "", type: { name: "http:Request" } }],
                     return: { type: { name: "Service|UpgradeError" } },
                 })],
@@ -1110,21 +1109,42 @@ suite("toSyntaxString", () => {
             assert.ok(!result.includes("remote function get"), "the remote keyword must be gone");
         });
 
-        test("§11.2: the resource path is a placeholder and the legal forms are stated verbatim", () => {
-            // Plan §11.2: which verb and which path segments is intent-derived, so the renderer may only
-            // place a fillable placeholder and quote the document's vocabulary.
+        test("§11.2: the resource path is a placeholder, and the grammar is no longer restated", () => {
+            // §11.2: which accessor and which path segments is intent-derived, so the renderer may only
+            // place a fillable placeholder and quote the document's own vocabulary.
+            //
+            // What it may NOT do any more is quote a path FORM. Spec §5 dropped `identifierSegments` /
+            // `pathParamSegments` because "the language already fixes what a resource path may look like" —
+            // the old note handed the reader a token from the grammar they were already writing to. What
+            // survives is the one thing the language does not fix: that this handler needs a path at all.
             const result = renderService({
                 type: "fixed", name: "UpgradeService", listener: wsListener,
                 methods: [method({
                     name: "get", type: "resource", accessor: "get",
-                    methodValues: ["get"], methodRequired: true,
-                    pathForm: ["stringLiteralSegment"], pathRequired: true,
+                    accessorValues: ["get"], accessorRequired: true, pathRequired: true,
                 })],
             });
             const note = line(result, "# Resource:");
             assert.ok(note.includes("the accessor must be one of `get`"), note);
-            assert.ok(note.includes("stringLiteralSegment"), note);
+            assert.ok(note.includes("a path is required and is author-chosen"), note);
             assert.ok(note.includes("replace `pathSegment`"), note);
+            assert.ok(!/Segment[s]?\)/.test(note), `no grammar token may be restated: ${note}`);
+        });
+
+        test("§5: an open accessor is worded as a freedom, never as a literal `*`", () => {
+            // §5's `values: ["*"]` — `ballerina/http`'s shape. Carrying the wildcard through as a value
+            // produced "the accessor must be one of `*`", which reads as an instruction to write a method
+            // called `*`. The two states have to be worded differently or the note is actively wrong.
+            const result = renderService({
+                type: "fixed", name: "Service", listener: wsListener,
+                methods: [method({
+                    name: "get", type: "resource", accessorOpen: true, accessorRequired: true,
+                    pathRequired: true,
+                })],
+            });
+            const note = line(result, "# Resource:");
+            assert.ok(note.includes("the accessor may be any the language accepts"), note);
+            assert.ok(!note.includes("`*`"), `the wildcard must never reach the reader: ${note}`);
         });
 
         test("§5: a resource handler with no accessor degrades to remote rather than emitting broken syntax", () => {
@@ -1132,27 +1152,177 @@ suite("toSyntaxString", () => {
             // `resource function  pathSegment(...)` would not compile.
             const result = renderService({
                 type: "fixed", name: "Service", listener: wsListener,
-                methods: [method({ name: "onEvent", type: "resource", pathForm: ["identifierSegments"] })],
+                methods: [method({ name: "onEvent", type: "resource", pathRequired: true })],
             });
             assert.ok(result.includes("remote function onEvent("), `got:\n${result}`);
             assert.ok(result.includes("# Resource:"), "the resource nature is still stated");
         });
 
-        test("§5: graphqlOperation renders as prose only, never as syntax", () => {
-            // Spec §5 marks it informational.
+        test("§5: a remote handler carrying an accessor constraint is still not labelled a resource", () => {
+            // The label follows the handler's KIND, not the spec section its extras are filed under. §5 now
+            // states the two slots are resource-only, so this shape is a document defect that
+            // `ResourceExtrasCheck` reports — but a report is not a guarantee, and labelling a handler
+            // "Resource:" directly above the `remote function` line describing it states the opposite of
+            // the signature the reader copies.
+            //
+            // `graphqlOperation` used to be tested here. It is gone, and deliberately not replaced: a
+            // query is `resource` + accessor `get`, a subscription is `resource` + accessor `subscribe`,
+            // and a mutation is `remote` — so the field restated what the other two already say, which is
+            // exactly what the spec's own omission rule forbids.
             const result = renderService({
                 type: "fixed", name: "Service", listener: wsListener,
-                methods: [method({ name: "onEvent", graphqlOperation: "mutation",
-                                   fieldNameForm: ["identifierSegment"] })],
+                methods: [method({ name: "onEvent", accessorValues: ["get"], accessorRequired: false })],
             });
-            // The label follows the handler's KIND, not the spec section its extras are filed under.
-            // This assertion previously demanded "# Resource:" on a handler its own next line calls a
-            // remote method — a contradiction that never surfaced because graphql's mutation shape was
-            // being discarded before it could render. It renders now, so the label has to be right.
-            assert.ok(line(result, "# Handler:").includes("this is a GraphQL mutation"));
+            assert.ok(line(result, "# Handler:").includes("the accessor may be one of `get`"),
+                `got:\n${result}`);
             assert.ok(result.includes("remote function onEvent("), "a mutation is a remote method");
             assert.ok(!result.includes("# Resource:"),
                 `a remote handler must not be labelled a resource:\n${result}`);
+        });
+
+        // ---- §5.3 / §3 / §2 / §7 deprecation prose ----
+
+        test("§5.3: a deprecated handler gets a `# # Deprecated` doc section, not a bare flag", () => {
+            // The spec words the obligation directly: "A generator emitting Ballerina puts it in the
+            // `# # Deprecated` doc section." `ftp`'s `onFileChange` is the corpus instance, and its
+            // sentence names the five typed handlers that replace it -- which is the whole value of the
+            // field. A boolean would tell the reader to stop and leave them nowhere to go.
+            const result = renderService({
+                type: "fixed", name: "Service", listener: wsListener,
+                methods: [method({
+                    name: "onFileChange",
+                    description: "Reports which files changed.",
+                    deprecated: "Superseded by onFileText, onFileJson, onFileXml, onFileCsv and onFile.",
+                })],
+            });
+            assert.ok(result.includes("    # # Deprecated"), `got:\n${result}`);
+            assert.ok(result.includes("    # Superseded by onFileText, onFileJson, onFileXml, "
+                + "onFileCsv and onFile."), `the prose is what a reader acts on:\n${result}`);
+            // The section is separated by a `#` line, never a blank one: a blank line TERMINATES a
+            // Ballerina doc comment, which would detach everything below it from the handler.
+            assert.ok(!/\n\s*\n\s*# # Deprecated/.test(result),
+                `the separator must keep the doc comment contiguous:\n${result}`);
+            assert.ok(result.includes("    #\n    # # Deprecated"), `got:\n${result}`);
+        });
+
+        test("§5.3/§8: every `#` line precedes every annotation, even when both blocks apply", () => {
+            // Ballerina metadata is ordered: all documentation, then all annotations, then the construct.
+            // §8's obligation block straddles that boundary -- it is a `#` note plus an `@X {...}`
+            // attachment -- so the deprecation section has to be interleaved BETWEEN its two halves, not
+            // appended after it. `ftp`'s `onFileChange` is the only handler in the corpus that is both
+            // annotated and deprecated, and it is the case that caught this.
+            const result = renderService({
+                type: "fixed", name: "Service", listener: wsListener,
+                methods: [method({
+                    name: "onFileChange",
+                    description: "Reports which files changed.",
+                    deprecated: "Use the typed handlers.",
+                    annotationRefs: [{ name: "FunctionConfig", presence: "optional" }],
+                    parameters: [{ name: "watchEvent", description: "The files that changed.",
+                                   type: { name: "string" } }],
+                })],
+            });
+            const body = result.split("\n");
+            const lastDoc = body.map((l, i) => [l.trim(), i] as [string, number])
+                .filter(([l]) => l.startsWith("#")).map(([, i]) => i).pop();
+            const firstAnnotation = body.findIndex((l) => l.trim().startsWith("@"));
+            assert.ok(firstAnnotation > -1 && lastDoc !== undefined, `got:\n${result}`);
+            assert.ok(lastDoc < firstAnnotation,
+                `documentation must not follow an annotation:\n${result}`);
+            // And specifically: the obligation's own note stays above the section, its attachment below.
+            assert.ok(result.indexOf("may carry the @websocket:FunctionConfig")
+                < result.indexOf("# # Deprecated"), `got:\n${result}`);
+            assert.ok(result.indexOf("# # Deprecated")
+                < result.indexOf("@websocket:FunctionConfig {...}"), `got:\n${result}`);
+        });
+
+        test("§5.3: the section is the LAST `#` block, so it cannot swallow the parameter docs", () => {
+            // `# # Deprecated` opens a markdown section, so every `#` line below it is read as that
+            // section's BODY. With the section emitted first, `bal build` reported `undocumented parameter
+            // 'watchEvent'` for ftp's handler -- the parameter doc was present in the output and inert.
+            // Everything a reader needs about the signature therefore has to precede it.
+            const result = renderService({
+                type: "fixed", name: "Service", listener: wsListener,
+                methods: [method({
+                    name: "onFileChange",
+                    description: "Reports which files changed.",
+                    deprecated: "Use the typed handlers.",
+                    parameters: [{ name: "watchEvent", description: "The files that changed.",
+                                   type: { name: "string" } }],
+                })],
+            });
+            assert.ok(result.indexOf("# + watchEvent") < result.indexOf("# # Deprecated"),
+                `parameter documentation must precede the section:\n${result}`);
+            // And nothing but the annotation and the signature may follow it.
+            const after = result.slice(result.indexOf("# # Deprecated")).split("\n").slice(2);
+            const strayDoc = after.find((line) => line.trim().startsWith("# +")
+                || line.trim().startsWith("# Resource:") || line.trim().startsWith("# Required"));
+            assert.ok(strayDoc === undefined,
+                `no note may follow the section, found: ${strayDoc}\n${result}`);
+        });
+
+        test("§5.3: the section always brings `@deprecated` with it, because the compiler demands it", () => {
+            // Verified with `bal 2201.13.4`: `# # Deprecated` on an unannotated construct is rejected --
+            // "'Deprecated' documentation is only allowed on constructs annotated as '@deprecated'". So the
+            // document's prose is by itself sufficient reason to write the annotation.
+            //
+            // That is the ONLY shape the corpus has: `ftp`'s `onFileChange` belongs to a marker service
+            // type, which declares no method for the compiler to have annotated, so `isDeprecated` is
+            // absent and gating on it emitted documentation that does not build.
+            const proseOnly = renderService({
+                type: "fixed", name: "Service", listener: wsListener,
+                methods: [method({ name: "onEvent", deprecated: "Use onTypedEvent." })],
+            });
+            assert.ok(proseOnly.includes("# # Deprecated"), `got:\n${proseOnly}`);
+            assert.ok(proseOnly.includes("@deprecated"),
+                `the section is invalid without the annotation:\n${proseOnly}`);
+
+            // The two are still different facts and neither replaces the other: a symbol may carry the
+            // annotation with no document prose to explain it.
+            const flagOnly = renderService({
+                type: "fixed", name: "Service", listener: wsListener,
+                methods: [method({ name: "onEvent", isDeprecated: true })],
+            });
+            assert.ok(flagOnly.includes("@deprecated"), `got:\n${flagOnly}`);
+            assert.ok(!flagOnly.includes("# # Deprecated"),
+                `no prose means no section to write:\n${flagOnly}`);
+
+            // Ballerina metadata puts every `#` line ahead of every annotation.
+            assert.ok(proseOnly.indexOf("# # Deprecated") < proseOnly.indexOf("@deprecated"),
+                `documentation precedes annotations:\n${proseOnly}`);
+        });
+
+        test("§7: a deprecated parameter is named outside its own `# + name -` doc line", () => {
+            // Those lines are Ballerina's parameter documentation, and a reader copying one into their own
+            // doc comment would carry the deprecation notice into it as though it described the parameter.
+            const result = renderService({
+                type: "fixed", name: "Service", listener: wsListener,
+                methods: [method({
+                    name: "onEvent",
+                    parameters: [{ name: "caller", description: "The caller.", type: { name: "string" },
+                                   deprecated: "Use the Context parameter instead." }],
+                })],
+            });
+            assert.ok(result.includes("# + caller - The caller."), `got:\n${result}`);
+            assert.ok(result.includes("# Deprecated `caller`: Use the Context parameter instead."),
+                `got:\n${result}`);
+            assert.ok(!result.includes("# + caller - The caller. Use the Context"),
+                `the notice must not be folded into the parameter doc:\n${result}`);
+        });
+
+        test("§3/§2: a deprecated service type and a deprecated listener each say why", () => {
+            // A service is written `on new <listener>(...)`, so a superseded listener is a fact about the
+            // declaration the reader is about to write. Stating it anywhere but here states it nowhere
+            // they would look.
+            const result = renderService({
+                type: "fixed", name: "Service",
+                listener: { ...wsListener, deprecated: "Use websocket:HttpListener." },
+                deprecated: "Use websocket:UpgradeService.",
+                methods: [method({ name: "onEvent" })],
+            });
+            assert.ok(result.includes("# Use websocket:UpgradeService."), `got:\n${result}`);
+            assert.ok(result.includes("# Listener `websocket:Listener`: Use websocket:HttpListener."),
+                `the listener's own deprecation is attributed to it:\n${result}`);
         });
 
         // ---- §5 presence ----
@@ -1306,40 +1476,127 @@ suite("toSyntaxString", () => {
             // them the same would invent an obligation websocket does not impose.
             const oneOf = renderService({
                 type: "fixed", name: "Service", listener: wsListener, methods: [],
-                constraints: [{ id: "messageHandlerChoice", kind: "oneOf",
-                                members: [{ handler: "onMessage" }, { handler: "onRequest" }] }],
+                constraints: [{ id: "$messageHandlerChoice", rule: "structure.exactlyOne",
+                                subjects: [{ kind: "handler", name: "onMessage" },
+                                           { kind: "handler", name: "onRequest" }] }],
             });
             assert.ok(oneOf.includes(
                 "# Exactly one of the following is required: `onMessage` | `onRequest`."), `got:\n${oneOf}`);
 
             const atMostOne = renderService({
                 type: "fixed", name: "Service", listener: wsListener, methods: [],
-                constraints: [{ id: "textMessageVsGeneric", kind: "atMostOne",
-                                members: [{ handler: "onMessage" }, { handler: "onTextMessage" }] }],
+                constraints: [{ id: "$textMessageVsGeneric", rule: "structure.atMostOne",
+                                subjects: [{ kind: "handler", name: "onMessage" },
+                                           { kind: "handler", name: "onTextMessage" }] }],
             });
             assert.ok(atMostOne.includes(
                 "# At most one of the following may be used: `onMessage` | `onTextMessage`."),
                 `got:\n${atMostOne}`);
         });
 
-        test("§6: the annotation-field and identifier member shapes both render, with `preferred` marked", () => {
+        test("§6: the annotationField and identifier subject kinds both render, and `prefer` is stated", () => {
             // Corpus: rabbitmq's queueNameSource — the queueName field of @rabbitmq:ServiceConfig (preferred)
-            // versus the service identifier.
+            // versus the service identifier. In v1.0 the preference moved off the member and onto the rule,
+            // where it names a role.
             const result = renderService({
                 type: "fixed", name: "Service", listener: { name: "rabbitmq:Listener", parameters: [] },
                 methods: [],
-                constraints: [{ id: "queueNameSource", kind: "oneOf", members: [
+                constraints: [{ id: "$queueNameSource", rule: "structure.exactlyOne", prefer: "fromAnnotation",
+                    subjects: [
                     // `annotation` is the resolved name; `annotationId` is the registry reference and must
                     // never be what the reader is told to write.
-                    { annotation: "ServiceConfig", annotationId: "serviceConfig",
-                      field: "queueName", preferred: true },
-                    { part: "identifier" },
+                    { kind: "annotationField", annotation: "ServiceConfig", annotationId: "$serviceConfig",
+                      path: ["queueName"], role: "fromAnnotation" },
+                    { kind: "identifier", role: "fromIdentifier" },
                 ] }],
             }, "ballerinax/rabbitmq");
             const note = line(result, "# Exactly one of the following");
-            assert.ok(note.includes("the `queueName` field of @rabbitmq:ServiceConfig (preferred)"), note);
-            assert.ok(!note.includes("serviceConfig"), `the registry id must not be rendered: ${note}`);
+            assert.ok(note.includes("the `queueName` field of @rabbitmq:ServiceConfig"), note);
+            assert.ok(!note.includes("$serviceConfig"), `the registry id must not be rendered: ${note}`);
             assert.ok(note.includes("the service identifier"), note);
+            const prefer = line(result, "# Prefer ");
+            assert.ok(prefer.includes("the `queueName` field of @rabbitmq:ServiceConfig"), prefer);
+        });
+
+        test("§6: a nested annotationField path renders as a field access, not just its first segment", () => {
+            // Spec §6.1 made `path` an array precisely so a nested field is addressable; rendering only
+            // `retryConfig` would name a different field from `retryConfig.maxCount`.
+            const result = renderService({
+                type: "fixed", name: "Service", listener: wsListener, methods: [],
+                constraints: [{ rule: "structure.atMostOne", subjects: [
+                    { kind: "annotationField", annotation: "ServiceConfig",
+                      path: ["retryConfig", "maxCount"] },
+                    { kind: "identifier" }] }],
+            });
+            assert.ok(line(result, "# At most one of the following")
+                .includes("the `retryConfig.maxCount` field of @websocket:ServiceConfig"), result);
+        });
+
+        test("§6: the document's own message wins over the synthesized sentence", () => {
+            // The authored message says WHY the constraint exists, which nothing reconstructible from the
+            // subjects can match.
+            const result = renderService({
+                type: "fixed", name: "Service", listener: wsListener, methods: [],
+                constraints: [{ rule: "structure.exactlyOne",
+                    message: "A RabbitMQ consumer needs its queue name from exactly one source.",
+                    subjects: [{ kind: "handler", name: "onMessage" },
+                               { kind: "handler", name: "onRequest" }] }],
+            });
+            assert.ok(result.includes(
+                "# A RabbitMQ consumer needs its queue name from exactly one source."), result);
+            assert.ok(!result.includes("# Exactly one of the following"),
+                `the synthesized sentence must not also appear:\n${result}`);
+        });
+
+        test("§6: an asymmetric rule states its direction rather than a choice", () => {
+            // A " | "-joined list would read as a choice between the two, which is the opposite of an
+            // implication.
+            const requires = renderService({
+                type: "fixed", name: "Service", listener: wsListener, methods: [],
+                constraints: [{ rule: "structure.requires", subjects: [
+                    { kind: "param", handler: "onMessage", name: "batchSize", role: "when" },
+                    { kind: "annotationField", annotation: "ServiceConfig", path: ["mode"], role: "then" }] }],
+            });
+            assert.ok(requires.includes("If you use `onMessage`'s `batchSize` parameter, you must also use"),
+                requires);
+
+            const conflicts = renderService({
+                type: "fixed", name: "Service", listener: wsListener, methods: [],
+                constraints: [{ rule: "structure.conflictsWith", subjects: [
+                    { kind: "handler", name: "onMessage", role: "when" },
+                    { kind: "handler", name: "onTextMessage", role: "then" }] }],
+            });
+            assert.ok(conflicts.includes("If you use `onMessage`, you must NOT use `onTextMessage`."),
+                conflicts);
+        });
+
+        test("§6: atLeastOne and allOrNone are worded as their own obligations", () => {
+            // smb's atLeastOne is a real corpus instance; collapsing it onto exactlyOne would forbid
+            // declaring two file handlers, which smb explicitly allows.
+            const atLeastOne = renderService({
+                type: "fixed", name: "Service", listener: wsListener, methods: [],
+                constraints: [{ rule: "structure.atLeastOne", subjects: [
+                    { kind: "handler", name: "onFileJson" }, { kind: "handler", name: "onFileCsv" }] }],
+            });
+            assert.ok(atLeastOne.includes("# At least one of the following is required"), atLeastOne);
+
+            const allOrNone = renderService({
+                type: "fixed", name: "Service", listener: wsListener, methods: [],
+                constraints: [{ rule: "structure.allOrNone", subjects: [
+                    { kind: "handler", name: "onOpen" }, { kind: "handler", name: "onClose" }] }],
+            });
+            assert.ok(allOrNone.includes("# Use all of the following together, or none of them"), allOrNone);
+        });
+
+        test("§6: an unrecognised rule id renders nothing rather than a note that cannot say what it means", () => {
+            // Spec §6 requires an unknown id be skipped. A note with no wording would be worse than silence.
+            const result = renderService({
+                type: "fixed", name: "Service", listener: wsListener, methods: [],
+                constraints: [{ rule: "structure.someFutureThing", subjects: [
+                    { kind: "handler", name: "onMessage" }, { kind: "handler", name: "onRequest" }] }],
+            });
+            assert.ok(!result.split("\n").some((l) => l.startsWith("# ") && l.includes("onMessage")),
+                `an unimplemented rule must render no note:\n${result}`);
         });
 
         test("§6: constraint lines precede the service declaration and the identifier note precedes them", () => {
@@ -1348,8 +1605,9 @@ suite("toSyntaxString", () => {
             const result = renderService({
                 type: "fixed", name: "Service", listener: wsListener, methods: [],
                 identifier: { presence: "optional", form: ["stringLiteral"] },
-                constraints: [{ kind: "oneOf", members: [
-                    { annotation: "ServiceConfig", field: "queueName" }, { part: "identifier" }] }],
+                constraints: [{ rule: "structure.exactlyOne", subjects: [
+                    { kind: "annotationField", annotation: "ServiceConfig", path: ["queueName"] },
+                    { kind: "identifier" }] }],
             });
             const lines = result.split("\n");
             const identifierAt = lines.findIndex((l) => l.startsWith("# The service identifier"));
@@ -1359,11 +1617,12 @@ suite("toSyntaxString", () => {
                 `order was ${identifierAt}/${constraintAt}/${serviceAt}:\n${result}`);
         });
 
-        test("§6: a member populating none of the three shapes is skipped, and an empty rule renders nothing", () => {
+        test("§6: a subject naming nothing is skipped, and an empty rule renders nothing", () => {
             const result = renderService({
                 type: "fixed", name: "Service", listener: wsListener, methods: [],
-                constraints: [{ kind: "oneOf", members: [{}, { handler: "onMessage" }] },
-                              { kind: "oneOf", members: [] }],
+                constraints: [{ rule: "structure.exactlyOne",
+                                subjects: [{ kind: "handler" }, { kind: "handler", name: "onMessage" }] },
+                              { rule: "structure.exactlyOne", subjects: [] }],
             });
             const notes = result.split("\n").filter((l) => l.startsWith("# Exactly one of"));
             assert.strictEqual(notes.length, 1, `got:\n${result}`);
@@ -1471,186 +1730,165 @@ suite("toSyntaxString", () => {
 
         // ---- §9 data binding ----
 
-        test("§9: `direct` states the legal targets and `excludes` states the prohibition", () => {
-            // §9: `direct` | "Param type directly *is* the target type — no wrapping." `excludes` is a
-            // negative constraint, derivable from nothing else.
+        test("§9: a bare shape states the legal target and `excludes` states the prohibition", () => {
+            // §9: `bare` | "T stands alone. The declared type is the bound type, no wrapping." `excludes`
+            // is a negative constraint, derivable from nothing else.
             // Corpus: kafka binds any anydata EXCEPT its own envelope.
             const result = renderService(service([method({
                 parameters: [{
-                    name: "consumerRecords", description: "",
+                    name: "records", description: "",
                     type: { name: "AnydataConsumerRecord[]" },
                     binding: {
-                        modes: [{
-                            mode: "direct",
-                            typeConstraint: [{ name: "anydata" }],
+                        typedescs: [{
+                            constraint: { name: "anydata" },
                             excludes: [{ name: "AnydataConsumerRecord" }],
+                            shapes: [{ form: "bare" }],
                         }],
                     },
                 }],
             })]));
 
             assert.strictEqual(line(result, "may bind directly").trim(),
-                "# `consumerRecords` may bind directly to: anydata — but never AnydataConsumerRecord");
+                "# `records` may bind directly to: anydata — but never AnydataConsumerRecord");
         });
 
-        test("§9: `includedRecord` names the envelope and states which fields may be overridden", () => {
-            // §9: `includedRecord` | "User record does `*EnvelopeType;`, overrides only `bindableFields`;
-            // everything else stays fixed." The prohibition is the load-bearing half: naming the bindable
+        test("§9: an included shape names the envelope and states which fields may be overridden", () => {
+            // §9: `included` | "The user record does `*envelope;` and retypes only `bindableFields`.
+            // Everything else stays fixed." The prohibition is the load-bearing half: naming the bindable
             // field does not by itself say the others are pinned.
             const result = renderService(service([method({
                 parameters: [{
-                    name: "consumerRecords", description: "",
-                    type: { name: "AnydataConsumerRecord[]" },
+                    name: "message", description: "",
+                    type: { name: "AnydataMessage" },
                     binding: {
-                        modes: [{
-                            mode: "includedRecord",
-                            includes: { name: "AnydataConsumerRecord" },
-                            bindableFields: ["value"],
-                            fixedFields: ["key", "timestamp", "offset", "headers"],
+                        typedescs: [{
+                            constraint: { name: "anydata" },
+                            shapes: [{
+                                form: "included",
+                                envelope: { name: "AnydataMessage" },
+                                bindableFields: ["content"],
+                                fixedFields: ["routingKey", "exchange"],
+                            }],
                         }],
                     },
                 }],
-            })]));
+            })], { listener: { name: "rabbitmq:Listener", parameters: [] } }), "ballerinax/rabbitmq");
 
             assert.strictEqual(line(result, "includes").trim(),
-                "# `consumerRecords` may bind to a record that includes "
-                + "`*kafka:AnydataConsumerRecord;` and overrides only `value`");
+                "# `message` may bind to a record that includes "
+                + "`*rabbitmq:AnydataMessage;` and overrides only `content`");
         });
 
         test("§9: the envelope inclusion carries the module alias, because the user writes it", () => {
-            // `*AnydataConsumerRecord;` in a user's own module does not resolve. The same rule the §8
-            // attachment lines follow: syntax the reader writes is qualified.
+            // `*AnydataMessage;` in a user's own module does not resolve. The same rule the §8 attachment
+            // lines follow: syntax the reader writes is qualified.
             const result = renderService(service([method({
                 parameters: [{
                     name: "message", description: "", type: { name: "AnydataMessage" },
                     binding: {
-                        modes: [{ mode: "includedRecord", includes: { name: "AnydataMessage" },
-                            bindableFields: ["content"] }],
+                        typedescs: [{ constraint: { name: "anydata" }, shapes: [{ form: "included",
+                            envelope: { name: "AnydataMessage" }, bindableFields: ["content"] }] }],
                     },
                 }],
             })], { listener: { name: "rabbitmq:Listener", parameters: [] } }), "ballerinax/rabbitmq");
             assert.ok(result.includes("`*rabbitmq:AnydataMessage;`"), `got:\n${result}`);
         });
 
-        test("§9: `streamable` reads its own types and does not wrap them a second time", () => {
-            // The declared members are already whole stream types; wrapping would emit
-            // `stream<stream<...>>`.
+        test("§9: a stream shape names its completion type, because stream<T> is a different type", () => {
+            // ftp's CSV rows, streamed. `stream<T>` and `stream<T, error?>` are not interchangeable, so a
+            // note omitting the completion type describes something the reader cannot write.
             const result = renderService(service([method({
                 parameters: [{
-                    name: "content", description: "", type: { name: "string[][]" },
+                    name: "contents", description: "", type: { name: "string[][]" },
                     binding: {
-                        modes: [{
-                            mode: "streamable",
-                            typeConstraint: [{ name: "stream<string[], error?>" },
-                                { name: "stream<record {}, error?>" }],
+                        typedescs: [{
+                            constraint: { name: "string[]" },
+                            shapes: [{ form: "stream", element: "bare",
+                                       completionType: { name: "error?" } }],
                         }],
                     },
                 }],
             })]));
             assert.strictEqual(line(result, "may bind to a stream").trim(),
-                "# `content` may bind to a stream: stream<string[], error?>, stream<record {}, error?>");
-            noLine(result, "stream<stream<");
+                "# `contents` may bind to a stream: stream<string[], error?>");
         });
 
-        test("§9: `cardinality: array` is stated, never applied — the type is not pluralized twice", () => {
-            // §9: "the bound value is a batch; a mode's type is the array *element* type, not the whole
-            // param type." kafka's parameter is already `AnydataConsumerRecord[]`.
+        test("§9: an array shape says the bound type is the ELEMENT, not the whole parameter", () => {
+            // The parameter is already an array. Pluralizing the bound type as well would describe an
+            // array of arrays.
             const result = renderService(service([method({
                 parameters: [{
-                    name: "consumerRecords", description: "",
-                    type: { name: "AnydataConsumerRecord[]" },
+                    name: "records", description: "", type: { name: "AnydataConsumerRecord[]" },
                     binding: {
-                        array: true,
-                        modes: [{ mode: "direct", typeConstraint: [{ name: "anydata" }] }],
+                        typedescs: [{ constraint: { name: "anydata" },
+                                      shapes: [{ form: "array", element: "bare" }] }],
                     },
                 }],
             })]));
-
-            assert.ok(line(result, "binds a batch").includes(
-                "# `consumerRecords` binds a batch; the types below are element types."),
-                `got:\n${result}`);
-            assert.ok(line(result, "may bind directly").endsWith("anydata"),
-                "the element type is stated as declared");
-            noLine(result, "anydata[]");
+            assert.strictEqual(line(result, "may bind to a batch").trim(),
+                "# `records` may bind to a batch: anydata[]");
         });
 
-        test("§9: under `array`, the includedRecord recipe says an array of records", () => {
-            // The one line where leaving the batch disclaimer to the reader costs a compile error: the
-            // parameter takes `MyRecord[]`, not `MyRecord`. The English pluralizes; the type name does not,
-            // which is what would double-count against a signature that is already an array.
+        test("§9: an array of included elements says an array of records — kafka's real shape", () => {
+            // The case the old rule-level `cardinality` flag could not express: batched AND
+            // envelope-including per element. Leaving the plurality to the reader costs a compile error.
             const result = renderService(service([method({
                 parameters: [{
-                    name: "consumerRecords", description: "",
-                    type: { name: "AnydataConsumerRecord[]" },
+                    name: "records", description: "", type: { name: "AnydataConsumerRecord[]" },
                     binding: {
-                        array: true,
-                        modes: [{ mode: "includedRecord", includes: { name: "AnydataConsumerRecord" },
-                            bindableFields: ["value"] }],
-                    },
-                }],
-            })]));
-            assert.strictEqual(line(result, "may bind to an array").trim(),
-                "# `consumerRecords` may bind to an array of records that include "
-                + "`*kafka:AnydataConsumerRecord;` and override only `value`");
-            noLine(result, "AnydataConsumerRecord[];`");
-        });
-
-        test("§9: a type already visible in the signature or alternatives is not repeated", () => {
-            // The suppression rule. §7 makes the document restate the surface in `params[].type` "even
-            // where `dataBindingRules` also says it" — deliberate in the document, noise in the prompt.
-            // Corpus: ftp/smb's onFileCsv declares the same four types in both places.
-            const result = renderService(service([method({
-                parameters: [{
-                    name: "content", description: "", type: { name: "string[][]" },
-                    alternatives: [{ name: "record {}[]" }, { name: "stream<string[], error?>" }],
-                    binding: {
-                        modes: [
-                            { mode: "direct",
-                                typeConstraint: [{ name: "string[][]" }, { name: "record {}[]" }] },
-                            { mode: "streamable",
-                                typeConstraint: [{ name: "stream<string[], error?>" }] },
-                        ],
-                    },
-                }],
-            })]));
-
-            assert.ok(line(result, "may also be").includes("record {}[], stream<string[], error?>"));
-            noLine(result, "may bind directly");
-            noLine(result, "may bind to a stream");
-        });
-
-        test("§9: suppression never hides `excludes`", () => {
-            // A negative constraint is derivable from nothing else, so it survives even when every
-            // positive member is already visible.
-            const result = renderService(service([method({
-                parameters: [{
-                    name: "message", description: "", type: { name: "anydata" },
-                    binding: {
-                        modes: [{
-                            mode: "direct",
-                            typeConstraint: [{ name: "anydata" }],
-                            excludes: [{ name: "AnydataMessage" }],
+                        typedescs: [{
+                            constraint: { name: "anydata" },
+                            shapes: [{ form: "array", element: "included",
+                                       envelope: { name: "AnydataConsumerRecord" },
+                                       bindableFields: ["value"] }],
                         }],
                     },
                 }],
             })]));
-            assert.strictEqual(line(result, "may bind directly").trim(),
-                "# `message` may bind directly to any type shown above — but never AnydataMessage");
+            assert.strictEqual(line(result, "an array of records").trim(),
+                "# `records` may bind to an array of records that include "
+                + "`*kafka:AnydataConsumerRecord;` and override only `value`");
         });
 
-        test("§9: a mode with nothing left to say contributes no line", () => {
-            // Corpus: mssql.cdc's rowState binds `record {}` for a parameter already typed `record {}`.
+        test("§9: two variants over the same bound both render — they are alternatives, not duplicates", () => {
+            // kafka's real binding. Emitting only one of them would delete half the projection surface.
             const result = renderService(service([method({
                 parameters: [{
-                    name: "afterEntry", description: "", type: { name: "record {}" },
-                    binding: { modes: [{ mode: "direct", typeConstraint: [{ name: "record {}" }] }] },
+                    name: "records", description: "", type: { name: "AnydataConsumerRecord[]" },
+                    binding: {
+                        typedescs: [
+                            { constraint: { name: "anydata" },
+                              excludes: [{ name: "AnydataConsumerRecord" }],
+                              shapes: [{ form: "array", element: "bare" }] },
+                            { constraint: { name: "anydata" },
+                              shapes: [{ form: "array", element: "included",
+                                         envelope: { name: "AnydataConsumerRecord" },
+                                         bindableFields: ["value"] }] },
+                        ],
+                    },
                 }],
             })]));
-            noLine(result, "may bind");
-            noLine(result, "binds a batch");
+            assert.ok(result.includes("may bind to a batch: anydata[] — but never AnydataConsumerRecord"),
+                `got:\n${result}`);
+            assert.ok(result.includes("an array of records that include `*kafka:AnydataConsumerRecord;`"),
+                `got:\n${result}`);
         });
 
-        // ---- §8 non-service attach points ----
+        test("§9: suppression never hides `excludes`", () => {
+            // A prohibition is derivable from nothing else, so it survives even when every positive member
+            // is already visible in the signature.
+            const result = renderService(service([method({
+                parameters: [{
+                    name: "content", description: "", type: { name: "anydata" },
+                    binding: {
+                        typedescs: [{ constraint: { name: "anydata" },
+                                      excludes: [{ name: "AnydataMessage" }],
+                                      shapes: [{ form: "bare" }] }],
+                    },
+                }],
+            })]));
+            assert.ok(result.includes("but never AnydataMessage"), `got:\n${result}`);
+        });
 
         test("§8 function: a required handler annotation states the obligation and the attachment", () => {
             // Corpus: smb's functionConfig is `presence: "required"` — generated smb handlers may not work
@@ -2060,15 +2298,16 @@ suite("toSyntaxString", () => {
                 handlerTemplates: [
                     {
                         name: "*", type: "resource", accessor: "get", parameters: [],
-                        graphqlOperation: "query", return: { type: { name: "anydata|error" } },
+                        accessorValues: ["get"], accessorRequired: true, pathRequired: true,
+                        return: { type: { name: "anydata|error" } },
                     },
                     {
                         name: "*", type: "remote", parameters: [],
-                        graphqlOperation: "mutation", return: { type: { name: "anydata|error" } },
+                        return: { type: { name: "anydata|error" } },
                     },
                     {
                         name: "*", type: "resource", accessor: "subscribe", parameters: [],
-                        graphqlOperation: "subscription",
+                        accessorValues: ["subscribe"], accessorRequired: true, pathRequired: true,
                         return: { type: { name: "stream<anydata, error?>" } },
                     },
                 ],
@@ -2086,18 +2325,18 @@ suite("toSyntaxString", () => {
             assert.ok(result.includes(
                 "    // resource function subscribe pathSegment() returns stream<anydata, error?>;"),
                 `the subscription shape:\n${result}`);
-            // Each shape keeps its own §5 informational label, which is what tells them apart.
-            for (const operation of ["query", "mutation", "subscription"]) {
-                assert.ok(result.includes(`this is a GraphQL ${operation}`),
-                    `shape labels must survive:\n${result}`);
-            }
-            // §5 files fieldName/graphqlOperation as resource extras, but a mutation is legitimately
-            // `kind: "remote"` and carries them anyway. Labelling it "Resource:" contradicts the
-            // `remote function` signature printed directly beneath it.
-            assert.ok(result.includes("// Handler: this is a GraphQL mutation."),
-                `a remote handler's extras note must not claim it is a resource:\n${result}`);
-            assert.ok(result.includes("// Resource: this is a GraphQL query."),
-                `...while a genuine resource handler keeps the resource label:\n${result}`);
+            // What tells the three apart is now the kind/accessor pair itself rather than a separate
+            // `graphqlOperation` label — a query is `resource get`, a subscription is `resource
+            // subscribe`, a mutation is `remote`. The three signatures asserted above already carry that,
+            // and the accessor notes below say which values each slot admits.
+            assert.ok(result.includes("// Resource: the accessor must be one of `get`;"),
+                `the query shape's accessor note:\n${result}`);
+            assert.ok(result.includes("// Resource: the accessor must be one of `subscribe`;"),
+                `the subscription shape's accessor note:\n${result}`);
+            // The mutation declares neither slot, so it must state neither — and above all must not be
+            // labelled a resource directly above the `remote function` line describing it.
+            assert.ok(!result.includes("// Handler: the accessor"),
+                `a remote shape declares no accessor, so it states none:\n${result}`);
         });
 
         test("curated guidance is emitted above the synthesized declaration, not instead of it", () => {
@@ -2244,31 +2483,38 @@ suite("toSyntaxString", () => {
             noLine(result, "Only resource methods are accepted");
         });
 
-        test("§5: a field-name note says which slot it replaces", () => {
-            // graphql's note read "the field name is author-chosen (identifierSegment)" above a signature
-            // saying `resource function get pathSegment(...)` — three names for one slot, none connected.
+        test("§5: a template's path placeholder is the slot the reader fills", () => {
+            // This replaces a test for the `fieldName` slot, which spec §5 removed by folding GraphQL's
+            // `accessor`/`fieldName` and HTTP's `method`/`path` into one pair. The defect it pinned was
+            // three names for one slot -- the document's form token, the `pathSegment` placeholder, and a
+            // remote shape's `<handlerName>` -- with nothing connecting them. One slot per kind now, and
+            // the note names the placeholder the signature actually prints.
             const resource = renderService(service([], {
                 methods: undefined,
                 handlerTemplates: [{
                     name: "*", type: "resource", accessor: "get", parameters: [],
-                    fieldNameForm: ["identifierSegment"], graphqlOperation: "query",
+                    accessorValues: ["get"], accessorRequired: true, pathRequired: true,
                     return: { type: { name: "anydata|error" } },
                 }],
             }));
-            assert.ok(resource.includes("the field name is author-chosen (identifierSegment) — replace "
-                + "`pathSegment`"), `got:\n${resource}`);
+            assert.ok(resource.includes("a path is required and is author-chosen — replace `pathSegment`"),
+                `got:\n${resource}`);
+            assert.ok(resource.includes("// resource function get pathSegment() returns anydata|error;"),
+                `the note must name the placeholder the signature prints:\n${resource}`);
 
+            // A remote shape has no path slot at all; its author-chosen slot is the name, and it must not
+            // acquire a path note it cannot satisfy.
             const remote = renderService(service([], {
                 methods: undefined,
                 handlerTemplates: [{
                     name: "*", type: "remote", parameters: [],
-                    fieldNameForm: ["identifierSegment"], graphqlOperation: "mutation",
                     return: { type: { name: "anydata|error" } },
                 }],
             }));
-            assert.ok(remote.includes("the field name is author-chosen (identifierSegment) — replace "
-                + "`<handlerName>`"),
-                `a remote shape's author-chosen slot is the name, not a path:\n${remote}`);
+            assert.ok(remote.includes("// remote function <handlerName>() returns anydata|error;"),
+                `got:\n${remote}`);
+            assert.ok(!remote.includes("a path is required"),
+                `a remote shape has no path slot:\n${remote}`);
         });
 
         test("§7: two unnamed repeatable slots are told apart by their annotations", () => {
@@ -2291,9 +2537,11 @@ suite("toSyntaxString", () => {
                     },
                 ],
             })]));
-            assert.ok(result.includes("Zero or more further parameters annotated `@kafka:Query` of type"),
+            // Identification, not obligation: both annotations are `optional`, so "annotated `@X`" would
+            // assert a requirement the document does not make.
+            assert.ok(result.includes("Zero or more further parameters (the `@kafka:Query` slot) of type"),
                 `got:\n${result}`);
-            assert.ok(result.includes("Zero or more further parameters annotated `@kafka:Header` of type"),
+            assert.ok(result.includes("Zero or more further parameters (the `@kafka:Header` slot) of type"),
                 `got:\n${result}`);
             const repeats = result.split("\n").filter((l) => l.includes("Zero or more further parameters"));
             assert.strictEqual(new Set(repeats).size, repeats.length,
@@ -2439,10 +2687,12 @@ suite("toSyntaxString", () => {
                 parameters: [{
                     name: "message", description: "", type: own("AnydataMessage"),
                     binding: {
-                        modes: [{
-                            mode: "direct",
-                            typeConstraint: [own("AnydataMessage"), own("BytesMessage")],
-                        }],
+                        // Two variants, because spec v1.0 gives each bound its own entry: one repeats the
+                        // declared type (and must stay suppressed), one names a genuinely new target.
+                        typedescs: [
+                            { constraint: own("AnydataMessage"), shapes: [{ form: "bare" }] },
+                            { constraint: own("BytesMessage"), shapes: [{ form: "bare" }] },
+                        ],
                     },
                 }],
                 return: { type: { name: "error?" } },
@@ -2713,30 +2963,42 @@ suite("toSyntaxString", () => {
 
         // ---- §4: a catalog whose named options are shapes, not handler names ----
 
-        test("§4: an author-named catalog says so, so shapes are not mistaken for handler names", () => {
-            // grpc declares `addMode: "many"` with four NAMED options. A real gRPC handler is named after
-            // its proto RPC (verified with `bal grpc --mode service`: `remote function SayHello(...)`), so
-            // `unary`/`serverStreaming` appear in no working program. Without this note they render exactly
-            // like salesforce's `onCreate`/`onUpdate`, which ARE the real method names.
+        test("§5.1: a `many` option renders as a shape, not as a handler name", () => {
+            // This replaces a test for the `authorNamedHandlers` note. Under the old block-level `addMode`
+            // a document had to choose between "every handler here is fixed-name" and "every handler here
+            // is a shape", so `grpc` -- four named options under a `many` block -- came out as four
+            // apparently-real method names, and the only remedy was a caveat sentence beside them.
+            //
+            // §5.1 moved the flag onto each option, so a shape simply IS a template: it renders in the
+            // template block, under the preamble that says the reader names each one, with `<handlerName>`
+            // where a real method name would be. The caveat is no longer needed because the rendering no
+            // longer makes the claim it was correcting.
             const result = renderService({
-                ...service1({
-                    name: "unary", type: "remote", parameters: [],
+                type: "fixed", name: "AdvancedService", listener, methods: undefined,
+                handlerTemplates: [{
+                    name: "*", type: "remote", parameters: [],
                     return: { type: { name: "anydata|error" } },
-                }),
-                authorNamedHandlers: true,
+                }],
             });
-            assert.ok(result.includes("signature SHAPES, not handler names"), `got:\n${result}`);
             assert.ok(result.includes("you choose each one's name"), `got:\n${result}`);
-            // The signatures themselves must survive — they state each RPC shape's parameters and return.
-            assert.ok(result.includes("remote function unary()"), `got:\n${result}`);
+            // The signature itself must survive -- it states the shape's parameters and return, which is
+            // the valuable part -- but with the placeholder in the name position.
+            assert.ok(result.includes("// remote function <handlerName>() returns anydata|error;"),
+                `got:\n${result}`);
+            assert.ok(!result.includes("signature SHAPES, not handler names"),
+                `the caveat is obsolete; the template block already says it:\n${result}`);
         });
 
-        test("§4: a fixed vocabulary makes no such claim", () => {
+        test("§5.1: a `subset` option is a real name and is never disclaimed", () => {
+            // The counterweight to the test above: `salesforce`'s `onCreate` IS the method name a working
+            // program contains, so nothing may suggest the author picks it.
             const result = renderService(service1({
                 name: "onCreate", type: "remote", parameters: [],
                 return: { type: { name: "error?" } },
             }));
-            assert.ok(!result.includes("SHAPES"), `A real handler name must not be disclaimed:\n${result}`);
+            assert.ok(result.includes("remote function onCreate()"), `got:\n${result}`);
+            assert.ok(!result.includes("you choose each one's name"),
+                `A real handler name must not be disclaimed:\n${result}`);
         });
 
         // ---- §2: a service type no listener can host ----
@@ -2797,8 +3059,9 @@ suite("toSyntaxString", () => {
             // that make the difference between a build and two errors.
             const result = wsService({
                 constraints: [{
-                    kind: "atMostOne",
-                    members: [{ handler: "onMessage" }, { handler: "onTextMessage" }],
+                    rule: "structure.atMostOne",
+                    subjects: [{ kind: "handler", name: "onMessage" },
+                               { kind: "handler", name: "onTextMessage" }],
                 }],
             });
             assert.ok(result.includes("At most one of the following may be used: `onMessage` | `onTextMessage`."),

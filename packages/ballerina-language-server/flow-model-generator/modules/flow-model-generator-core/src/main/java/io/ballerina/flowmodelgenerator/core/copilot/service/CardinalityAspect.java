@@ -33,7 +33,7 @@ package io.ballerina.flowmodelgenerator.core.copilot.service;
  *       {@code false}, so stating {@code true} changes no output it would otherwise produce.</li>
  *   <li>{@code false} forbids something a model can plausibly reach for. Asked to consume two Kafka
  *       topics, the obvious shape is two services on one listener, which {@code kafka}'s
- *       {@code multipleServicesPerListenerAllowed: false} makes illegal. That is the case where saying
+ *       {@code multipleServicesAllowed: false} makes illegal. That is the case where saying
  *       nothing costs a compile.</li>
  * </ul>
  *
@@ -63,11 +63,17 @@ final class CardinalityAspect implements ServiceAspect {
 
     @Override
     public void contribute(TriggerScope scope, ServiceDraft draft) {
-        CardinalityResolver.Cardinality cardinality = CardinalityResolver.resolve(scope.serviceType());
+        CardinalityResolver.Cardinality cardinality =
+                CardinalityResolver.resolve(scope.serviceType(), scope.listener());
         if (!cardinality.multipleListeners()) {
             draft.setSingleListenerOnly();
         }
-        if (!cardinality.multipleServicesPerListener()) {
+        if (!cardinality.multipleServices()) {
+            // The stronger of the two listener-side prohibitions. Emitted instead of, not alongside,
+            // the same-type note: "at most one service" already implies "at most one of this type", and
+            // stating both would read as two separate restrictions.
+            draft.setSingleServiceOnly();
+        } else if (!cardinality.multipleServicesOfSameType()) {
             draft.setSingleServicePerListenerOnly();
         }
     }

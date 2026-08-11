@@ -146,6 +146,29 @@ test {
     }
 }
 
+// Dev harness, not part of the build or the test suite. Dumps the Copilot library wire payload for a fixed
+// corpus so the rendered prompt text can be compared across a change to the trigger-metadata pipeline.
+// Usage: ./gradlew :flow-model-generator:flow-model-generator-ls-extension:dumpCopilotRender \
+//            -PoutputDir=/abs/path [-Plibraries=a/b,c/d] [-PpreviousVersions=/abs/path/_versions.json]
+task dumpCopilotRender(type: JavaExec) {
+    group = "verification"
+    description = "Dumps the Copilot getFilteredLibraries payload for the trigger corpus."
+    dependsOn copyStdlibs, copyServiceIndex, compileTestJava, processTestResources
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = "io.ballerina.flowmodelgenerator.extension.CopilotRenderDump"
+    systemProperty "ballerina.home", balDistribution
+    // Compiles seventeen full Ballerina packages in one JVM; 2g is not enough for ballerina/http.
+    maxHeapSize = "4g"
+    doFirst {
+        args = [
+                project.findProperty("outputDir") ?: "${buildDir}/copilot-render/json",
+                project.findProperty("libraries") ?: "",
+                project.findProperty("previousVersions") ?: "",
+                project.findProperty("pins") ?: ""
+        ].collect { it.toString() }
+    }
+}
+
 ext.moduleName = 'io.ballerina.flowmodelgenerator.extension'
 jar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE

@@ -45,9 +45,11 @@ final class ReturnAnnotationAspect implements HandlerAspect {
     @Override
     public void contribute(HandlerScope scope, HandlerDraft draft) {
         TriggerScope service = scope.service();
+        // The handler's own `returnAnnotations`, not the service type's id: spec v1.0 scopes return
+        // annotations per handler, so a template and a named option can differ.
         AnnotationScopeResolver.Resolution resolution = ReturnAnnotationResolver.resolve(
                 service.annotations(),
-                service.serviceType() == null ? null : service.serviceType().id(),
+                scope.option() == null ? null : scope.option().returnAnnotations(),
                 service.homeModule(), AnnotationScopeResolver.factsOf(service.facts()));
         if (resolution.refs().isEmpty() && resolution.rejections().isEmpty()) {
             return;

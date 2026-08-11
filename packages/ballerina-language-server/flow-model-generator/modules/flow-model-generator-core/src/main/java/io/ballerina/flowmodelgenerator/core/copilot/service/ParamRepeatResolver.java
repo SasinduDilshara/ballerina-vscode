@@ -60,7 +60,7 @@ final class ParamRepeatResolver {
      * @return whether the slot repeats zero or more times
      */
     static boolean isRepeatable(String addMode) {
-        return TriggerMetadataModel.ServiceType.Handlers.ADD_MODE_MANY.equals(addMode);
+        return TriggerMetadataModel.ServiceType.HandlerOption.ADD_MODE_MANY.equals(addMode);
     }
 
     /**

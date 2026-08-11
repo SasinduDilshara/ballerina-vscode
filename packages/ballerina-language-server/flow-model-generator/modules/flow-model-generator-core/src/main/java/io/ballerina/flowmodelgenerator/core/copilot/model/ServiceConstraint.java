@@ -23,17 +23,21 @@ import java.util.List;
 /**
  * Spec §6 {@code rules[]} — one exclusivity constraint a service type declares.
  *
- * <p>{@code kind} carries the spec's own vocabulary, {@code "oneOf"} (exactly one member) or
- * {@code "atMostOne"} (zero or one). The distinction is load-bearing and must not be collapsed: only
- * {@code oneOf} obliges the generated service to pick an alternative at all.
+ * <p>{@code rule} carries the registry id verbatim ({@code "structure.exactlyOne"}), because spec §6 makes
+ * the vocabulary <b>open</b>: a consumer that does not recognise an id must skip it, which a closed enum
+ * here would turn into a parse failure. {@code message} is the document's own sentence and is preferred
+ * over anything a renderer can synthesize -- it says why the constraint exists.
  *
  * @since 1.7.0
  */
 public class ServiceConstraint {
 
     private String id;
-    private String kind;
-    private List<ConstraintMember> members;
+    private String rule;
+    private List<ConstraintSubject> subjects;
+    private String message;
+    private String severity;
+    private String prefer;
 
     public ServiceConstraint() {
     }
@@ -46,19 +50,43 @@ public class ServiceConstraint {
         this.id = id;
     }
 
-    public String getKind() {
-        return kind;
+    public String getRule() {
+        return rule;
     }
 
-    public void setKind(String kind) {
-        this.kind = kind;
+    public void setRule(String rule) {
+        this.rule = rule;
     }
 
-    public List<ConstraintMember> getMembers() {
-        return members;
+    public List<ConstraintSubject> getSubjects() {
+        return subjects;
     }
 
-    public void setMembers(List<ConstraintMember> members) {
-        this.members = members;
+    public void setSubjects(List<ConstraintSubject> subjects) {
+        this.subjects = subjects;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+
+    public void setMessage(String message) {
+        this.message = message;
+    }
+
+    public String getSeverity() {
+        return severity;
+    }
+
+    public void setSeverity(String severity) {
+        this.severity = severity;
+    }
+
+    public String getPrefer() {
+        return prefer;
+    }
+
+    public void setPrefer(String prefer) {
+        this.prefer = prefer;
     }
 }

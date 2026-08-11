@@ -19,6 +19,7 @@
 package io.ballerina.modelgenerator.commons.trigger.validation;
 
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
+import io.ballerina.modelgenerator.commons.trigger.models.TypeRef;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -26,13 +27,28 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * <b>Spec §9 registry integrity</b>: every {@code dataBindingRules[]} id is unique, every
- * {@code params[].dataBinding} resolves to one, and every declared rule is used.
+ * <b>Spec §9 variant integrity</b>: that a declared binding says something a consumer can act on, and that
+ * its variants are distinguishable from one another.
  *
- * <p>An unused rule is a WARN rather than an ERROR: it states something true about the connector that
- * simply nothing references yet, which is a tidiness issue rather than a contradiction. A dangling
- * reference is the reverse — the parameter claims a binding capability the document never describes, and
- * the pipeline drops it with a diagnostic nobody reads.
+ * <h2>What this check became</h2>
+ *
+ * <p>It used to verify that {@code params[].dataBinding} named a rule the top-level
+ * {@code dataBindingRules[]} registry actually declared — a dangling-reference check. Spec §9 moved the
+ * binding inline onto the parameter, so there is no id, no registry, and no reference that can dangle: that
+ * whole class of defect is gone by construction. What replaced it is the invariant the inline form makes
+ * possible to state and easy to get wrong.
+ *
+ * <h2>Overlapping variants</h2>
+ *
+ * <p>Spec §9 explains {@code excludes} by the case it exists for: an envelope such as
+ * {@code AnydataConsumerRecord} is itself valid {@code anydata}, so without an exclusion the same declared
+ * type would satisfy both the bare variant and the unoverridden instantiation of the included variant, and
+ * "a generator would have no way to know which was meant". The spec's own words for the goal are that
+ * "every declared type maps to exactly one variant".
+ *
+ * <p>That is checkable: two variants sharing a constraint, where one includes an envelope and the other is
+ * bare, are ambiguous unless the bare one excludes that envelope. Reported as an ERROR because the failure
+ * is silent — the document is well-formed, and the consumer simply picks one reading.
  *
  * @since 1.10.0
  */
@@ -40,7 +56,7 @@ final class DataBindingRefCheck implements DocumentCheck {
 
     @Override
     public String id() {
-        return "dataBindingRef";
+        return "dataBinding";
     }
 
     @Override
@@ -51,55 +67,78 @@ final class DataBindingRefCheck implements DocumentCheck {
     @Override
     public List<Finding> check(TriggerMetadataModel document) {
         List<Finding> findings = new ArrayList<>();
-        Set<String> declared = new LinkedHashSet<>();
-        Set<String> duplicates = new LinkedHashSet<>();
-        for (TriggerMetadataModel.DataBindingRule rule : DocumentWalk.safe(document.dataBindingRules())) {
-            if (rule == null) {
-                continue;
+        BindingWalk.forEachBinding(document, (binding, path) -> {
+            List<TriggerMetadataModel.TypedescVariant> variants = DocumentWalk.safe(binding.typedescs());
+            if (variants.isEmpty()) {
+                findings.add(Finding.error(this, path + ".typedescs",
+                        "a binding with no variants states no projection at all; omit `dataBinding` "
+                                + "instead"));
+                return;
             }
-            if (rule.id() == null || rule.id().isBlank()) {
-                findings.add(Finding.error(this, "dataBindingRules[]",
-                        "an entry declares no `id`, so no parameter can reference it"));
-                continue;
+            for (int i = 0; i < variants.size(); i++) {
+                if (variants.get(i) != null && variants.get(i).constraint() == null) {
+                    findings.add(Finding.error(this, path + ".typedescs[" + i + "].constraint",
+                            "required: a variant with no upper bound constrains nothing"));
+                }
             }
-            if (!declared.add(rule.id()) && duplicates.add(rule.id())) {
-                findings.add(Finding.error(this, "dataBindingRules[" + rule.id() + "]",
-                        "duplicate id: a reference to it is ambiguous"));
-            }
-        }
+            checkVariantsAreDistinguishable(findings, variants, path);
+        });
+        return findings;
+    }
 
-        Set<String> referenced = new LinkedHashSet<>();
-        List<TriggerMetadataModel.ServiceType> serviceTypes = DocumentWalk.safe(document.serviceTypes());
-        for (int i = 0; i < serviceTypes.size(); i++) {
-            List<TriggerMetadataModel.ServiceType.HandlerOption> options =
-                    DocumentWalk.options(serviceTypes.get(i));
-            for (int j = 0; j < options.size(); j++) {
-                TriggerMetadataModel.ServiceType.HandlerOption option = options.get(j);
-                if (option == null) {
+    /**
+     * Spec §9: "every declared type maps to exactly one variant". Two variants over the same bound are
+     * ambiguous when one embeds an envelope and the other does not, unless the bare one excludes it.
+     */
+    private void checkVariantsAreDistinguishable(List<Finding> findings,
+                                                 List<TriggerMetadataModel.TypedescVariant> variants,
+                                                 String path) {
+        for (int i = 0; i < variants.size(); i++) {
+            TriggerMetadataModel.TypedescVariant bare = variants.get(i);
+            if (bare == null || bare.constraint() == null || embeddedEnvelopes(bare).isEmpty()) {
+                continue;
+            }
+            // `bare` here is the variant that DOES embed envelopes; look for a sibling over the same bound
+            // that does not, and check that sibling excludes every envelope this one embeds.
+            for (int j = 0; j < variants.size(); j++) {
+                TriggerMetadataModel.TypedescVariant other = variants.get(j);
+                if (i == j || other == null || other.constraint() == null
+                        || !sameBound(bare.constraint(), other.constraint())
+                        || !embeddedEnvelopes(other).isEmpty()) {
                     continue;
                 }
-                List<TriggerMetadataModel.ServiceType.Param> params = DocumentWalk.safe(option.params());
-                for (int k = 0; k < params.size(); k++) {
-                    TriggerMetadataModel.ServiceType.Param param = params.get(k);
-                    if (param == null || param.dataBinding() == null) {
-                        continue;
+                Set<String> excluded = new LinkedHashSet<>();
+                for (TypeRef ref : DocumentWalk.safe(other.excludes())) {
+                    if (ref != null && ref.name() != null) {
+                        excluded.add(ref.name());
                     }
-                    referenced.add(param.dataBinding());
-                    if (!declared.contains(param.dataBinding())) {
-                        findings.add(Finding.error(this, DocumentWalk.paramPath(i, j, k) + ".dataBinding",
-                                "references '" + param.dataBinding()
-                                        + "', which no dataBindingRules[] entry declares"));
+                }
+                for (String envelope : embeddedEnvelopes(bare)) {
+                    if (!excluded.contains(envelope)) {
+                        findings.add(Finding.error(this, path + ".typedescs[" + j + "].excludes",
+                                "variant " + j + " and variant " + i + " share the bound `"
+                                        + bare.constraint().name() + "`, and `" + envelope
+                                        + "` satisfies both; spec §9 requires variant " + j
+                                        + " to exclude it so every declared type maps to exactly one"
+                                        + " variant"));
                     }
                 }
             }
         }
+    }
 
-        for (String id : declared) {
-            if (!referenced.contains(id)) {
-                findings.add(Finding.warn(this, "dataBindingRules[" + id + "]",
-                        "declared but never referenced by any params[].dataBinding"));
+    /** The envelope names a variant's shapes embed, directly or as array/stream elements. */
+    private Set<String> embeddedEnvelopes(TriggerMetadataModel.TypedescVariant variant) {
+        Set<String> envelopes = new LinkedHashSet<>();
+        for (TriggerMetadataModel.Shape shape : DocumentWalk.safe(variant.shapes())) {
+            if (shape != null && shape.envelope() != null && shape.envelope().name() != null) {
+                envelopes.add(shape.envelope().name());
             }
         }
-        return findings;
+        return envelopes;
+    }
+
+    private boolean sameBound(TypeRef one, TypeRef other) {
+        return one.name() != null && one.name().equals(other.name());
     }
 }

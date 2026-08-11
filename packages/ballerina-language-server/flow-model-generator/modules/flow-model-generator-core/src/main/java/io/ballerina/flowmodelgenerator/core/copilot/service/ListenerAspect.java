@@ -38,13 +38,19 @@ import java.util.Map;
  * {@code listener.name} in place for packages shipping a non-canonical listener class, and handing each
  * service its own copy would change how many times that rewrite is applied.
  *
+ * <p>The cache is keyed on the <b>document's</b> listener entry, falling back to the class only when there
+ * is none. Keying on the class alone was safe while every field came from the semantic model, but §2's
+ * {@code deprecated} is authored per listener entry — and two entries may name one class, in which case a
+ * class-keyed cache would hand the second entry the first's deprecation note. One object per document
+ * listener still preserves the sharing the rewrite depends on.
+ *
  * @since 1.7.0
  */
 final class ListenerAspect implements ServiceAspect {
 
     private static final String DEFAULT_LISTENER_NAME = "Listener";
 
-    private final Map<ClassSymbol, JsonObject> built = new IdentityHashMap<>();
+    private final Map<Object, JsonObject> built = new IdentityHashMap<>();
 
     @Override
     public String id() {
@@ -58,7 +64,8 @@ final class ListenerAspect implements ServiceAspect {
 
     @Override
     public void contribute(TriggerScope scope, ServiceDraft draft) {
-        draft.setListener(built.computeIfAbsent(scope.listenerClass(), listenerClass -> build(scope)));
+        Object key = scope.listener() != null ? scope.listener() : scope.listenerClass();
+        draft.setListener(built.computeIfAbsent(key, unused -> build(scope)));
         // Spec §2 `services`, the other half of what this aspect owns: the listener object says *how* to
         // construct the listener, this says whether this service type may be attached to one at all.
         // The listener is still emitted either way — a consumer needs its types even when the service is
@@ -77,6 +84,13 @@ final class ListenerAspect implements ServiceAspect {
 
         JsonObject listenerObj = new JsonObject();
         listenerObj.addProperty("name", TypeRefResolver.moduleAlias(packageName) + ":" + className);
+        // Spec §2 `deprecated`: prose, not a flag. The document says *why* the listener is superseded, and
+        // that sentence is the only thing that tells a reader what to use instead — a bare `@deprecated`
+        // would leave them with a warning and no alternative.
+        if (scope.listener() != null && scope.listener().deprecated() != null
+                && !scope.listener().deprecated().isBlank()) {
+            listenerObj.addProperty("deprecated", scope.listener().deprecated());
+        }
 
         JsonArray parameters = new JsonArray();
         for (TriggerSemanticFacts.InitParam param : scope.facts().listenerInitParams(listenerClass)) {

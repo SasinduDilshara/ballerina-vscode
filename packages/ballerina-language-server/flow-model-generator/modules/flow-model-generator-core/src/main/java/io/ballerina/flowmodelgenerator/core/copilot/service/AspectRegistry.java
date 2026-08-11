@@ -49,8 +49,9 @@ final class AspectRegistry {
                 new HandlerKindAspect(),
                 new HandlerQualifierAspect(),
                 new HandlerPresenceAspect(),
-                new HttpResourceExtrasAspect(),
-                new GraphqlResourceExtrasAspect(),
+                // Spec §5 made the accessor/path pair library-neutral, so the two
+                // protocol-specific aspects collapsed into one.
+                new ResourceExtrasAspect(),
                 new ReturnAspect(),
                 new HandlerAnnotationAspect(),
                 // Order-independent despite writing into the return object: HandlerDraft holds the refs in
@@ -68,6 +69,7 @@ final class AspectRegistry {
                 new ServiceIdentityAspect(),
                 new CardinalityAspect(),
                 new RequiredImportAspect(),
+                new PlatformDependencyAspect(),
                 // Must run after identity: identity is what can veto the entry, and an annotation
                 // obligation resolved for a service type that is about to be dropped is output nothing
                 // will read. It does NOT depend on identity's result — spec §8's `appliesTo` matches

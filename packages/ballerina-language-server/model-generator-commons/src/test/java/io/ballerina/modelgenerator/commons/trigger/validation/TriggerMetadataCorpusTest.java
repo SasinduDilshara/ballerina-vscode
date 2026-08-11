@@ -49,7 +49,7 @@ public class TriggerMetadataCorpusTest {
 
     /** Every bundled document, by module key. */
     private static final List<String> CORPUS = List.of(
-            "ftp", "graphql", "grpc", "http", "kafka", "mcp", "mssql.cdc", "rabbitmq", "smb",
+            "ftp", "graphql", "grpc", "http", "kafka", "mcp", "mssql.cdc", "rabbitmq", "sap.jco", "smb",
             "trigger.github", "trigger.google.calendar", "websocket", "websub");
 
     /** The schema this repo ships, which every bundled document is validated against. */
@@ -154,7 +154,7 @@ public class TriggerMetadataCorpusTest {
         // maps §7 onto them explicitly rather than leaving the gap unexplained.
         List<String> owned = TriggerMetadataValidator.checks().stream()
                 .map(DocumentCheck::specSection).distinct().toList();
-        for (String section : List.of("§1", "§2", "§3", "§4", "§5", "§6", "§8", "§9", "§10")) {
+        for (String section : List.of("§1", "§2", "§3", "§4", "§5", "§6", "§8", "§9", "§10", "§11")) {
             Assert.assertTrue(owned.contains(section),
                     "no registered check owns spec " + section + "; owned: " + owned);
         }
@@ -199,11 +199,23 @@ public class TriggerMetadataCorpusTest {
      * <p>Pinned exactly so a <i>new</i> warning cannot hide among the accepted ones.
      */
     private static final Set<String> ACCEPTED_WARNINGS = Set.of(
-            "graphql|addMode|serviceTypes[0].handlers.options",
-            "graphql|resourceExtras|serviceTypes[0].handlers.options[1].fieldName",
-            "graphql|resourceExtras|serviceTypes[0].handlers.options[1].graphqlOperation",
-            "grpc|addMode|serviceTypes[0].handlers",
-            "websocket|listenerRef|serviceTypes[service]");
+            // websocket's `Service` is hosted by no listener, which is real and deliberate: it is reached
+            // as the RETURN of the upgrade resource, not by attachment. The consumer renders it as a
+            // `service class` for exactly that reason.
+            "websocket|listenerRef|serviceTypes[$service]");
+
+    // Four warnings were removed here when the corpus moved to spec-version-m2 HEAD, and all four went
+    // away because the SPEC changed rather than because a document was edited:
+    //
+    //   graphql|addMode|serviceTypes[0].handlers.options          three "*" entries where one was allowed
+    //   graphql|resourceExtras|…[1].fieldName                     a GraphQL key on a remote handler
+    //   graphql|resourceExtras|…[1].graphqlOperation              likewise
+    //   grpc|addMode|serviceTypes[0].handlers                     "many" with four named options
+    //
+    // §5.1 moved `addMode` onto each option and states that several "*" options are legal, and §5 replaced
+    // the per-protocol resource extras with one library-neutral accessor/path pair -- which deleted
+    // `fieldName` and `graphqlOperation` outright. Each of these previously cost real output; graphql lost
+    // its mutation and subscription shapes entirely.
 
     @Test
     public void testTheCorpusCarriesExactlyTheKnownWarnings() {
@@ -225,7 +237,7 @@ public class TriggerMetadataCorpusTest {
     public void testTheCorpusIsTheExpectedSize() {
         // Pins the count so a document added without being validated fails here rather than silently
         // skipping every check.
-        Assert.assertEquals(CORPUS.size(), 13);
+        Assert.assertEquals(CORPUS.size(), 14);
     }
 
     // ---- helpers --------------------------------------------------------------------

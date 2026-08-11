@@ -57,10 +57,8 @@ public class ServiceAnnotationAspectTest {
         // mssql.cdc, the case that motivated this phase: `@cdc:ServiceConfig` with presence `required`
         // reached the prompt nowhere before, and CDC code generated without it does not work.
         JsonObject annotation = firstAnnotation(contribute("mssql", "service",
-                new TriggerMetadataModel.Annotation("serviceConfig",
-                        new TypeRef("ServiceConfig",
-                                new TypeRef.PackageInfo("ballerinax", "cdc", "cdc", "1.3.2")),
-                        "service", List.of("service"), "required")));
+                new TriggerMetadataModel.Annotation("serviceConfig", new TypeRef("ServiceConfig",
+                                new TypeRef.PackageInfo("ballerinax", "cdc", "cdc", "1.3.2")), "service", "required")));
 
         Assert.assertEquals(annotation.get("name").getAsString(), "ServiceConfig");
         Assert.assertEquals(annotation.get("module").getAsString(), "ballerinax/cdc");
@@ -88,16 +86,21 @@ public class ServiceAnnotationAspectTest {
         // The general omission rule, enforced by the draft rather than at the call site: never an empty
         // array. Most libraries are this case, and their output must be untouched by this component.
         Assert.assertFalse(contribute("kafka", "service").has("annotations"));
-        Assert.assertFalse(contribute("kafka", "service",
-                serviceAnnotation("ServiceConfig", "required", "someOtherServiceType")).has("annotations"),
-                "an annotation scoped away from this service type leaves no trace on it");
+        // Under spec v1.0 "scoped away from this service type" simply means the service type does not
+        // reference it. There is no reverse list to scope with any more, and no fallback that would attach
+        // a registry entry nobody named.
+        Assert.assertFalse(contributeUnreferenced("kafka", "service",
+                serviceAnnotation("ServiceConfig", "required")).has("annotations"),
+                "an annotation this service type does not reference leaves no trace on it");
     }
 
     @Test
     public void testAnnotationsFromOtherAttachPointsNeverReachTheServiceSlot() {
         // mcp declares `tool` at `function` and `httpHeader` at `parameter`, both without `appliesTo`.
+        // A function-pointed entry referenced from the SERVICE slot is rejected, not emitted at the wrong
+        // syntactic position where the compiler would refuse the attachment.
         Assert.assertFalse(contribute("mcp", "service",
-                new TriggerMetadataModel.Annotation("tool", new TypeRef("Tool", null), "function", null,
+                new TriggerMetadataModel.Annotation("$tool", new TypeRef("Tool", null), "function",
                         "optional")).has("annotations"));
     }
 
@@ -108,12 +111,34 @@ public class ServiceAnnotationAspectTest {
                                          TriggerMetadataModel.Annotation... annotations) {
         TriggerMetadataModel document = new TriggerMetadataModel(null, List.of(), List.of(),
                 List.of(annotations), null);
-        TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType(
-                serviceTypeId, new TypeRef("Service", null), false, false, false, null, null, null);
+        // Spec v1.0 selects service annotations by the service type's own forward reference, so the
+        // fixture must state one: every annotation handed in is referenced by this service type.
+        List<String> referenced = List.of(annotations).stream()
+                .map(TriggerMetadataModel.Annotation::id).toList();
+        TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType(serviceTypeId,
+                new TypeRef("Service", null), false, false, null, referenced, null, null, null);
         TriggerScope scope = new TriggerScope("testorg/" + packageName, "testorg", packageName,
                 packageName, document, AnnotationRegistry.of(document), serviceType, null, null, null,
                 name -> false);
 
+        ServiceDraft draft = new ServiceDraft();
+        new ServiceAnnotationAspect().contribute(scope, draft);
+        return draft.toJson();
+    }
+
+    /**
+     * The same fixture, but with the service type referencing <b>nothing</b> — the v1.0 way of saying an
+     * annotation is out of scope for it.
+     */
+    private static JsonObject contributeUnreferenced(String packageName, String serviceTypeId,
+                                                     TriggerMetadataModel.Annotation... annotations) {
+        TriggerMetadataModel document = new TriggerMetadataModel(null, List.of(), List.of(),
+                List.of(annotations), null);
+        TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType(serviceTypeId,
+                new TypeRef("Service", null), false, false, null, null, null, null, null);
+        TriggerScope scope = new TriggerScope("testorg/" + packageName, "testorg", packageName,
+                packageName, document, AnnotationRegistry.of(document), serviceType, null, null, null,
+                name -> false);
         ServiceDraft draft = new ServiceDraft();
         new ServiceAnnotationAspect().contribute(scope, draft);
         return draft.toJson();
@@ -126,9 +151,13 @@ public class ServiceAnnotationAspectTest {
         return annotations.get(0).getAsJsonObject();
     }
 
+    /**
+     * A service-scope registry entry. The id is derived from the type name so several fixtures can coexist
+     * in one registry — under {@code appliesTo} they all shared the literal id {@code "id"}, which by-id
+     * selection would now collapse to a single entry.
+     */
     private static TriggerMetadataModel.Annotation serviceAnnotation(String type, String presence,
-                                                                     String... appliesTo) {
-        return new TriggerMetadataModel.Annotation("id", new TypeRef(type, null), "service",
-                appliesTo.length == 0 ? null : List.of(appliesTo), presence);
+                                                                     String... unusedAppliesTo) {
+        return new TriggerMetadataModel.Annotation("$" + type, new TypeRef(type, null), "service", presence);
     }
 }

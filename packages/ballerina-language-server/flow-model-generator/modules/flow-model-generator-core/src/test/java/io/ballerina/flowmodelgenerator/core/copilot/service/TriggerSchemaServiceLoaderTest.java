@@ -198,11 +198,13 @@ public class TriggerSchemaServiceLoaderTest {
 
     private static HandlerOption option(String name, String kind, String presence, List<Param> params,
                                         List<TypeRef> returns) {
-        return new HandlerOption(name, kind, presence, null, params, returns, null, null, null, null, null);
+        return new HandlerOption(name, kind, null, null, null, presence, null, null, params, returns,
+                null, null);
     }
 
     private static Param param(String name, String type, String presence, String addMode) {
-        return new Param(name, List.of(new TypeRef(type, null)), presence, addMode, null, null);
+        return new Param(name, null, null, List.of(new TypeRef(type, null)), presence, addMode,
+                null, null);
     }
 
     private static final List<TypeRef> ERROR_NIL =
