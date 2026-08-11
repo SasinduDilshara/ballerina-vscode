@@ -26,6 +26,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 
 /**
  * Owns <b>spec §2 {@code listeners[].type} and {@code .services}</b>: which listener hosts which service
@@ -158,6 +159,20 @@ final class ListenerPairingResolver {
     }
 
     /**
+     * The pairings that resolved, and an attributable reason for every service type that did not.
+     *
+     * <p>The vetoes exist because the alternative was a bare {@code continue}: when <i>some</i> listeners
+     * resolved and others did not, the affected service types vanished from the catalog with no veto, no log
+     * line and nothing a test could assert — the exact failure mode {@link Veto} was introduced to end, left
+     * in place at the one tier that predates it. A whole-library failure was logged; a partial one was not.
+     *
+     * @param pairings one pairing per service type whose listener resolved, in document order
+     * @param vetoes   one veto per service type dropped because its listener did not resolve
+     */
+    record Pairings(List<ListenerPairing> pairings, List<Veto> vetoes) {
+    }
+
+    /**
      * Pairs every service type with its listener and that listener's resolved class.
      *
      * <p>A listener class that cannot be resolved means the resolved package no longer matches the
@@ -172,20 +187,80 @@ final class ListenerPairingResolver {
     static List<ListenerPairing> resolve(List<TriggerMetadataModel.Listener> listeners,
                                          List<TriggerMetadataModel.ServiceType> serviceTypes,
                                          TriggerSemanticFacts facts) {
+        return resolveWithDiagnostics(listeners, serviceTypes, facts).pairings();
+    }
+
+    /**
+     * {@link #resolve} plus the reason every dropped service type was dropped. Same work; this overload
+     * simply does not discard the diagnostics.
+     *
+     * @param listeners    the document's listeners
+     * @param serviceTypes the document's service types
+     * @param facts        the resolved package's symbols
+     * @return the pairings and the vetoes
+     */
+    static Pairings resolveWithDiagnostics(List<TriggerMetadataModel.Listener> listeners,
+                                           List<TriggerMetadataModel.ServiceType> serviceTypes,
+                                           TriggerSemanticFacts facts) {
+        // A lambda, not `facts::resolveListenerClass`: a bound method reference dereferences its receiver
+        // eagerly, so a null `facts` would throw here instead of at the early return below — and callers do
+        // pass null when there is nothing to pair.
+        return resolveWithDiagnostics(listeners, serviceTypes, name -> facts.resolveListenerClass(name));
+    }
+
+    /**
+     * {@link #resolveWithDiagnostics(List, List, TriggerSemanticFacts)} against a bare listener-class
+     * lookup instead of a whole compiled package.
+     *
+     * <p>The same narrow seam {@link TriggerScope}'s {@code declaresType} predicate and
+     * {@link AnnotationScopeResolver.AnnotationFacts} already are: resolving a listener class is the only
+     * capability this component needs from the semantic model, so depending on the predicate rather than the
+     * package is what lets the <i>drop</i> path be exercised in a unit test. It could not be before, which is
+     * part of why the missing veto went unnoticed.
+     *
+     * @param listeners       the document's listeners
+     * @param serviceTypes    the document's service types
+     * @param listenerClasses the metadata-declared listener name to its class, empty when unresolvable
+     * @return the pairings and the vetoes
+     */
+    static Pairings resolveWithDiagnostics(List<TriggerMetadataModel.Listener> listeners,
+                                           List<TriggerMetadataModel.ServiceType> serviceTypes,
+                                           Function<String, Optional<ClassSymbol>> listenerClasses) {
         List<ListenerPairing> pairings = new ArrayList<>();
+        List<Veto> vetoes = new ArrayList<>();
         if (listeners == null || listeners.isEmpty() || serviceTypes == null) {
-            return pairings;
+            return new Pairings(pairings, vetoes);
         }
-        Map<TriggerMetadataModel.Listener, Optional<ClassSymbol>> resolved = new LinkedHashMap<>();
+        // Keyed by the declared name rather than the listener object, since that is the whole of the lookup's
+        // input: two listener entries naming one class resolve it once, as before.
+        Map<String, Optional<ClassSymbol>> resolved = new LinkedHashMap<>();
         for (TriggerMetadataModel.ServiceType serviceType : serviceTypes) {
             TriggerMetadataModel.Listener listener = hostOf(listeners, serviceType);
-            Optional<ClassSymbol> listenerClass = resolved.computeIfAbsent(listener,
-                    l -> facts.resolveListenerClass(l != null && l.type() != null ? l.type().name() : null));
+            String declared = listener != null && listener.type() != null ? listener.type().name() : null;
+            Optional<ClassSymbol> listenerClass =
+                    resolved.computeIfAbsent(declared, listenerClasses::apply);
             if (listenerClass.isEmpty()) {
+                // Attributed to the service type, not the listener: the service type is what disappears from
+                // the catalog, and it is what a reader will notice missing.
+                vetoes.add(new Veto("listenerPairing", "§2", subjectOf(serviceType),
+                        "the resolved package declares no listener class for "
+                                + (declared == null ? "this document's listener" : "'" + declared + "'")
+                                + ", so the service could not be attached to one"));
                 continue;
             }
             pairings.add(new ListenerPairing(serviceType, listener, listenerClass.get()));
         }
-        return pairings;
+        return new Pairings(pairings, vetoes);
+    }
+
+    /** What the veto names: the service type's declared type, falling back to its id. */
+    private static String subjectOf(TriggerMetadataModel.ServiceType serviceType) {
+        if (serviceType == null) {
+            return "<unnamed service type>";
+        }
+        if (serviceType.type() != null && serviceType.type().name() != null) {
+            return serviceType.type().name();
+        }
+        return serviceType.id() == null ? "<unnamed service type>" : serviceType.id();
     }
 }

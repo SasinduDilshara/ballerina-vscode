@@ -111,6 +111,15 @@ final class ConstraintResolver {
      * <p>Sealed so a new subject kind cannot be added without every consumer being forced to handle it: the
      * renderer switches over these, and a silently unhandled kind would drop an alternative from a
      * constraint that is only correct when all of its alternatives are stated.
+     *
+     * <h2>Why every variant carries a service type</h2>
+     *
+     * <p>Spec §6 puts a rule spanning more than one service type in the document's <b>top-level</b>
+     * {@code rules[]}, where "every subject must name its {@code serviceType}". Without that name on the
+     * resolved subject, such a rule reads as though all of its alternatives belonged to whichever service
+     * type happened to be rendering — which for a cross-service-type constraint states something the
+     * document did not. It is {@code null} for a subject that belongs to the enclosing service type, which
+     * is every subject in the corpus today.
      */
     sealed interface Subject {
 
@@ -118,11 +127,26 @@ final class ConstraintResolver {
         String role();
 
         /**
-         * The enclosing service type's identifier slot.
+         * The service type this subject belongs to, as its declared <i>type name</i> — {@code null} when it
+         * is the enclosing one.
          *
-         * @param role the subject's role label
+         * <p>The type name, not the {@code $id}: an id names nothing that exists in Ballerina source, the
+         * same reason {@link Annotation} resolves its id to a name. The id travels alongside as
+         * {@link #serviceTypeId()} for traceability.
          */
-        record Identifier(String role) implements Subject {
+        String serviceType();
+
+        /** The {@code serviceTypes[].id} this subject named; {@code null} when it named none. */
+        String serviceTypeId();
+
+        /**
+         * The identifier slot of this subject's service type.
+         *
+         * @param role          the subject's role label
+         * @param serviceType   the owning service type's declared name, or {@code null} for the enclosing one
+         * @param serviceTypeId the owning service type's id, or {@code null}
+         */
+        record Identifier(String role, String serviceType, String serviceTypeId) implements Subject {
         }
 
         /**
@@ -132,8 +156,11 @@ final class ConstraintResolver {
          * @param annotationName the annotation's actual name, resolved through the §8 registry, because the
          *                       id is not what a reader writes
          * @param role           the subject's role label
+         * @param serviceType    the owning service type's declared name, or {@code null}
+         * @param serviceTypeId  the owning service type's id, or {@code null}
          */
-        record Annotation(String annotationId, String annotationName, String role) implements Subject {
+        record Annotation(String annotationId, String annotationName, String role, String serviceType,
+                          String serviceTypeId) implements Subject {
         }
 
         /**
@@ -143,28 +170,36 @@ final class ConstraintResolver {
          * @param annotationName the annotation's actual name, resolved through the §8 registry
          * @param path           the field path, which spec v1.0 made an array so a nested field is reachable
          * @param role           the subject's role label
+         * @param serviceType    the owning service type's declared name, or {@code null}
+         * @param serviceTypeId  the owning service type's id, or {@code null}
          */
-        record AnnotationField(String annotationId, String annotationName, List<String> path, String role)
-                implements Subject {
+        record AnnotationField(String annotationId, String annotationName, List<String> path, String role,
+                               String serviceType, String serviceTypeId) implements Subject {
         }
 
         /**
          * One of the service type's handlers.
          *
-         * @param name the {@code handlers.options[].name} referenced
-         * @param role the subject's role label
+         * @param name          the {@code handlers.options[].name} referenced
+         * @param role          the subject's role label
+         * @param serviceType   the owning service type's declared name, or {@code null}
+         * @param serviceTypeId the owning service type's id, or {@code null}
          */
-        record Handler(String name, String role) implements Subject {
+        record Handler(String name, String role, String serviceType, String serviceTypeId)
+                implements Subject {
         }
 
         /**
          * One parameter of one handler.
          *
-         * @param handler the handler the parameter belongs to
-         * @param name    the parameter's name
-         * @param role    the subject's role label
+         * @param handler       the handler the parameter belongs to
+         * @param name          the parameter's name
+         * @param role          the subject's role label
+         * @param serviceType   the owning service type's declared name, or {@code null}
+         * @param serviceTypeId the owning service type's id, or {@code null}
          */
-        record Param(String handler, String name, String role) implements Subject {
+        record Param(String handler, String name, String role, String serviceType, String serviceTypeId)
+                implements Subject {
         }
     }
 
@@ -186,27 +221,110 @@ final class ConstraintResolver {
     }
 
     /**
-     * Resolves a service type's rules.
+     * What a rule's subjects may be attributed to: the document's service types, by id.
      *
-     * <p>A rule is dropped whole, with a warning, when it names an unimplemented registry id or when fewer
-     * than two usable subjects survive — a one-alternative "choose exactly one of" is not a constraint a
-     * reader can act on, and stating it would be noise at best and misleading at worst.
+     * <p>A narrow seam rather than the whole document, for the reason {@link TriggerScope}'s
+     * {@code declaresType} predicate exists: a resolver that only asks these two questions should not
+     * depend on a parsed document, which is what keeps it unit-testable.
+     */
+    interface ServiceTypeIndex {
+
+        /**
+         * The declared type name of a service type id, e.g. {@code "$upgradeService"} to
+         * {@code "UpgradeService"}.
+         *
+         * @param serviceTypeId the {@code serviceTypes[].id}
+         * @return the declared type name, or {@code null} when no entry declares that id
+         */
+        String typeName(String serviceTypeId);
+
+        /**
+         * The handler names a service type declares, for the cross-check that drops a subject naming a
+         * handler that does not exist.
+         *
+         * @param serviceTypeId the {@code serviceTypes[].id}; may be {@code null} for the enclosing type
+         * @return the names, or {@code null} when the catalog is not knowable — which suppresses the
+         *         cross-check rather than dropping every handler subject. An <b>empty</b> set means "this
+         *         service type declares no handlers" and does drop them
+         */
+        Set<String> handlerNames(String serviceTypeId);
+
+        /**
+         * Whether a subject naming a service type should be attributed to it.
+         *
+         * <p>{@code false} for a rule set scoped to a single service type, where the only service type a
+         * subject <i>can</i> name is the enclosing one — so a name there is redundant rather than
+         * cross-service-type, and reading it as a reference this index cannot resolve would drop a subject
+         * that is perfectly valid. Distinguishing the two explicitly is why this is a capability flag and
+         * not an inference from {@link #typeName(String)} returning {@code null}.
+         *
+         * @return whether {@link #typeName(String)} can be trusted to answer for a real id
+         */
+        default boolean attributes() {
+            return true;
+        }
+    }
+
+    /**
+     * {@link #resolve(String, List, String, ServiceTypeIndex, AnnotationRegistry)} for a rule set scoped to
+     * a single service type, where no subject can name another one.
+     *
+     * <p>Kept so a caller holding just one handler-name set — every caller before spec §6 gained a
+     * top-level {@code rules[]}, and every unit test of this resolver — does not have to build an index.
      *
      * @param libraryName          the library, for log attribution only
      * @param rules                the rules to resolve; may be {@code null}
-     * @param declaredHandlerNames the handler names this service type actually declares, used to drop a
-     *                             handler subject that names something absent. Pass {@code null} when the
-     *                             catalog is not knowable, which suppresses the cross-check rather than
-     *                             dropping every handler subject; an <b>empty</b> set means "this service
-     *                             type declares no handlers" and does drop them
-     * @param annotations          spec §8's registry, the single lookup from a subject's annotation id to
-     *                             the annotation it names; may be {@code null}, which suppresses the
-     *                             resolution and keeps the id as the name
+     * @param declaredHandlerNames the handler names this service type declares; {@code null} suppresses the
+     *                             cross-check
+     * @param annotations          spec §8's registry; may be {@code null}
      * @return the resolved rules, in document order
      */
     static List<Constraint> resolve(String libraryName,
                                     List<TriggerMetadataModel.Rule> rules,
                                     Set<String> declaredHandlerNames,
+                                    AnnotationRegistry annotations) {
+        // Every id resolves to the same set, and attribution is off, so a subject naming a service type is
+        // read as the enclosing one — which is the only service type there is.
+        return resolve(libraryName, rules, null, new ServiceTypeIndex() {
+            @Override
+            public String typeName(String serviceTypeId) {
+                return null;
+            }
+
+            @Override
+            public Set<String> handlerNames(String serviceTypeId) {
+                return declaredHandlerNames;
+            }
+
+            @Override
+            public boolean attributes() {
+                return false;
+            }
+        }, annotations);
+    }
+
+    /**
+     * Resolves a rule set.
+     *
+     * <p>A rule is dropped whole, with a warning, when it names an unimplemented registry id or when fewer
+     * than two usable subjects survive — a one-alternative "choose exactly one of" is not a constraint a
+     * reader can act on, and stating it would be noise at best and misleading at worst.
+     *
+     * @param libraryName            the library, for log attribution only
+     * @param rules                  the rules to resolve; may be {@code null}
+     * @param enclosingServiceTypeId the id of the service type being built, which a subject naming none
+     *                               belongs to (spec §6: a subject's {@code serviceType} "defaults to the
+     *                               enclosing one"); {@code null} when there is no enclosing type
+     * @param index                  the document's service types, for attributing a subject that names one
+     * @param annotations            spec §8's registry, the single lookup from a subject's annotation id to
+     *                               the annotation it names; may be {@code null}, which suppresses the
+     *                               resolution and keeps the id as the name
+     * @return the resolved rules, in document order
+     */
+    static List<Constraint> resolve(String libraryName,
+                                    List<TriggerMetadataModel.Rule> rules,
+                                    String enclosingServiceTypeId,
+                                    ServiceTypeIndex index,
                                     AnnotationRegistry annotations) {
         List<Constraint> resolved = new ArrayList<>();
         if (rules == null) {
@@ -223,7 +341,7 @@ final class ConstraintResolver {
                         + ": '" + rule.rule() + "' is not a registry entry this build implements");
                 continue;
             }
-            List<Subject> subjects = subjects(libraryName, rule, declaredHandlerNames, annotations);
+            List<Subject> subjects = subjects(libraryName, rule, enclosingServiceTypeId, index, annotations);
             if (subjects.size() < 2) {
                 LOGGER.warning("Skipped rule '" + rule.id() + "' for " + libraryName + ": "
                         + subjects.size() + " usable subject(s) — a constraint needs at least two");
@@ -254,8 +372,46 @@ final class ConstraintResolver {
         return when && then;
     }
 
+    /**
+     * Which service type a subject belongs to.
+     *
+     * @param name          the declared type name, emitted only when it is <b>not</b> the enclosing type —
+     *                      restating the enclosing one would break the omission rule and add a clause to
+     *                      every note in the corpus
+     * @param id            the id the subject named, carried alongside {@code name} for traceability
+     * @param effectiveId   the id whose handler catalog governs this subject: the one it named, or the
+     *                      enclosing one when it named none
+     */
+    private record Attribution(String name, String id, String effectiveId) {
+    }
+
+    /**
+     * Attributes one subject, or {@code null} when it names a service type the document does not declare.
+     *
+     * <p>Dropping an unresolvable id follows the policy an unresolvable annotation id already follows: a
+     * subject pointing at a service type that does not exist is an alternative no reader can take, and
+     * offering it would be worse than stating the constraint with one fewer branch.
+     */
+    private static Attribution attribute(String libraryName, TriggerMetadataModel.Rule rule,
+                                         TriggerMetadataModel.Subject subject, String enclosingServiceTypeId,
+                                         ServiceTypeIndex index) {
+        String declared = subject.serviceType();
+        if (declared == null || declared.isBlank() || declared.equals(enclosingServiceTypeId)
+                || !index.attributes()) {
+            return new Attribution(null, null, enclosingServiceTypeId);
+        }
+        String name = index.typeName(declared);
+        if (name == null) {
+            LOGGER.warning("Dropped subject of rule '" + rule.id() + "' for " + libraryName
+                    + ": serviceType '" + declared + "' is not declared by serviceTypes[]");
+            return null;
+        }
+        return new Attribution(name, declared, declared);
+    }
+
     private static List<Subject> subjects(String libraryName, TriggerMetadataModel.Rule rule,
-                                          Set<String> declaredHandlerNames, AnnotationRegistry annotations) {
+                                          String enclosingServiceTypeId, ServiceTypeIndex index,
+                                          AnnotationRegistry annotations) {
         List<Subject> subjects = new ArrayList<>();
         if (rule.subjects() == null) {
             return subjects;
@@ -264,20 +420,29 @@ final class ConstraintResolver {
             if (subject == null || subject.kind() == null) {
                 continue;
             }
+            Attribution owner = attribute(libraryName, rule, subject, enclosingServiceTypeId, index);
+            if (owner == null) {
+                continue;
+            }
+            // The catalog that governs this subject is its OWN service type's, not the enclosing entry's.
+            // Cross-checking a top-level rule's handler subjects against the rendering service type's
+            // handlers would drop every one of them as a phantom, which is the opposite of what the
+            // cross-check is for.
+            Set<String> handlerNames = index.handlerNames(owner.effectiveId());
             Subject resolved = switch (subject.kind()) {
                 case TriggerMetadataModel.Subject.KIND_IDENTIFIER ->
-                        new Subject.Identifier(subject.role());
+                        new Subject.Identifier(subject.role(), owner.name(), owner.id());
                 case TriggerMetadataModel.Subject.KIND_ANNOTATION ->
                         annotationSubject(libraryName, rule, subject.name(), null, subject.role(),
-                                annotations);
+                                annotations, owner);
                 case TriggerMetadataModel.Subject.KIND_ANNOTATION_FIELD ->
                         annotationSubject(libraryName, rule, subject.annotation(),
-                                nonEmpty(subject.path()), subject.role(), annotations);
+                                nonEmpty(subject.path()), subject.role(), annotations, owner);
                 case TriggerMetadataModel.Subject.KIND_HANDLER ->
                         handlerSubject(libraryName, rule, subject.name(), subject.role(),
-                                declaredHandlerNames);
+                                handlerNames, owner);
                 case TriggerMetadataModel.Subject.KIND_PARAM ->
-                        paramSubject(libraryName, rule, subject, declaredHandlerNames);
+                        paramSubject(libraryName, rule, subject, handlerNames, owner);
                 default -> {
                     LOGGER.warning("Dropped subject of rule '" + rule.id() + "' for " + libraryName
                             + ": '" + subject.kind() + "' is not a subject kind this build implements");
@@ -292,7 +457,8 @@ final class ConstraintResolver {
     }
 
     private static Subject annotationSubject(String libraryName, TriggerMetadataModel.Rule rule, String id,
-                                             List<String> path, String role, AnnotationRegistry annotations) {
+                                             List<String> path, String role, AnnotationRegistry annotations,
+                                             Attribution owner) {
         if (id == null || id.isBlank()) {
             LOGGER.warning("Dropped subject of rule '" + rule.id() + "' for " + libraryName
                     + ": it names no annotation");
@@ -306,12 +472,12 @@ final class ConstraintResolver {
                     + ": annotation id '" + id + "' is not in annotations[]");
             return null;
         }
-        return path == null ? new Subject.Annotation(id, name, role)
-                : new Subject.AnnotationField(id, name, path, role);
+        return path == null ? new Subject.Annotation(id, name, role, owner.name(), owner.id())
+                : new Subject.AnnotationField(id, name, path, role, owner.name(), owner.id());
     }
 
     private static Subject handlerSubject(String libraryName, TriggerMetadataModel.Rule rule, String name,
-                                          String role, Set<String> declaredHandlerNames) {
+                                          String role, Set<String> declaredHandlerNames, Attribution owner) {
         if (name == null || name.isBlank()) {
             LOGGER.warning("Dropped subject of rule '" + rule.id() + "' for " + libraryName
                     + ": it names no handler");
@@ -322,15 +488,16 @@ final class ConstraintResolver {
         // telling the model to choose between a real handler and a phantom.
         if (declaredHandlerNames != null && !declaredHandlerNames.contains(name)) {
             LOGGER.warning("Dropped subject of rule '" + rule.id() + "' for " + libraryName
-                    + ": handler '" + name + "' is not declared by this service type");
+                    + ": handler '" + name + "' is not declared by "
+                    + (owner.name() == null ? "this service type" : "service type '" + owner.name() + "'"));
             return null;
         }
-        return new Subject.Handler(name, role);
+        return new Subject.Handler(name, role, owner.name(), owner.id());
     }
 
     private static Subject paramSubject(String libraryName, TriggerMetadataModel.Rule rule,
                                         TriggerMetadataModel.Subject subject,
-                                        Set<String> declaredHandlerNames) {
+                                        Set<String> declaredHandlerNames, Attribution owner) {
         if (subject.handler() == null || subject.handler().isBlank()
                 || subject.name() == null || subject.name().isBlank()) {
             LOGGER.warning("Dropped subject of rule '" + rule.id() + "' for " + libraryName
@@ -339,10 +506,12 @@ final class ConstraintResolver {
         }
         if (declaredHandlerNames != null && !declaredHandlerNames.contains(subject.handler())) {
             LOGGER.warning("Dropped subject of rule '" + rule.id() + "' for " + libraryName
-                    + ": handler '" + subject.handler() + "' is not declared by this service type");
+                    + ": handler '" + subject.handler() + "' is not declared by "
+                    + (owner.name() == null ? "this service type" : "service type '" + owner.name() + "'"));
             return null;
         }
-        return new Subject.Param(subject.handler(), subject.name(), subject.role());
+        return new Subject.Param(subject.handler(), subject.name(), subject.role(), owner.name(),
+                owner.id());
     }
 
     /**

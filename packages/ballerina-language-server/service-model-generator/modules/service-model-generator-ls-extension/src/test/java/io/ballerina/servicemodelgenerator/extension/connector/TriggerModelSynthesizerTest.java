@@ -125,7 +125,12 @@ public class TriggerModelSynthesizerTest {
         TriggerMetadataModel.Listener listener = new TriggerMetadataModel.Listener(listenerType, null, List.of("service"), null, null, null, null);
 
         TriggerMetadataModel.ServiceType.Handlers handlers = new TriggerMetadataModel.ServiceType.Handlers(true, List.of());
-        TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType("service", new TypeRef("Service", null), true, false, null, null, null, handlers, null);
+        // Spec §8 replaced the annotation's reverse `appliesTo` list with a FORWARD reference from the
+        // construct that carries it, so a service type names the annotations it attaches — and an annotation
+        // nothing references attaches nowhere, where an absent `appliesTo` used to mean "everywhere". This
+        // fixture was written against the reverse form; every one of the ten corpus documents that declares a
+        // service-pointed annotation references it exactly like this.
+        TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType("service", new TypeRef("Service", null), true, false, null, List.of("serviceConfig"), null, handlers, null);
 
         // Deliberately mirrors the real SMB shape that exposed the bug: the annotation's own declared
         // name ("ServiceConfig") differs from its backing record type's name ("ServiceConfigData").
@@ -314,20 +319,22 @@ public class TriggerModelSynthesizerTest {
         TypeRef listenerType = new TypeRef("Listener", null);
         TriggerMetadataModel.Listener listener = new TriggerMetadataModel.Listener(listenerType, null, List.of("service"), null, null, null, null);
 
-        TriggerMetadataModel.ServiceType.Param recordsParam = new TriggerMetadataModel.ServiceType.Param("records", null, null, null, "required", null, "consumerRecordPayload", null);
+        // Spec §9 writes the binding INLINE on the parameter — there is no registry id to resolve, so the
+        // whole "dangling dataBinding reference" failure mode is gone. This mirrors ballerinax/kafka's real
+        // document: one variant bound by `anydata`, embedded as an ARRAY whose elements INCLUDE the envelope.
+        TriggerMetadataModel.DataBinding recordsBinding = new TriggerMetadataModel.DataBinding(List.of(
+                new TriggerMetadataModel.TypedescVariant(new TypeRef("anydata", null), null,
+                        List.of(new TriggerMetadataModel.Shape(
+                                TriggerMetadataModel.Shape.FORM_ARRAY,
+                                TriggerMetadataModel.Shape.FORM_INCLUDED,
+                                new TypeRef("AnydataConsumerRecord", null), List.of("value"), null)))));
+        TriggerMetadataModel.ServiceType.Param recordsParam = new TriggerMetadataModel.ServiceType.Param("records", null, null, null, "required", null, recordsBinding, null);
         TriggerMetadataModel.ServiceType.HandlerOption option = new TriggerMetadataModel.ServiceType.HandlerOption("onConsumerRecord", TriggerMetadataModel.ServiceType.HandlerOption.KIND_REMOTE, null, null, null, "required", null, null, List.of(recordsParam), List.of(new TypeRef("error", null), new TypeRef("()", null)), null, null);
         TriggerMetadataModel.ServiceType.Handlers handlers = new TriggerMetadataModel.ServiceType.Handlers(false, List.of(option));
         TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType("service", new TypeRef("Service", null), false, false, null, null, null, handlers, null);
 
-        TriggerMetadataModel.DataBindingRule.SupportedMode includedRecord =
-                new TriggerMetadataModel.DataBindingRule.SupportedMode(
-                        TriggerMetadataModel.DataBindingRule.SupportedMode.MODE_INCLUDED_RECORD, null, null,
-                        new TypeRef("AnydataConsumerRecord", null), List.of("value"));
-        TriggerMetadataModel.DataBindingRule bindingRule = new TriggerMetadataModel.DataBindingRule(
-                "consumerRecordPayload", null, "array", List.of(includedRecord));
-
         TriggerMetadataModel authoring = new TriggerMetadataModel(null,
-                List.of(listener), List.of(serviceType), null, List.of(bindingRule));
+                List.of(listener), List.of(serviceType), null, null);
 
         TriggerLibraryFacts.Listener listenerFacts = new TriggerLibraryFacts.Listener("Listener", List.of());
         TriggerLibraryFacts facts = new TriggerLibraryFacts(List.of(listenerFacts), List.of(), List.of());
@@ -343,41 +350,46 @@ public class TriggerModelSynthesizerTest {
         Assert.assertEquals(cd.type(), "PAYLOAD_TYPE_INCLUDED_RECORD");
         Assert.assertEquals(cd.defaultType(), "kafka:AnydataConsumerRecord",
                 "a same-module included-record type is qualified too, same as any other handler param type");
-        Assert.assertEquals(cd.template(), "{{type}}[]", "array cardinality -> [] template");
+        // Spec §9 made batching a property of the SHAPE rather than a rule-wide `cardinality` flag, so the
+        // template follows the embedding actually chosen. Same result, better grounded: a variant may now be
+        // batched while its sibling is not, which the old flat mode list could not express.
+        Assert.assertEquals(cd.template(), "{{type}}[]", "an `array` embedding -> [] template");
         Assert.assertEquals(cd.field(), "value");
     }
 
     /**
      * Per direct product feedback ("for the onCSVFile handler data binding part we need a similar UX
-     * to what we have with the FTP csv method"): when a connector's own {@code TriggerMetadataModel.DataBindingRule}
-     * declares a {@code streamable} mode alongside {@code direct} (i.e. the bound value may be read
-     * either as {@code T[]} or {@code stream<T, error?>}), the synthesizer must compose the same
+     * to what we have with the FTP csv method"): when a parameter's spec §9 binding admits both an
+     * {@code array} and a {@code stream} embedding of its bound type (i.e. the value may be read either as
+     * {@code T[]} or {@code stream<T, error?>}), the synthesizer must compose the same
      * {@code COMPLEX_PAYLOAD} + {@code stream} {@code PAYLOAD_MODIFIER} shape FTP's real
      * {@code onFileCsv} uses -- not a flat {@code PAYLOAD_TYPE} with no streaming toggle.
+     *
+     * <p>Migrated from the removed {@code direct}/{@code streamable} modes to the two shapes that replaced
+     * them, with every assertion left untouched: this is the UX the m2 migration had to preserve, and an
+     * unchanged expectation over a changed input is what shows that it did.
      */
     @Test
     public void testStreamableDataBindingComposesFtpLikeComplexPayload() {
         TypeRef listenerType = new TypeRef("Listener", null);
         TriggerMetadataModel.Listener listener = new TriggerMetadataModel.Listener(listenerType, null, List.of("service"), null, null, null, null);
 
-        TriggerMetadataModel.ServiceType.Param contentParam = new TriggerMetadataModel.ServiceType.Param("content", null, null, null, "required", null, "csvRowBinding", null);
+        // ballerina/ftp's real onFileCsv binding: one variant bound by `anydata`, embedded either as an
+        // array of bare values or as a stream of them. The stream shape is what makes the UX composed.
+        TriggerMetadataModel.DataBinding csvBinding = new TriggerMetadataModel.DataBinding(List.of(
+                new TriggerMetadataModel.TypedescVariant(new TypeRef("anydata", null), null, List.of(
+                        new TriggerMetadataModel.Shape(TriggerMetadataModel.Shape.FORM_ARRAY,
+                                TriggerMetadataModel.Shape.FORM_BARE, null, null, null),
+                        new TriggerMetadataModel.Shape(TriggerMetadataModel.Shape.FORM_STREAM,
+                                TriggerMetadataModel.Shape.FORM_BARE, null, null,
+                                List.of(new TypeRef("error", null), new TypeRef("()", null)))))));
+        TriggerMetadataModel.ServiceType.Param contentParam = new TriggerMetadataModel.ServiceType.Param("content", null, null, null, "required", null, csvBinding, null);
         TriggerMetadataModel.ServiceType.HandlerOption option = new TriggerMetadataModel.ServiceType.HandlerOption("onFileCsv", TriggerMetadataModel.ServiceType.HandlerOption.KIND_REMOTE, null, null, null, "required", null, null, List.of(contentParam), List.of(new TypeRef("error", null), new TypeRef("()", null)), null, null);
         TriggerMetadataModel.ServiceType.Handlers handlers = new TriggerMetadataModel.ServiceType.Handlers(false, List.of(option));
         TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType("service", new TypeRef("Service", null), false, false, null, null, null, handlers, null);
 
-        TriggerMetadataModel.DataBindingRule.SupportedMode direct =
-                new TriggerMetadataModel.DataBindingRule.SupportedMode(
-                        TriggerMetadataModel.DataBindingRule.SupportedMode.MODE_DIRECT,
-                        List.of(new TypeRef("anydata", null)), null, null, null);
-        TriggerMetadataModel.DataBindingRule.SupportedMode streamable =
-                new TriggerMetadataModel.DataBindingRule.SupportedMode(
-                        TriggerMetadataModel.DataBindingRule.SupportedMode.MODE_STREAMABLE,
-                        List.of(new TypeRef("anydata", null)), null, null, null);
-        TriggerMetadataModel.DataBindingRule bindingRule = new TriggerMetadataModel.DataBindingRule(
-                "csvRowBinding", null, "array", List.of(direct, streamable));
-
         TriggerMetadataModel authoring = new TriggerMetadataModel(null,
-                List.of(listener), List.of(serviceType), null, List.of(bindingRule));
+                List.of(listener), List.of(serviceType), null, null);
         TriggerLibraryFacts.Listener listenerFacts = new TriggerLibraryFacts.Listener("Listener", List.of());
         TriggerLibraryFacts facts = new TriggerLibraryFacts(List.of(listenerFacts), List.of(), List.of());
         Listener listenerModel = listenerModel(Map.of());

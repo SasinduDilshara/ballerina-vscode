@@ -38,6 +38,14 @@ public class ConstraintSubject {
     private String name;
     private String handler;
     private String role;
+    // Spec §6's top-level `rules[]` — a constraint spanning more than one service type. Present only on a
+    // subject belonging to a service type OTHER than the entry carrying the rule, so a rule scoped to one
+    // service type states nothing here. Without it a spanning rule would read as though every alternative
+    // belonged to whichever service type happened to be rendering.
+    private String serviceType;
+    // The `serviceTypes[].id` the subject named, beside the resolved name above — the same id/name pairing
+    // `annotationId`/`annotation` already uses, and never rendered for the same reason.
+    private String serviceTypeId;
 
     public ConstraintSubject() {
     }
@@ -96,5 +104,21 @@ public class ConstraintSubject {
 
     public void setRole(String role) {
         this.role = role;
+    }
+
+    public String getServiceType() {
+        return serviceType;
+    }
+
+    public void setServiceType(String serviceType) {
+        this.serviceType = serviceType;
+    }
+
+    public String getServiceTypeId() {
+        return serviceTypeId;
+    }
+
+    public void setServiceTypeId(String serviceTypeId) {
+        this.serviceTypeId = serviceTypeId;
     }
 }

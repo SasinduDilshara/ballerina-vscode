@@ -392,13 +392,40 @@ public class TriggerPipelineContractTest {
         // out of `handlerIdentity` would have silently reordered every handler object.
         HandlerDraft draft = new HandlerDraft();
         draft.setReturn(new JsonObject());
-        draft.setPathRequired(true);
+        draft.setPathConstraint(null, null, true, false);
         draft.setOptional(true);
         draft.setKind("resource");
         draft.setName("onEvent");
         draft.setAccessor("get");
         Assert.assertEquals(new ArrayList<>(draft.toJson().keySet()),
                 List.of("name", "type", "optional", "accessor", "pathRequired", "return"));
+    }
+
+    @Test
+    public void testTheResourceExtrasKeysKeepTheAccessorAndPathHalvesSymmetrical() {
+        // §5's `accessor` and `path` are the SAME `valueSpec`, so both halves emit the same three facts. Only
+        // the accessor half did, which is how a document's path vocabulary came to be dropped between the
+        // resolver and the wire. Pinned as an order so a later addition cannot reshuffle a handler object.
+        HandlerDraft draft = new HandlerDraft();
+        draft.setName("onEvent");
+        draft.setKind("resource");
+        draft.setAccessor("get");
+        draft.setAccessorConstraint(List.of("get", "post"), true, false);
+        draft.setPathConstraint("orders", List.of("orders", "invoices"), true, false);
+        Assert.assertEquals(new ArrayList<>(draft.toJson().keySet()),
+                List.of("name", "type", "accessor", "accessorValues", "accessorRequired",
+                        "path", "pathValues", "pathRequired"));
+    }
+
+    @Test
+    public void testTheNewPathKeysFollowTheOmissionRule() {
+        // A path that only states presence — every corpus document — must say nothing more than it did before.
+        HandlerDraft draft = new HandlerDraft();
+        draft.setPathConstraint(null, List.of(), true, false);
+        Assert.assertFalse(draft.toJson().has("path"), "nothing enumerated means no value to write");
+        Assert.assertFalse(draft.toJson().has("pathValues"));
+        Assert.assertFalse(draft.toJson().has("pathOpen"), "an enumerated slot is not an open one");
+        Assert.assertTrue(draft.toJson().get("pathRequired").getAsBoolean());
     }
 
     @Test

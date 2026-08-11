@@ -73,12 +73,29 @@ import java.util.stream.Collectors;
  *       fallback shape {@code ServiceModelUtils#getAnnotationAttachmentProperty} already uses for the
  *       non-schema-driven default builders, so it is a recognized fidelity tier in this codebase, not
  *       a new one.</li>
- *   <li><b>The general {@code oneOf} choice UX.</b> Per the agreed v1 rule, a
- *       {@code serviceTypes[].rules[]} entry of type {@code oneOf} is resolved by rendering only its
- *       {@code preferred} member (or the first member if none is marked preferred) and silently
- *       dropping the alternative(s) — e.g. RabbitMQ's queue-name-via-annotation-or-via-identifier
- *       renders the annotation field only. Revisit if a real connector needs the actual either/or
- *       surfaced.</li>
+ *   <li><b>The general exclusive-choice UX.</b> Per the agreed v1 rule, a {@code serviceTypes[].rules[]}
+ *       entry of {@code rule: "structure.exactlyOne"} is resolved by rendering only the subject its
+ *       rule-level {@code prefer} names (or its first subject when it names none) and silently dropping
+ *       the alternative(s) — e.g. RabbitMQ's queue-name-via-annotation-or-via-identifier renders the
+ *       annotation field only. Revisit if a real connector needs the actual either/or surfaced.</li>
+ * </ul>
+ *
+ * <h2>Spec v1.0 (m2)</h2>
+ *
+ * <p>This reads the m2 shape of {@link TriggerMetadataModel} throughout. Four constructs were restructured,
+ * and each is handled where it is consumed rather than adapted at the boundary:
+ * <ul>
+ *   <li><b>§6</b> — {@code type: "oneOf"} over {@code members[].part} became {@code rule:
+ *       "structure.exactlyOne"} over {@code subjects[].kind}, and {@code members[].preferred} became a
+ *       rule-level {@code prefer: "<role>"}. See {@link #isSupersededByPreferredAnnotation}.</li>
+ *   <li><b>§5.1</b> — {@code addMode} moved from the {@code handlers} block onto each option, so a service
+ *       type may mix fixed handlers with open user-named ones. See {@link #buildFunctionFromAuthoring}.</li>
+ *   <li><b>§8</b> — the annotation's reverse {@code appliesTo} list became a forward reference from
+ *       {@code serviceTypes[].annotations}. See {@link #applicableServiceAnnotations}.</li>
+ *   <li><b>§9</b> — the top-level {@code dataBindingRules} registry and its {@code direct}/
+ *       {@code includedRecord}/{@code streamable} modes became a binding written inline on the parameter,
+ *       as independent {@code typedescs[]} variants each carrying its own {@code shapes[]}. See
+ *       {@link #dataBindingTypeProperty}.</li>
  * </ul>
  *
  * @since 1.10.0
@@ -398,35 +415,66 @@ public final class TriggerModelSynthesizer {
         initProperties.put(IDENTIFIER_KEY, property);
     }
 
-    /** True when a {@code oneOf} rule on this service type prefers an annotation field over the identifier. */
+    /**
+     * True when an exclusivity rule on this service type prefers an annotation over the identifier, so the
+     * identifier field is not offered in the form.
+     *
+     * <h2>Migrated to spec §6's open rule registry</h2>
+     *
+     * <p>The closed {@code type: "oneOf"} enum with {@code members[].part} became {@code rule:
+     * "structure.exactlyOne"} over {@code subjects[].kind}, and the per-member {@code preferred: true} flag
+     * became a rule-level {@code prefer: "<role>"} naming one subject's {@link
+     * TriggerMetadataModel.Subject#role()}. Same question, same answer: {@code rabbitmq}'s
+     * {@code $queueNameSource} still resolves to its {@code queueName} annotation field over the identifier.
+     *
+     * <p><b>Only {@code exactlyOne} supersedes.</b> It is the direct rename of {@code oneOf}, and it is the
+     * only entry that makes the alternatives <i>mutually</i> exclusive AND mandatory — so preferring one means
+     * the other must not be offered. {@code structure.atMostOne} deliberately does not qualify: it permits
+     * zero, so the identifier stays available even when an annotation is preferred.
+     */
     private static boolean isSupersededByPreferredAnnotation(TriggerMetadataModel.ServiceType serviceType) {
         if (serviceType.rules() == null) {
             return false;
         }
-        for (TriggerMetadataModel.ServiceType.Rule rule : serviceType.rules()) {
-            if (!TriggerMetadataModel.ServiceType.Rule.TYPE_ONE_OF.equals(rule.type())) {
+        for (TriggerMetadataModel.Rule rule : serviceType.rules()) {
+            if (rule == null || rule.subjects() == null
+                    || !TriggerMetadataModel.Rule.RULE_EXACTLY_ONE.equals(rule.rule())) {
                 continue;
             }
-            boolean hasIdentifierMember = rule.members().stream()
-                    .anyMatch(m -> TriggerMetadataModel.ServiceType.Rule.RuleMember.PART_IDENTIFIER.equals(m.part()));
-            if (!hasIdentifierMember) {
+            boolean hasIdentifierSubject = rule.subjects().stream().anyMatch(subject -> subject != null
+                    && TriggerMetadataModel.Subject.KIND_IDENTIFIER.equals(subject.kind()));
+            if (!hasIdentifierSubject) {
                 continue;
             }
-            TriggerMetadataModel.ServiceType.Rule.RuleMember preferred = preferredMember(rule);
-            if (preferred.annotation() != null) {
+            TriggerMetadataModel.Subject preferred = preferredSubject(rule);
+            if (preferred != null && isAnnotationSubject(preferred)) {
                 return true;
             }
         }
         return false;
     }
 
-    /** The {@code preferred:true} member of a {@code oneOf} rule, or its first member if none is marked. */
-    private static TriggerMetadataModel.ServiceType.Rule.RuleMember preferredMember(
-            TriggerMetadataModel.ServiceType.Rule rule) {
-        return rule.members().stream()
-                .filter(m -> Boolean.TRUE.equals(m.preferred()))
-                .findFirst()
-                .orElse(rule.members().get(0));
+    /**
+     * The subject a rule's {@code prefer} names, or its first subject when it names none.
+     *
+     * <p>The first-subject fallback preserves what {@code preferred: true}'s absence used to mean: document
+     * order decides, so the outcome is deterministic rather than dependent on which subject is inspected first.
+     */
+    private static TriggerMetadataModel.Subject preferredSubject(TriggerMetadataModel.Rule rule) {
+        if (rule.prefer() != null && !rule.prefer().isBlank()) {
+            for (TriggerMetadataModel.Subject subject : rule.subjects()) {
+                if (subject != null && rule.prefer().equals(subject.role())) {
+                    return subject;
+                }
+            }
+        }
+        return rule.subjects().stream().filter(subject -> subject != null).findFirst().orElse(null);
+    }
+
+    /** Whether a subject names an annotation, whether the whole attachment or one field inside it. */
+    private static boolean isAnnotationSubject(TriggerMetadataModel.Subject subject) {
+        return TriggerMetadataModel.Subject.KIND_ANNOTATION.equals(subject.kind())
+                || TriggerMetadataModel.Subject.KIND_ANNOTATION_FIELD.equals(subject.kind());
     }
 
     // ---- service type selector (multi-type connectors) -------------------------
@@ -470,7 +518,10 @@ public final class TriggerModelSynthesizer {
             }
         } else if (handlers != null && handlers.options() != null) {
             for (TriggerMetadataModel.ServiceType.HandlerOption option : handlers.options()) {
-                schemaFunctions.add(buildFunctionFromAuthoring(option, handlers.addMode(), authoring, moduleName,
+                // Spec §5.1 moved `addMode` off the `handlers` block onto each option, precisely so a service
+                // type can offer fixed lifecycle handlers alongside open user-named ones. Reading it per
+                // option is therefore not a mechanical rename: a mixed catalog was previously all-or-nothing.
+                schemaFunctions.add(buildFunctionFromAuthoring(option, authoring, moduleName,
                         facts, identity));
             }
         }
@@ -553,9 +604,10 @@ public final class TriggerModelSynthesizer {
      * resolved {@link TypeRef}s).
      */
     private static TriggerUISchemaModel.FunctionModel buildFunctionFromAuthoring(
-            TriggerMetadataModel.ServiceType.HandlerOption option, String addMode, TriggerMetadataModel authoring,
+            TriggerMetadataModel.ServiceType.HandlerOption option, TriggerMetadataModel authoring,
             String moduleName, TriggerLibraryFacts facts, ConnectorIdentity identity) {
-        boolean many = TriggerMetadataModel.ServiceType.Handlers.ADD_MODE_MANY.equals(addMode);
+        // Spec §5.1: `addMode` is the option's own, and `subset` is the reading when it is absent.
+        boolean many = option.isMany();
         boolean required = "required".equals(option.presence());
 
         List<TriggerUISchemaModel.Parameter> parameters = new ArrayList<>();
@@ -620,8 +672,10 @@ public final class TriggerModelSynthesizer {
             TriggerMetadataModel.ServiceType.Param param, TriggerMetadataModel authoring, String moduleName) {
         boolean optional = "optional".equals(param.presence());
         String name = param.name() == null ? "" : param.name();
-        TriggerMetadataModel.DataBindingRule bindingRule = param.dataBinding() == null ? null
-                : findDataBindingRule(param.dataBinding(), authoring);
+        // Spec §9 writes the binding INLINE on the parameter, so there is no id to resolve against a registry
+        // and therefore no dangling reference to drop a parameter over — the old `findDataBindingRule` lookup,
+        // and the whole failure mode of a binding naming an entry that does not exist, are simply gone.
+        TriggerMetadataModel.DataBinding bindingRule = param.dataBinding();
 
         if (bindingRule == null && optional && !name.isEmpty()) {
             return buildFlagParameter(name, typeRefName(param.type(), moduleName));
@@ -673,42 +727,61 @@ public final class TriggerModelSynthesizer {
     }
 
     /**
-     * The {@code PAYLOAD_TYPE}/{@code PAYLOAD_TYPE_INCLUDED_RECORD} composition for a data-bound
-     * parameter, per {@code TriggerMetadataModel.DataBindingRule}'s {@code direct}/{@code includedRecord} modes.
-     * When the rule ALSO declares a {@code streamable} mode (e.g. a CSV/array binding that may be read
-     * either as {@code T[]} or {@code stream<T, error?>}), the payload is nested one level under a
-     * {@code COMPLEX_PAYLOAD} container alongside a {@code stream} {@code PAYLOAD_MODIFIER} toggle --
-     * the same composed shape FTP's real {@code onFileCsv} uses (see {@link PayloadComposer}) -- so a
-     * connector whose data-binding rule models both cardinalities gets the identical large-file
-     * streaming UX for free, generically, without per-connector code.
+     * The {@code PAYLOAD_TYPE}/{@code PAYLOAD_TYPE_INCLUDED_RECORD} composition for a data-bound parameter.
+     *
+     * <p>When the binding also admits a {@code stream} embedding (e.g. a CSV/array binding readable either as
+     * {@code T[]} or {@code stream<T, error?>}), the payload is nested one level under a
+     * {@code COMPLEX_PAYLOAD} container alongside a {@code stream} {@code PAYLOAD_MODIFIER} toggle -- the same
+     * composed shape FTP's real {@code onFileCsv} uses (see {@link PayloadComposer}) -- so a connector whose
+     * binding models both cardinalities gets the identical large-file streaming UX for free, generically,
+     * without per-connector code.
+     *
+     * <h2>Migrated from {@code dataBindingRules} to spec §9's inline {@code typedescs}</h2>
+     *
+     * <p>Spec v1.0 deleted the top-level registry and the {@code direct}/{@code includedRecord}/
+     * {@code streamable} <i>modes</i>, replacing them with {@code typedescs[]} — independent variants, each
+     * with its own bound and its own {@code shapes[]} of {@code bare}/{@code array}/{@code stream}/
+     * {@code included}. The reading is unchanged where the two can express the same thing:
+     *
+     * <pre>
+     *   MODE_INCLUDED_RECORD          -> a shape embedding an envelope (form or element == "included")
+     *     .includes                   ->   shape.envelope
+     *     .bindableFields             ->   shape.bindableFields
+     *   MODE_DIRECT + typeConstraint  -> the variant's own `constraint`
+     *   MODE_STREAMABLE               -> a shape whose form is "stream"
+     *   CARDINALITY_ARRAY             -> the chosen shape's form being "array"
+     * </pre>
+     *
+     * <p>Two differences are genuine gains rather than translations. Batching is now <b>per shape</b>, so the
+     * template follows the embedding actually chosen instead of a rule-wide flag that forced every mode to
+     * agree; and an envelope now comes from the shape that embeds it, so a variant embedding one while its
+     * sibling does not is expressible — which is exactly kafka's binding, and what the old flat mode list
+     * could only approximate.
      */
-    private static TriggerUISchemaModel.Property dataBindingTypeProperty(TriggerMetadataModel.DataBindingRule rule,
+    private static TriggerUISchemaModel.Property dataBindingTypeProperty(TriggerMetadataModel.DataBinding binding,
                                                                   String typeName, String moduleName,
                                                                   String paramName) {
-        Optional<TriggerMetadataModel.DataBindingRule.SupportedMode> includedRecord = rule.supportedModes().stream()
-                .filter(m -> TriggerMetadataModel.DataBindingRule.SupportedMode.MODE_INCLUDED_RECORD.equals(m.mode()))
-                .findFirst();
-        Optional<TriggerMetadataModel.DataBindingRule.SupportedMode> direct = rule.supportedModes().stream()
-                .filter(m -> TriggerMetadataModel.DataBindingRule.SupportedMode.MODE_DIRECT.equals(m.mode()))
-                .findFirst();
-        Optional<TriggerMetadataModel.DataBindingRule.SupportedMode> streamable = rule.supportedModes().stream()
-                .filter(m -> TriggerMetadataModel.DataBindingRule.SupportedMode.MODE_STREAMABLE.equals(m.mode()))
-                .findFirst();
+        // The embedding the form is built around: an envelope-embedding shape when the binding offers one,
+        // since `PAYLOAD_TYPE_INCLUDED_RECORD` is the richer composition; otherwise the first shape of the
+        // first usable variant, which is spec §1's codegen default applied one level down.
+        Embedding chosen = chooseEmbedding(binding);
+        boolean streamable = anyShape(binding, shape ->
+                TriggerMetadataModel.Shape.FORM_STREAM.equals(shape.form()));
 
-        String cdType = includedRecord.isPresent() ? "PAYLOAD_TYPE_INCLUDED_RECORD" : "PAYLOAD_TYPE";
-        String defaultType;
-        String template = rule.cardinality() != null
-                && TriggerMetadataModel.DataBindingRule.CARDINALITY_ARRAY.equals(rule.cardinality())
-                ? "{{type}}[]" : "{{type}}";
+        String cdType = chosen != null && chosen.embedsEnvelope() ? "PAYLOAD_TYPE_INCLUDED_RECORD"
+                : "PAYLOAD_TYPE";
+        // Batching is a property of the chosen embedding now, not of the whole rule.
+        String template = chosen != null && chosen.isBatched() ? "{{type}}[]" : "{{type}}";
         String field = null;
         String typeConstraint = null;
-        if (includedRecord.isPresent()) {
-            TriggerMetadataModel.DataBindingRule.SupportedMode mode = includedRecord.get();
-            defaultType = mode.includes() == null ? typeName : qualifyTypeRef(mode.includes(), moduleName);
-            field = mode.bindableFields() == null || mode.bindableFields().isEmpty()
-                    ? null : mode.bindableFields().get(0);
-        } else if (direct.isPresent() && !direct.get().typeConstraint().isEmpty()) {
-            defaultType = qualifyTypeRef(direct.get().typeConstraint().get(0), moduleName);
+        String defaultType;
+        if (chosen != null && chosen.embedsEnvelope()) {
+            defaultType = chosen.shape().envelope() == null ? typeName
+                    : qualifyTypeRef(chosen.shape().envelope(), moduleName);
+            List<String> bindable = chosen.shape().bindableFields();
+            field = bindable == null || bindable.isEmpty() ? null : bindable.get(0);
+        } else if (chosen != null && chosen.variant().constraint() != null) {
+            defaultType = qualifyTypeRef(chosen.variant().constraint(), moduleName);
             typeConstraint = defaultType;
         } else {
             defaultType = typeName;
@@ -724,7 +797,7 @@ public final class TriggerModelSynthesizer {
                 true, true, false, false, null, "", List.of(propertyType), null, null, null,
                 cdPayload(cdType, defaultType, template, field, typeConstraint), null);
 
-        if (streamable.isEmpty()) {
+        if (!streamable) {
             return payload;
         }
         Map<String, TriggerUISchemaModel.Property> children = new LinkedHashMap<>();
@@ -754,16 +827,79 @@ public final class TriggerModelSynthesizer {
                 true, true, false, false, null, false, List.of(flagType), null, null, null, modifierCodedata, null);
     }
 
-    private static TriggerMetadataModel.DataBindingRule findDataBindingRule(String id, TriggerMetadataModel authoring) {
-        if (authoring.dataBindingRules() == null) {
-            return null;
+    /**
+     * One {@code shapes[]} entry together with the variant that owns it.
+     *
+     * <p>Both halves are needed to build the form: the bound type comes from the variant and the embedding
+     * from the shape, and spec §9 deliberately lets one variant embed an envelope while its sibling does not.
+     *
+     * @param variant the {@code typedescs[]} entry
+     * @param shape   one of its embeddings
+     */
+    private record Embedding(TriggerMetadataModel.TypedescVariant variant, TriggerMetadataModel.Shape shape) {
+
+        /** Whether this embedding splices the bound type into an envelope record. */
+        boolean embedsEnvelope() {
+            return TriggerMetadataModel.Shape.FORM_INCLUDED.equals(shape.form())
+                    || TriggerMetadataModel.Shape.FORM_INCLUDED.equals(shape.element());
         }
-        for (TriggerMetadataModel.DataBindingRule rule : authoring.dataBindingRules()) {
-            if (rule.id().equals(id)) {
-                return rule;
+
+        /** Whether the declared type is a batch of the bound type. */
+        boolean isBatched() {
+            return TriggerMetadataModel.Shape.FORM_ARRAY.equals(shape.form())
+                    || TriggerMetadataModel.Shape.FORM_STREAM.equals(shape.form());
+        }
+    }
+
+    /**
+     * The embedding the payload form is composed around: an envelope-embedding one when the binding offers
+     * any, otherwise the first shape of the first usable variant.
+     *
+     * <p>Preferring the envelope is what preserves the previous behaviour: the old code chose
+     * {@code PAYLOAD_TYPE_INCLUDED_RECORD} whenever an {@code includedRecord} mode existed, regardless of the
+     * order the modes were listed in.
+     */
+    private static Embedding chooseEmbedding(TriggerMetadataModel.DataBinding binding) {
+        Embedding first = null;
+        for (TriggerMetadataModel.TypedescVariant variant : safeVariants(binding)) {
+            if (variant == null || variant.shapes() == null) {
+                continue;
+            }
+            for (TriggerMetadataModel.Shape shape : variant.shapes()) {
+                if (shape == null || shape.form() == null) {
+                    continue;
+                }
+                Embedding candidate = new Embedding(variant, shape);
+                if (candidate.embedsEnvelope()) {
+                    return candidate;
+                }
+                if (first == null) {
+                    first = candidate;
+                }
             }
         }
-        return null;
+        return first;
+    }
+
+    /** Whether any shape of any variant satisfies {@code test}. */
+    private static boolean anyShape(TriggerMetadataModel.DataBinding binding,
+                                    java.util.function.Predicate<TriggerMetadataModel.Shape> test) {
+        for (TriggerMetadataModel.TypedescVariant variant : safeVariants(binding)) {
+            if (variant == null || variant.shapes() == null) {
+                continue;
+            }
+            for (TriggerMetadataModel.Shape shape : variant.shapes()) {
+                if (shape != null && shape.form() != null && test.test(shape)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static List<TriggerMetadataModel.TypedescVariant> safeVariants(
+            TriggerMetadataModel.DataBinding binding) {
+        return binding == null || binding.typedescs() == null ? List.of() : binding.typedescs();
     }
 
     private static TriggerUISchemaModel.ReturnType buildReturnType(String type, boolean hasError) {
@@ -796,11 +932,22 @@ public final class TriggerModelSynthesizer {
         if (authoring.annotations() == null) {
             return applicable;
         }
+        // Spec §8 replaced the reverse `appliesTo` list with a forward reference from the construct that
+        // carries the annotation, so applicability is now read off the SERVICE TYPE rather than the
+        // annotation. The polarity inverts with it: an annotation the service type does not reference
+        // attaches nowhere, where an absent `appliesTo` used to mean "everywhere". Verified against the
+        // corpus — every service-pointed annotation in all ten documents that declare one is referenced
+        // from `serviceTypes[].annotations`, so no connector loses a field to the stricter reading.
+        List<String> referenced = serviceType.annotations();
+        if (referenced == null || referenced.isEmpty()) {
+            return applicable;
+        }
         for (TriggerMetadataModel.Annotation annotation : authoring.annotations()) {
-            if (!TriggerMetadataModel.Annotation.ATTACH_POINT_SERVICE.equals(annotation.attachPoint())) {
+            if (annotation == null
+                    || !TriggerMetadataModel.Annotation.ATTACH_POINT_SERVICE.equals(annotation.attachPoint())) {
                 continue;
             }
-            if (annotation.appliesTo() != null && !annotation.appliesTo().contains(serviceType.id())) {
+            if (annotation.id() == null || !referenced.contains(annotation.id())) {
                 continue;
             }
             applicable.add(annotation);

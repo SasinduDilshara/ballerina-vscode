@@ -24,6 +24,7 @@ import org.testng.Assert;
 import org.testng.annotations.Test;
 
 import java.util.Arrays;
+import java.util.Optional;
 import java.util.List;
 
 /**
@@ -166,6 +167,47 @@ public class ListenerPairingResolverTest {
                 List.of(constrained), serviceType(null)));
         Assert.assertTrue(ListenerPairingResolver.isHostedByAnyListener(List.of(constrained), null));
         Assert.assertTrue(ListenerPairingResolver.isHostedByAnyListener(null, serviceType("service")));
+    }
+
+    // ---- the drop is attributable ------------------------------------------------------
+
+    @Test
+    public void testAServiceTypeDroppedForAnUnresolvableListenerCarriesAVeto() {
+        // The hole this closes: the drop was a bare `continue`. When EVERY listener fails the loader logs a
+        // warning, but when only some do, the affected service types vanished from the catalog with no veto,
+        // no log line, and nothing a test could assert — while every other tier of this pipeline records an
+        // attributable reason.
+        ListenerPairingResolver.Pairings paired = ListenerPairingResolver.resolveWithDiagnostics(
+                List.of(listener("GhostListener", "service")), List.of(serviceType("service")),
+                name -> Optional.empty());
+
+        Assert.assertTrue(paired.pairings().isEmpty());
+        Assert.assertEquals(paired.vetoes().size(), 1);
+        Veto veto = paired.vetoes().get(0);
+        Assert.assertEquals(veto.specSection(), "§2");
+        Assert.assertEquals(veto.aspectId(), "listenerPairing");
+        // Attributed to the service type, because that is what disappears from the catalog.
+        Assert.assertEquals(veto.subject(), "Service");
+        Assert.assertTrue(veto.reason().contains("GhostListener"),
+                "the reason must name the class the document declared: " + veto.reason());
+    }
+
+    @Test
+    public void testEveryDroppedServiceTypeIsReportedIndividually() {
+        // A partial failure is the case that was silent: one veto per dropped service type, so "why did
+        // exactly this one disappear?" has an answer.
+        ListenerPairingResolver.Pairings paired = ListenerPairingResolver.resolveWithDiagnostics(
+                List.of(listener("GhostListener", "a", "b")),
+                List.of(serviceType("a"), serviceType("b")),
+                name -> Optional.empty());
+        Assert.assertEquals(paired.vetoes().size(), 2);
+    }
+
+    @Test
+    public void testAResolvableListenerRecordsNoVeto() {
+        ListenerPairingResolver.Pairings paired = ListenerPairingResolver.resolveWithDiagnostics(
+                List.of(listener("Listener", "service")), List.of(), name -> Optional.empty());
+        Assert.assertTrue(paired.vetoes().isEmpty(), "nothing was dropped, so nothing is reported");
     }
 
     // ---- fixtures --------------------------------------------------------------------

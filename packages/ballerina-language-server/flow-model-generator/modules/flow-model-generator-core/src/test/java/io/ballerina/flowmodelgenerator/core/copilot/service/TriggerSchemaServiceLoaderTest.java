@@ -20,6 +20,8 @@ package io.ballerina.flowmodelgenerator.core.copilot.service;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import io.ballerina.modelgenerator.commons.trigger.LibraryMetadataReader;
+import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel.ServiceType.HandlerOption;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel.ServiceType.Param;
 import io.ballerina.modelgenerator.commons.trigger.models.TypeRef;
@@ -27,6 +29,7 @@ import org.testng.Assert;
 import org.testng.annotations.Test;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
 
@@ -358,5 +361,85 @@ public class TriggerSchemaServiceLoaderTest {
                 "§7 leaves each occurrence's name to the author, so none is synthesized");
 
         Assert.assertFalse(method.has("return"), "A nil return carries no information");
+    }
+
+    // ---- two-tier metadata precedence -------------------------------------------------
+
+    private static final TriggerMetadataModel BUNDLED = new TriggerMetadataModel("v1.0",
+            List.of(new TriggerMetadataModel.Listener(new TypeRef("Listener", null), null, null, null, null,
+                    null, null)),
+            List.of(), null, null);
+
+    private static final TriggerMetadataModel SHIPPED = new TriggerMetadataModel("v1.0",
+            List.of(new TriggerMetadataModel.Listener(new TypeRef("ShippedListener", null), null, null, null,
+                    null, null, null)),
+            List.of(), null, null);
+
+    @Test
+    public void testAConnectorsOwnDocumentWinsOverTheBundledCopy() {
+        TriggerSchemaServiceLoader.MetadataResolution resolved = TriggerSchemaServiceLoader.decideMetadata(
+                "ballerinax/kafka", read(SHIPPED, LibraryMetadataReader.MetadataOutcome.USABLE),
+                () -> Optional.of(BUNDLED));
+        Assert.assertSame(resolved.document().orElseThrow(), SHIPPED,
+                "the connector's own document is versioned with the connector, so it is authoritative");
+        Assert.assertTrue(resolved.documentPresent());
+    }
+
+    @Test
+    public void testTheBundledCopyIsUsedOnlyWhenTheConnectorShipsNothing() {
+        TriggerSchemaServiceLoader.MetadataResolution resolved = TriggerSchemaServiceLoader.decideMetadata(
+                "ballerinax/kafka", read(null, LibraryMetadataReader.MetadataOutcome.ABSENT),
+                () -> Optional.of(BUNDLED));
+        Assert.assertSame(resolved.document().orElseThrow(), BUNDLED);
+        Assert.assertTrue(resolved.documentPresent());
+    }
+
+    @Test
+    public void testARefusedShippedDocumentIsNotReplacedByTheBundledCopy() {
+        // The regression: a v2 document was read as an absence, so the LS served its own bundled v1 copy of
+        // the SAME connector — describing a release the package no longer matches, and presenting it as
+        // authoritative. That is the "confident-looking downgrade" this loader's fallback policy refuses.
+        for (LibraryMetadataReader.MetadataOutcome refused : List.of(
+                LibraryMetadataReader.MetadataOutcome.UNSUPPORTED_VERSION,
+                LibraryMetadataReader.MetadataOutcome.MALFORMED)) {
+            TriggerSchemaServiceLoader.MetadataResolution resolved =
+                    TriggerSchemaServiceLoader.decideMetadata("ballerinax/kafka", read(null, refused),
+                            () -> Optional.of(BUNDLED));
+            Assert.assertTrue(resolved.document().isEmpty(),
+                    refused + " must not be served the bundled document");
+            // True, so the caller does not silently substitute the SQLite index either: the library renders
+            // its curated overlay and logs why, which is findable.
+            Assert.assertTrue(resolved.documentPresent(),
+                    refused + " is a library WITH metadata that yielded nothing");
+        }
+    }
+
+    @Test
+    public void testTheBundledTierIsNotEvenConsultedForARefusedShippedDocument() {
+        // Not merely unused — unread. A supplier that throws proves the bundled tier is never reached, so a
+        // future change cannot reintroduce the substitution by using the value later.
+        TriggerSchemaServiceLoader.MetadataResolution resolved =
+                TriggerSchemaServiceLoader.decideMetadata("ballerinax/kafka",
+                        read(null, LibraryMetadataReader.MetadataOutcome.UNSUPPORTED_VERSION),
+                        () -> {
+                            throw new AssertionError("the bundled document must not be consulted");
+                        });
+        Assert.assertTrue(resolved.document().isEmpty());
+    }
+
+    @Test
+    public void testNoDocumentAtEitherTierIsReportedAsNoDocument() {
+        // The ordinary case for the overwhelming majority of libraries: the caller MAY use the service index.
+        TriggerSchemaServiceLoader.MetadataResolution resolved = TriggerSchemaServiceLoader.decideMetadata(
+                "ballerina/log", read(null, LibraryMetadataReader.MetadataOutcome.ABSENT),
+                Optional::empty);
+        Assert.assertTrue(resolved.document().isEmpty());
+        Assert.assertFalse(resolved.documentPresent(),
+                "no document was found, so falling back to the index is correct rather than a downgrade");
+    }
+
+    private static LibraryMetadataReader.MetadataRead read(TriggerMetadataModel document,
+                                                           LibraryMetadataReader.MetadataOutcome outcome) {
+        return new LibraryMetadataReader.MetadataRead(document, outcome);
     }
 }

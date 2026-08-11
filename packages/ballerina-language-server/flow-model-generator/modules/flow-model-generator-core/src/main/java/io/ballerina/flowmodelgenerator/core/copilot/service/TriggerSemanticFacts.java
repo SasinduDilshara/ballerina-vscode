@@ -121,7 +121,19 @@ final class TriggerSemanticFacts {
                 annotationAttachPointsByName.putIfAbsent(name, attachPointNames(annotationSymbol));
             }
             if (symbol instanceof ClassSymbol classSymbol) {
-                classesByName.putIfAbsent(name, classSymbol);
+                // PUBLIC only, matching SymbolProcessor's filter at every tier. This index feeds exactly one
+                // consumer — resolveListenerClass — and a non-public class cannot be instantiated from a
+                // user's module, so selecting one would emit `on new x:Listener(...)` against a symbol the
+                // generated code cannot see. The asymmetry was latent (no corpus package declares a
+                // non-public listener), but the failure it invites is an uncompilable service declaration.
+                //
+                // Deliberately NOT applied to declaredTypeNames or serviceObjectTypesByName below: those
+                // answer "does this package declare a type of this name", which is a question about the
+                // package's own contents rather than about what a user's module can reference, and narrowing
+                // them would newly veto handlers over types that do exist.
+                if (classSymbol.qualifiers().contains(Qualifier.PUBLIC)) {
+                    classesByName.putIfAbsent(name, classSymbol);
+                }
             } else if (symbol instanceof TypeDefinitionSymbol typeDef) {
                 typeDefinitionsByName.putIfAbsent(name, typeDef);
                 TypeSymbol raw = CommonUtils.getRawType(typeDef.typeDescriptor());
@@ -334,6 +346,14 @@ final class TriggerSemanticFacts {
      * Resolves the listener class: the metadata-declared name when the package actually declares it,
      * else the canonical {@code Listener} class, else the first class that type-includes a
      * {@code Listener} (the {@code CdcListener} pattern).
+     *
+     * <p><b>Bounded to the package's default module</b>, because that is the one semantic model
+     * {@code CopilotLibraryManager} compiles. A connector declaring its listener in a submodule would
+     * therefore not resolve here, and its service types are dropped with a {@link Veto} by
+     * {@link ListenerPairingResolver} rather than silently. No corpus connector does this — every one of the
+     * fourteen declares its listener in the default module, {@code mssql}'s {@code CdcListener} included —
+     * and lifting the bound means widening {@link #declaresType} to every module's symbols too, which
+     * changes the veto surface for every library. That belongs in its own change, not this one.
      */
     Optional<ClassSymbol> resolveListenerClass(String metadataDeclaredName) {
         if (metadataDeclaredName != null && classesByName.containsKey(metadataDeclaredName)) {

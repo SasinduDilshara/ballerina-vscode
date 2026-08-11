@@ -67,9 +67,20 @@ public class ServiceRemoteFunction {
     // Spec §5 `values: ["*"]` — any accessor the language accepts. Told apart from an enumerated list
     // because a note reading "must be one of `*`" is nonsense, whereas "any the language accepts" is usable.
     private Boolean accessorOpen;
-    // Spec §5 `path.presence` — whether a resource path must be written. No form accompanies it: §5 dropped
-    // the `identifierSegments`/`pathParamSegments` vocabulary because the language already fixes the grammar.
+    // Spec §5 `path.presence` — whether a resource path must be written. No syntactic FORM accompanies it:
+    // §5 dropped the `identifierSegments`/`pathParamSegments` vocabulary because the language already fixes
+    // the grammar. A value list is a different claim and is carried below.
     private Boolean pathRequired;
+    // Spec §5 `path` is the same `valueSpec` as `accessor`, so it may enumerate legal paths or declare
+    // itself open. The path to write (the first declared value, per §1's codegen-default rule)...
+    private String path;
+    // ...every legal path, for the note...
+    private List<String> pathValues;
+    // ...and `values: ["*"]`, worded differently from an enumerated list for the reason `accessorOpen`
+    // gives. All three were absent while the accessor half carried them, so a document constraining its
+    // path lost the constraint on this hop — the same silent drop the comment above records for the
+    // accessor keys, in the other half of one shared definition.
+    private Boolean pathOpen;
     // Spec §8 at `attachPoint: "function"` — annotations the generated handler must or may carry. Named
     // `annotationRefs` to match parameter scope, where `annotations` is already taken by the semantic
     // model's own attachments; consistency across the three scopes beats saving a word at the free one.
@@ -178,6 +189,30 @@ public class ServiceRemoteFunction {
 
     public void setAccessorOpen(Boolean accessorOpen) {
         this.accessorOpen = accessorOpen;
+    }
+
+    public String getPath() {
+        return path;
+    }
+
+    public void setPath(String path) {
+        this.path = path;
+    }
+
+    public List<String> getPathValues() {
+        return pathValues;
+    }
+
+    public void setPathValues(List<String> pathValues) {
+        this.pathValues = pathValues;
+    }
+
+    public Boolean isPathOpen() {
+        return pathOpen;
+    }
+
+    public void setPathOpen(Boolean pathOpen) {
+        this.pathOpen = pathOpen;
     }
 
     public Boolean isPathRequired() {

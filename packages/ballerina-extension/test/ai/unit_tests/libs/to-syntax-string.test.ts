@@ -2572,6 +2572,78 @@ suite("toSyntaxString", () => {
                 `got:\n${result}`);
             noLine(result, "Shape 1 of");
         });
+
+        // ---- §5 path vocabulary (the other half of the shared `valueSpec`) ----
+
+        test("§5: an enumerated path renders its vocabulary and is written into the signature", () => {
+            // `path` and `accessor` are the same `valueSpec`, so a path may name the values it accepts. The
+            // path half was dropped end to end, so a constrained path reached the prompt as
+            // "author-chosen" — the exact opposite of what the document said.
+            const result = renderService(service([method({
+                name: "get", type: "resource",
+                accessor: "get", accessorValues: ["get"], accessorRequired: true,
+                path: "orders", pathValues: ["orders", "invoices"], pathRequired: true,
+            })]));
+
+            assert.ok(line(result, "Resource:").includes("the path must be one of `orders`, `invoices`"),
+                `got:\n${result}`);
+            // The codegen default goes into the signature, not the placeholder: telling the reader to
+            // replace `pathSegment` would contradict the note one line above.
+            assert.ok(result.includes("resource function get orders("), `got:\n${result}`);
+            noLine(result, "author-chosen");
+        });
+
+        test("§5: an optional enumerated path says `may be` rather than `must be`", () => {
+            const result = renderService(service([method({
+                name: "get", type: "resource", accessor: "get",
+                path: "orders", pathValues: ["orders", "invoices"], pathRequired: false,
+            })]));
+            assert.ok(line(result, "Resource:").includes("the path may be one of `orders`, `invoices`"),
+                `got:\n${result}`);
+        });
+
+        test("§5: an open path is worded as open, never as a literal `*`", () => {
+            // Rendering the wildcard as a value would tell the reader to write a path called `*`.
+            const result = renderService(service([method({
+                name: "get", type: "resource", accessor: "get",
+                pathRequired: true, pathOpen: true,
+            })]));
+            assert.ok(line(result, "Resource:").includes(
+                "the path may be any the language accepts — replace `pathSegment`"), `got:\n${result}`);
+            noLine(result, "one of `*`");
+            assert.ok(result.includes("resource function get pathSegment("),
+                "an open slot has no value to write, so the placeholder stays");
+        });
+
+        test("§5: a path that only states presence renders exactly as it did before", () => {
+            // Every corpus document's path is `{presence: required}`. This is the regression guard for the
+            // 22-library render: the new branches must not touch it.
+            const result = renderService(service([method({
+                name: "get", type: "resource", accessor: "get",
+                accessorValues: ["get", "post"], accessorRequired: true, pathRequired: true,
+            })]));
+            assert.ok(line(result, "Resource:").includes(
+                "the accessor must be one of `get`, `post`; a path is required and is author-chosen "
+                + "— replace `pathSegment`"), `got:\n${result}`);
+            assert.ok(result.includes("resource function get pathSegment("), `got:\n${result}`);
+        });
+
+        test("§5: a handler template's enumerated path is written into its commented signature", () => {
+            // A wildcard catalog renders ONLY as a template, so a path vocabulary that reached the template
+            // nowhere would reach the prompt nowhere.
+            const result = renderService(service([], {
+                methods: undefined,
+                handlerTemplates: [{
+                    name: "*", type: "resource", parameters: [],
+                    accessor: "get", accessorValues: ["get"], accessorRequired: true,
+                    path: "orders", pathValues: ["orders", "invoices"], pathRequired: true,
+                    return: { type: { name: "error?" } },
+                }],
+            }));
+            assert.ok(result.includes("// resource function get orders() returns error?;"), `got:\n${result}`);
+            assert.ok(result.includes("the path must be one of `orders`, `invoices`"), `got:\n${result}`);
+        });
+
     });
 
     // ----------------------------------------------------------------
@@ -2584,6 +2656,214 @@ suite("toSyntaxString", () => {
     //
     // Every expected string here was verified with `bal build` (Ballerina 2201.13.4) before being asserted.
     // ----------------------------------------------------------------
+    // ----------------------------------------------------------------
+    // Curated `test.md` guidance — the third wire boundary, and the one that had no guard.
+    //
+    // The Java side loads it, sets it on every service, and serializes it; the system prompt names it
+    // explicitly ("Respect ... the testGenerationInstruction field in whatever library associated with the
+    // service in the library API documentation"). It was declared on no TypeScript interface and rendered
+    // nowhere, so the prompt instructed the model to obey text it never received.
+    // ----------------------------------------------------------------
+    // ----------------------------------------------------------------
+    // Two latent renderer gaps: an identifier slot that admits more than one form, and a binding variant
+    // that admits more than one shape. Both are shapes the schema allows and no corpus document uses yet,
+    // and both silently discarded part of what the document said.
+    // ----------------------------------------------------------------
+    suite("Latent shapes the schema allows", () => {
+        function renderOne(service: Record<string, unknown>): string {
+            return toSyntaxString([{
+                name: "ballerinax/probe", description: "Probe.",
+                typeDefs: [], clients: [], functions: [], services: [service],
+            } as unknown as Library]);
+        }
+
+        function probeService(over: Record<string, unknown> = {}): Record<string, unknown> {
+            return {
+                type: "fixed", name: "Service",
+                listener: { name: "probe:Listener", parameters: [] },
+                methods: [], ...over,
+            };
+        }
+
+        // ---- §3 identifier: `form` is an array with minItems 1 and no upper bound ----
+
+        test("§3: a single-form identifier renders exactly as it did", () => {
+            // Every corpus document declares one form. This is the guard that the multi-form branch does not
+            // touch them.
+            const result = renderOne(probeService({
+                identifier: { presence: "required", form: ["basePath"] },
+            }));
+            const note = result.split("\n").find((l) => l.includes("service identifier"))!;
+            assert.strictEqual(note,
+                "# The service identifier requires a base path, e.g. `/orders` — replace `/basePath`.");
+        });
+
+        test("§3: every legal identifier form is stated, not just the first", () => {
+            // `IdentifierResolver` keeps the whole list "so the renderer can say which are legal" — and then
+            // only the first was described, so a connector accepting either shape advertised one.
+            const result = renderOne(probeService({
+                identifier: { presence: "required", form: ["basePath", "stringLiteral"] },
+            }));
+            const note = result.split("\n").find((l) => l.includes("service identifier"))!;
+            assert.ok(note.includes("requires a base path"), note);
+            assert.ok(note.includes('It may instead be a quoted string literal, e.g. `"orders"`.'), note);
+            // Only ONE placeholder is written: spec §1 makes the first form the codegen default, and writing
+            // both would emit two identifier slots into one declaration.
+            assert.ok(result.includes("service probe:Service /basePath on new"), `got:\n${result}`);
+            assert.ok(!result.includes('"identifier"'), "the alternative is described, never written");
+        });
+
+        test("§3: an optional multi-form identifier still writes no placeholder", () => {
+            const result = renderOne(probeService({
+                identifier: { presence: "optional", form: ["stringLiteral", "basePath"] },
+            }));
+            const note = result.split("\n").find((l) => l.includes("service identifier"))!;
+            assert.ok(note.includes("accepts a quoted string literal"), note);
+            assert.ok(note.includes("it may be omitted."), note);
+            assert.ok(note.includes("It may instead be a base path"), note);
+            assert.ok(result.includes("service probe:Service on new"), `got:\n${result}`);
+        });
+
+        test("§3: an unrecognised alternative form is named verbatim rather than dropped", () => {
+            const result = renderOne(probeService({
+                identifier: { presence: "required", form: ["basePath", "someFutureForm"] },
+            }));
+            const note = result.split("\n").find((l) => l.includes("service identifier"))!;
+            assert.ok(note.includes("It may instead be a value of form `someFutureForm`."), note);
+        });
+
+        test("§3: a duplicated form is not restated", () => {
+            const result = renderOne(probeService({
+                identifier: { presence: "required", form: ["basePath", "basePath"] },
+            }));
+            const note = result.split("\n").find((l) => l.includes("service identifier"))!;
+            assert.ok(!note.includes("It may instead be"), note);
+        });
+
+        // ---- §9 excludes belongs to the variant, not to each shape ----
+
+        function bindingMethod(shapes: Record<string, unknown>[]): Record<string, unknown> {
+            return {
+                name: "onEvent", type: "remote", return: { type: { name: "error?" } },
+                parameters: [{
+                    name: "payload", description: "", type: { name: "Envelope" },
+                    binding: {
+                        typedescs: [{
+                            constraint: { name: "anydata" },
+                            excludes: [{ name: "Envelope" }],
+                            shapes,
+                        }],
+                    },
+                }],
+            };
+        }
+
+        test("§9: a multi-shape variant states its prohibition once, not once per shape", () => {
+            // Spec §9 puts `excludes` on the `typedescs[]` entry, so it is one fact about the variant. It was
+            // appended to every shape line, which presented one restriction as four.
+            const result = renderOne(probeService({
+                methods: [bindingMethod([
+                    { form: "bare" },
+                    { form: "array", element: "bare" },
+                    { form: "stream", element: "bare",
+                      completionType: { name: "error?" } },
+                ])],
+            }));
+            const prohibitions = result.split("\n").filter((l) => l.includes("Envelope")
+                && (l.includes("never") || l.includes("none of those")));
+            assert.strictEqual(prohibitions.length, 1,
+                `expected exactly one prohibition, got:\n${result}`);
+            assert.ok(prohibitions[0].includes(
+                "and in none of those forms may `payload` bind to Envelope"), prohibitions[0]);
+            // Every embedding is still stated.
+            assert.ok(result.includes("may bind directly to: anydata"), `got:\n${result}`);
+            assert.ok(result.includes("may bind to a batch: anydata[]"), `got:\n${result}`);
+            assert.ok(result.includes("may bind to a stream:"), `got:\n${result}`);
+        });
+
+        test("§9: a single-shape variant keeps the inline wording", () => {
+            // The corpus shape (kafka, rabbitmq): one embedding, one sentence.
+            const result = renderOne(probeService({
+                methods: [bindingMethod([{ form: "array", element: "bare" }])],
+            }));
+            assert.ok(result.includes(
+                "# `payload` may bind to a batch: anydata[] — but never Envelope"), `got:\n${result}`);
+        });
+    });
+
+
+    suite("Test generation guidance", () => {
+        function library(services: Record<string, unknown>[]): string {
+            return toSyntaxString([{
+                name: "ballerina/http", description: "HTTP.",
+                typeDefs: [], clients: [], functions: [], services,
+            } as unknown as Library]);
+        }
+
+        function fixed(over: Record<string, unknown> = {}): Record<string, unknown> {
+            return {
+                type: "fixed", name: "Service",
+                listener: { name: "http:Listener", parameters: [] },
+                methods: [], ...over,
+            };
+        }
+
+        test("a library whose services carry no guidance renders no section", () => {
+            const result = library([fixed()]);
+            assert.ok(!result.includes("Test generation guidance"), `got:\n${result}`);
+        });
+
+        test("guidance reaches the prompt as its own library-level section", () => {
+            const result = library([fixed({
+                testGenerationInstruction: "- Use `http:Client` against the service base path.",
+            })]);
+            assert.ok(result.includes("// --- Test generation guidance ---"), `got:\n${result}`);
+            assert.ok(result.includes("- Use `http:Client` against the service base path."),
+                `got:\n${result}`);
+        });
+
+        test("the section is emitted once, not once per service", () => {
+            // The producer attaches identical text to every service, so a per-service block would repeat one
+            // fact N times — ten times for ballerinax/trigger.github.
+            const guidance = "- Mock the listener.";
+            const result = library([
+                fixed({ name: "Service", testGenerationInstruction: guidance }),
+                fixed({ name: "UpgradeService", testGenerationInstruction: guidance }),
+            ]);
+            assert.strictEqual(result.split("--- Test generation guidance ---").length - 1, 1,
+                `expected exactly one section, got:\n${result}`);
+            assert.strictEqual(result.split(guidance).length - 1, 1, `got:\n${result}`);
+        });
+
+        test("two genuinely different texts are both kept", () => {
+            // Nothing guarantees a future producer keeps them uniform, and dropping the second silently would
+            // be the same class of defect this section exists to fix.
+            const result = library([
+                fixed({ name: "Service", testGenerationInstruction: "- First rule." }),
+                fixed({ name: "Other", testGenerationInstruction: "- Second rule." }),
+            ]);
+            assert.ok(result.includes("- First rule.") && result.includes("- Second rule."),
+                `got:\n${result}`);
+        });
+
+        test("the section uses `//`, never `#`, and follows the service declarations", () => {
+            // A `#` line here would attach to whatever declaration follows as ITS documentation, and this is
+            // a library-level statement about code the reader has not written yet.
+            const result = library([fixed({ testGenerationInstruction: "- Mock the listener." })]);
+            const serviceIdx = result.indexOf("service http:Service");
+            const guidanceIdx = result.indexOf("--- Test generation guidance ---");
+            assert.ok(serviceIdx >= 0 && guidanceIdx > serviceIdx, `got:\n${result}`);
+            const heading = result.split("\n").find((l) => l.includes("Test generation guidance"))!;
+            assert.ok(heading.trimStart().startsWith("//"), `heading must be a // comment: ${heading}`);
+        });
+
+        test("blank guidance is treated as none", () => {
+            const result = library([fixed({ testGenerationInstruction: "   \n  " })]);
+            assert.ok(!result.includes("Test generation guidance"), `got:\n${result}`);
+        });
+    });
+
+
     suite("compile-correctness — module qualification and attach points", () => {
         /** A type the library declares itself: the prefix is stripped and an `internal` link carries it. */
         function own(name: string, recordName?: string): Record<string, unknown> {

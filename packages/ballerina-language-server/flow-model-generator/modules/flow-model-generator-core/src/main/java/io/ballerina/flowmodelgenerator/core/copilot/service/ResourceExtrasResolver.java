@@ -58,6 +58,14 @@ final class ResourceExtrasResolver {
     /**
      * The resolved accessor and path of one resource handler.
      *
+     * <h2>Both halves carry a vocabulary, because both slots are the same {@code valueSpec}</h2>
+     *
+     * <p>Spec §5 gives {@code accessor} and {@code path} the same {@code $ref}, so a {@code path} may
+     * enumerate literal values or declare itself open ({@code values: ["*"]}) exactly as an accessor may.
+     * Only the accessor half was carried, so a document constraining its path to a fixed vocabulary lost it
+     * silently — and being an unexercised half of a shared definition is what made that invisible: no corpus
+     * document sets {@code path.values}, so nothing rendered wrong, and nothing rendered at all.
+     *
      * @param accessor         the accessor to write into the signature — the first declared value, per
      *                         spec §1's "first element is the codegen default". {@code null} when the
      *                         document leaves it open
@@ -66,11 +74,19 @@ final class ResourceExtrasResolver {
      * @param accessorOpen     spec §5's {@code values: ["*"]} — any accessor the language accepts. Told
      *                         apart from an enumerated list because a note saying "must be one of `*`" is
      *                         nonsense, whereas "any accessor the language accepts" is usable
-     * @param pathRequired     whether a path must be written. There is no form to record: spec §5 dropped
-     *                         it because "the language already fixes what a resource path may look like"
+     * @param path             the path to write, when the document names exactly the vocabulary to choose
+     *                         from; {@code null} when it enumerates none, which is every corpus document and
+     *                         means the path is the author's to compose
+     * @param pathValues       every legal path, for the note; empty when the document enumerates none
+     * @param pathRequired     whether a path must be written. There is still no syntactic <i>form</i>: spec
+     *                         §5 dropped that vocabulary because "the language already fixes what a resource
+     *                         path may look like". A value list is a different claim — it names the specific
+     *                         paths this connector accepts, which the language cannot know
+     * @param pathOpen         spec §5's {@code values: ["*"]} at the path slot
      */
     record ResourceExtras(String accessor, List<String> accessorValues, boolean accessorRequired,
-                          boolean accessorOpen, boolean pathRequired) {
+                          boolean accessorOpen, String path, List<String> pathValues, boolean pathRequired,
+                          boolean pathOpen) {
     }
 
     /**
@@ -89,17 +105,37 @@ final class ResourceExtrasResolver {
         if (accessor == null && path == null) {
             return Optional.empty();
         }
-        List<String> values = values(accessor);
-        boolean open = accessor != null && accessor.isOpen();
-        // An open slot has no single default to write; the renderer emits a placeholder and the note says
-        // the accessor is the author's to choose.
-        String chosen = open || values.isEmpty() ? null : values.get(0);
+        Slot resolvedAccessor = slot(accessor);
+        Slot resolvedPath = slot(path);
         return Optional.of(new ResourceExtras(
-                chosen,
-                open ? List.of() : values,
-                accessor != null && accessor.isRequired(),
-                open,
-                path != null && path.isRequired()));
+                resolvedAccessor.chosen(), resolvedAccessor.values(), resolvedAccessor.required(),
+                resolvedAccessor.open(),
+                resolvedPath.chosen(), resolvedPath.values(), resolvedPath.required(),
+                resolvedPath.open()));
+    }
+
+    /**
+     * One {@code valueSpec} slot, resolved.
+     *
+     * <p>Shared by both halves rather than duplicated, which is the point: they are the same definition in
+     * the schema, so reading them differently is how one of them came to be half-implemented.
+     *
+     * @param chosen   the value to write — the first declared one, per spec §1's codegen-default rule;
+     *                 {@code null} when the slot is open or enumerates nothing
+     * @param values   every legal value; empty when the slot is open or enumerates nothing
+     * @param required whether the slot must be written
+     * @param open     whether the document declares {@code values: ["*"]}
+     */
+    private record Slot(String chosen, List<String> values, boolean required, boolean open) {
+    }
+
+    private static Slot slot(ValueSpec spec) {
+        List<String> values = values(spec);
+        boolean open = spec != null && spec.isOpen();
+        // An open slot has no single default to write; the renderer emits a placeholder and the note says
+        // the value is the author's to choose.
+        String chosen = open || values.isEmpty() ? null : values.get(0);
+        return new Slot(chosen, open ? List.of() : values, spec != null && spec.isRequired(), open);
     }
 
     private static List<String> values(ValueSpec spec) {

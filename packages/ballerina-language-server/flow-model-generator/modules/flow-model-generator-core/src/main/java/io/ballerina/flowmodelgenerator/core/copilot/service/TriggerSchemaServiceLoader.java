@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.logging.Logger;
 
 /**
@@ -52,11 +53,16 @@ import java.util.logging.Logger;
  * change edits one resolver and touches nothing else, and no component can grow a dependency on another
  * without going through {@link TriggerScope}. See {@link AspectRegistry} for the ordered list.
  *
- * <p><b>Failure model.</b> Two distinct outcomes, deliberately not merged:
+ * <p><b>Failure model.</b> Three distinct outcomes, deliberately not merged:
  * <ul>
- *   <li><b>Library-level abort</b> — no document, a malformed document, or no resolvable listener
- *       returns an empty array, and the caller falls back to the SQLite service index. Most libraries are
- *       not trigger libraries and land here legitimately, so an unresolved document is not logged.</li>
+ *   <li><b>Not a trigger library</b> — no document resolves at either tier, so an empty array is returned
+ *       and the caller uses the SQLite service index. This is the overwhelming majority of libraries and is
+ *       not logged.</li>
+ *   <li><b>Library-level abort</b> — a document <i>was</i> found but nothing could be built from it: it
+ *       declares an unimplemented spec major, it is malformed, or no listener resolves. An empty array is
+ *       returned with {@code documentResolved == true}, which tells the caller <b>not</b> to substitute the
+ *       index: a poorer catalog presented as authoritative hides the defect, whereas a visible absence does
+ *       not. Always logged.</li>
  *   <li><b>Entry-level veto</b> — one service type or one handler is dropped with an attributable
  *       {@link Veto} while the rest of the library is served normally.</li>
  * </ul>
@@ -159,20 +165,24 @@ final class TriggerSchemaServiceLoader {
         // mistake for "this library ships no metadata".
         boolean documentResolved = false;
         try {
-            Optional<TriggerMetadataModel> metadataOpt = resolveMetadata(libraryName, org, packageName, pkg);
-            if (metadataOpt.isEmpty()) {
-                return empty(false);
+            MetadataResolution resolution = resolveMetadata(libraryName, org, packageName, pkg);
+            // Set from whether a document was FOUND, not from whether one was usable: a package shipping a
+            // document this build refuses must not be reported as shipping none, or the caller substitutes
+            // the service index for it and the refusal disappears.
+            documentResolved = resolution.documentPresent();
+            if (resolution.document().isEmpty()) {
+                return empty(documentResolved);
             }
-            documentResolved = true;
-            TriggerMetadataModel metadata = metadataOpt.get();
+            TriggerMetadataModel metadata = resolution.document().get();
             if (metadata.listeners() == null || metadata.listeners().isEmpty()
                     || metadata.serviceTypes() == null || metadata.serviceTypes().isEmpty()) {
                 return empty(true);
             }
 
             TriggerSemanticFacts facts = new TriggerSemanticFacts(semanticModel, pkg);
-            List<ListenerPairingResolver.ListenerPairing> pairings = ListenerPairingResolver.resolve(
+            ListenerPairingResolver.Pairings paired = ListenerPairingResolver.resolveWithDiagnostics(
                     metadata.listeners(), metadata.serviceTypes(), facts);
+            List<ListenerPairingResolver.ListenerPairing> pairings = paired.pairings();
             if (pairings.isEmpty()) {
                 // An unresolvable listener means the resolved package no longer matches the metadata's
                 // world view — abort the library so the caller falls back, rather than emitting a
@@ -180,7 +190,7 @@ final class TriggerSchemaServiceLoader {
                 TypeRef declared = metadata.listeners().get(0).type();
                 LOGGER.warning("No listener class resolvable for " + libraryName
                         + " (metadata declared: " + (declared == null ? null : declared.name()) + ")");
-                return empty(true);
+                return new LoadResult(new JsonArray(), paired.vetoes(), true);
             }
 
             AspectRegistry registry = AspectRegistry.forVersion(AspectRegistry.VERSION_V1);
@@ -188,7 +198,10 @@ final class TriggerSchemaServiceLoader {
             // every attach point once the later phases land.
             AnnotationRegistry annotations = AnnotationRegistry.of(metadata);
             JsonArray services = new JsonArray();
-            List<Veto> vetoes = new ArrayList<>();
+            // Seeded with the pairing tier's own drops. A service type whose listener did not resolve never
+            // reaches `buildService`, so its reason has nowhere else to come from — and a PARTIAL pairing
+            // failure used to be entirely silent, since the log line above fires only when every one fails.
+            List<Veto> vetoes = new ArrayList<>(paired.vetoes());
 
             for (ListenerPairingResolver.ListenerPairing pairing : pairings) {
                 ServiceDraft draft = buildService(libraryName, org, packageName, metadata, annotations,
@@ -257,15 +270,65 @@ final class TriggerSchemaServiceLoader {
      * <p>Reading the shipped document costs a single {@code stat} against the already-resolved package, so
      * consulting it for every library (rather than a curated few) is cheap.
      */
-    private static Optional<TriggerMetadataModel> resolveMetadata(String libraryName, String org,
-                                                                  String packageName, Package pkg) {
+    private static MetadataResolution resolveMetadata(String libraryName, String org,
+                                                      String packageName, Package pkg) {
         LibraryMetadataReader reader = LibraryMetadataReader.getInstance();
-        Optional<TriggerMetadataModel> shipped = reader.getShippedTriggerMetadataModel(pkg);
-        if (shipped.isPresent()) {
-            return shipped;
-        }
         String metadataKey = BUNDLED_METADATA_KEYS.getOrDefault(libraryName, packageName);
-        return reader.getPackagedTriggerMetadataModel(new ModuleInfo(org, packageName, metadataKey, null));
+        return decideMetadata(libraryName, reader.readShippedTriggerMetadata(pkg),
+                () -> reader.getPackagedTriggerMetadataModel(
+                        new ModuleInfo(org, packageName, metadataKey, null)));
+    }
+
+    /**
+     * The two-tier precedence rule, as a pure function of what the connector shipped.
+     *
+     * <p>Split out from {@link #resolveMetadata} so it can be tested: reaching it through a {@link Package}
+     * would need a published connector that ships a document, and none exists yet — which is exactly how the
+     * rule below came to be wrong without any test noticing.
+     *
+     * @param libraryName the library, for the log line
+     * @param shipped     what reading the connector's own document produced
+     * @param bundled     the LS-bundled document for this library, consulted only when the connector ships
+     *                    none at all
+     * @return the document to use, and whether one was present at either tier
+     */
+    static MetadataResolution decideMetadata(String libraryName,
+                                             LibraryMetadataReader.MetadataRead shipped,
+                                             Supplier<Optional<TriggerMetadataModel>> bundled) {
+        if (shipped.usable().isPresent()) {
+            return new MetadataResolution(shipped.usable(), true);
+        }
+        if (shipped.present()) {
+            // The connector ships a document this build cannot read — an unimplemented major version, or a
+            // malformed file. The LS's bundled copy is NOT a substitute for it: it is an OLDER description of
+            // the same connector, so serving it would answer a v2 package with a v1 contract and present the
+            // result as authoritative. That is precisely the "confident-looking downgrade" this loader's own
+            // fallback policy refuses to prefer over a visible absence, and the shipped-first precedence in
+            // this method exists to prevent it.
+            //
+            // `documentResolved` stays true, so the caller does not silently substitute the SQLite index
+            // either: the library renders its curated overlay and logs why, which is findable.
+            LOGGER.warning("Not falling back to the bundled trigger metadata for " + libraryName
+                    + ": the package ships its own document and it is " + shipped.outcome()
+                    + ". The bundled copy describes an earlier release, so serving it would state a"
+                    + " contract this package version does not honour.");
+            return new MetadataResolution(Optional.empty(), true);
+        }
+        Optional<TriggerMetadataModel> fromBundle = bundled.get();
+        return new MetadataResolution(fromBundle, fromBundle.isPresent());
+    }
+
+    /**
+     * A resolved document, and whether one was there at all.
+     *
+     * <p>{@code documentPresent} is not {@code document.isPresent()}: a connector that ships a document this
+     * build refuses is a library <i>with</i> metadata that yielded nothing, which the caller must not treat
+     * as a library without any.
+     *
+     * @param document        the usable document, or empty
+     * @param documentPresent whether a document was found, whatever came of reading it
+     */
+    record MetadataResolution(Optional<TriggerMetadataModel> document, boolean documentPresent) {
     }
 
     // ---- spec §1 delegates -------------------------------------------------------------

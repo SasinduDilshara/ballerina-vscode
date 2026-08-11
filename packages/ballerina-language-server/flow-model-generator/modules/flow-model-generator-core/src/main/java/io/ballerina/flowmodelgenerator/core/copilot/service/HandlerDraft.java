@@ -64,6 +64,11 @@ final class HandlerDraft {
     // consumer can word the two cases differently; see setAccessorConstraint.
     private boolean accessorOpen;
     private boolean pathRequired;
+    // Spec §5's `path` is the same `valueSpec` as `accessor`, so it carries the same three facts. Only
+    // `pathRequired` was kept, which silently discarded a document's path vocabulary.
+    private String path;
+    private JsonArray pathValues;
+    private boolean pathOpen;
     private String deprecated;
     private JsonObject returnObj;
 
@@ -128,15 +133,25 @@ final class HandlerDraft {
     }
 
     /**
-     * Spec §5's {@code path}: whether a resource path must be written.
+     * Spec §5's {@code path}: whether a resource path must be written, and — because {@code path} is the
+     * same {@code valueSpec} as {@code accessor} — which paths are legal.
      *
-     * <p>No form accompanies it any more. Spec §5 dropped the {@code identifierSegments} /
+     * <p>No syntactic <i>form</i> accompanies it. Spec §5 dropped the {@code identifierSegments} /
      * {@code pathParamSegments} vocabulary because "the language already fixes what a resource path may
      * look like" — the old list was restating the grammar, and a consumer that quoted it was telling the
-     * reader something Ballerina already guarantees.
+     * reader something Ballerina already guarantees. A <b>value list</b> is a different claim: it names the
+     * specific paths this connector accepts, which the language cannot know and only the document can state.
+     * It was being dropped, in exact symmetry with the accessor vocabulary that went missing on the same hop.
      */
-    void setPathRequired(boolean required) {
+    void setPathConstraint(String path, List<String> values, boolean required, boolean open) {
         this.pathRequired = required;
+        this.pathOpen = open;
+        if (path != null && !path.isEmpty()) {
+            this.path = path;
+        }
+        if (values != null && !values.isEmpty()) {
+            this.pathValues = toArray(values);
+        }
     }
 
     /**
@@ -249,8 +264,15 @@ final class HandlerDraft {
         if (accessorOpen) {
             json.addProperty("accessorOpen", true);
         }
+        addIfPresent(json, "path", path);
+        if (pathValues != null) {
+            json.add("pathValues", pathValues);
+        }
         if (pathRequired) {
             json.addProperty("pathRequired", true);
+        }
+        if (pathOpen) {
+            json.addProperty("pathOpen", true);
         }
         if (annotationRefs != null) {
             json.add("annotationRefs", annotationRefs);

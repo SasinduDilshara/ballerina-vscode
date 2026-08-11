@@ -28,6 +28,8 @@ import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -124,10 +126,32 @@ public class CopilotLibraryFilterTest extends AbstractLSTest {
                 "trigger.salesforce should be excluded and return empty libraries");
     }
 
+    /**
+     * The README opt-in list is now a resource rather than a {@code Set.of(...)} in
+     * {@code CopilotLibraryManager}, so a typo in it is a <b>data</b> defect that silently disables every
+     * README instead of a compile error. This asserts the resource itself, so such a typo fails here in
+     * milliseconds rather than only in the package-resolving test below.
+     */
+    @Test
+    public void testTheReadmeOptInResourceParsesAndListsTheExpectedLibraries() throws IOException {
+        try (InputStream stream = getClass().getResourceAsStream("/copilot/readme-libraries.json")) {
+            Assert.assertNotNull(stream, "/copilot/readme-libraries.json is missing from the classpath; "
+                    + "CopilotLibraryManager degrades to serving no READMEs at all");
+            JsonObject parsed = com.google.gson.JsonParser.parseReader(
+                    new java.io.InputStreamReader(stream, StandardCharsets.UTF_8)).getAsJsonObject();
+            Assert.assertTrue(parsed.has("libraries"), "the resource declares no `libraries` array");
+            Set<String> declared = new LinkedHashSet<>();
+            parsed.getAsJsonArray("libraries").forEach(entry -> declared.add(entry.getAsString()));
+            // The same seven the hardcoded set held, so moving the list to data changed where it lives and
+            // nothing else.
+            Assert.assertEquals(declared, Set.of("ballerinax/salesforce", "ballerina/ai", "ballerinax/cdc",
+                    "ballerinax/mysql", "ballerinax/postgresql", "ballerina/ftp", "ballerina/file"));
+        }
+    }
+
     @Test
     public void testReadmeIncludedOnlyForWhitelistedLibraries() throws IOException {
-        // ballerinax/salesforce is whitelisted in CopilotLibraryManager.README_WHITELIST;
-        // ballerina/http is not. Both libraries must still return their full runtime
+        // ballerinax/salesforce is listed in /copilot/readme-libraries.json; ballerina/http is not. Both libraries must still return their full runtime
         // payload (clients/typeDefs); only the readme field should differ.
         GetSelectedLibrariesRequest request = new GetSelectedLibrariesRequest(
                 new String[]{"ballerinax/salesforce", "ballerina/http"});

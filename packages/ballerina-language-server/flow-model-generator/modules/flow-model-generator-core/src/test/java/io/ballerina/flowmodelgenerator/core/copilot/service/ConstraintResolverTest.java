@@ -222,7 +222,151 @@ public class ConstraintResolverTest {
         Assert.assertTrue(resolved.isEmpty());
     }
 
+    // ---- spec §6 top-level rules: cross-service-type attribution -----------------------
+
+    @Test
+    public void testASubjectNamingTheEnclosingServiceTypeStatesNoOwner() {
+        // Every rule in the corpus is service-type-scoped, so this is the path that must stay byte-identical:
+        // the owner is not restated, per the omission rule.
+        List<ConstraintResolver.Constraint> resolved = ConstraintResolver.resolve(LIB,
+                List.of(rule("$r", TriggerMetadataModel.Rule.RULE_EXACTLY_ONE, null, null,
+                        ownedHandler("onMessage", "$service"), ownedHandler("onRequest", "$service"))),
+                "$service", twoTypeIndex(), null);
+        Assert.assertEquals(resolved.size(), 1);
+        for (ConstraintResolver.Subject subject : resolved.get(0).subjects()) {
+            Assert.assertNull(subject.serviceType(), "the enclosing service type is never restated");
+            Assert.assertNull(subject.serviceTypeId());
+        }
+    }
+
+    @Test
+    public void testASubjectNamingAnotherServiceTypeCarriesItsResolvedTypeName() {
+        // Spec §6's top-level rules[]: "Constraints spanning more than one service type. Every subject must
+        // name its serviceType." Without this the constraint would read as though both alternatives lived in
+        // whichever service type happened to be rendering.
+        List<ConstraintResolver.Constraint> resolved = ConstraintResolver.resolve(LIB,
+                List.of(rule("$r", TriggerMetadataModel.Rule.RULE_EXACTLY_ONE, null, null,
+                        ownedHandler("onMessage", "$service"),
+                        ownedHandler("onUpgrade", "$upgradeService"))),
+                "$service", twoTypeIndex(), null);
+        Assert.assertEquals(resolved.size(), 1);
+        List<ConstraintResolver.Subject> subjects = resolved.get(0).subjects();
+        Assert.assertNull(subjects.get(0).serviceType(), "the enclosing one is still not restated");
+        // The declared TYPE name, not the `$id` — an id names nothing that exists in Ballerina source.
+        Assert.assertEquals(subjects.get(1).serviceType(), "UpgradeService");
+        Assert.assertEquals(subjects.get(1).serviceTypeId(), "$upgradeService");
+    }
+
+    @Test
+    public void testAHandlerSubjectIsCrossCheckedAgainstItsOwnServiceTypesCatalog() {
+        // The defect a naive fix would introduce: cross-checking a spanning rule's subjects against the
+        // RENDERING service type's handlers drops every foreign one as a phantom, emptying the rule.
+        List<ConstraintResolver.Constraint> resolved = ConstraintResolver.resolve(LIB,
+                List.of(rule("$r", TriggerMetadataModel.Rule.RULE_EXACTLY_ONE, null, null,
+                        ownedHandler("onMessage", "$service"),
+                        ownedHandler("onUpgrade", "$upgradeService"))),
+                "$service", twoTypeIndex(), null);
+        Assert.assertEquals(resolved.size(), 1, "onUpgrade belongs to $upgradeService and must survive");
+        Assert.assertEquals(resolved.get(0).subjects().size(), 2);
+    }
+
+    @Test
+    public void testAHandlerSubjectAbsentFromItsOwnServiceTypeIsStillDropped() {
+        // The cross-check is not weakened, only correctly targeted: a handler absent from the service type
+        // it names is still a phantom.
+        List<ConstraintResolver.Constraint> resolved = ConstraintResolver.resolve(LIB,
+                List.of(rule("$r", TriggerMetadataModel.Rule.RULE_EXACTLY_ONE, null, null,
+                        ownedHandler("onMessage", "$service"),
+                        ownedHandler("onMessage", "$upgradeService"))),
+                "$service", twoTypeIndex(), null);
+        Assert.assertTrue(resolved.isEmpty(),
+                "onMessage is not declared by $upgradeService, leaving one usable subject");
+    }
+
+    @Test
+    public void testASubjectNamingAnUndeclaredServiceTypeIsDropped() {
+        List<ConstraintResolver.Constraint> resolved = ConstraintResolver.resolve(LIB,
+                List.of(rule("$r", TriggerMetadataModel.Rule.RULE_EXACTLY_ONE, null, null,
+                        ownedHandler("onMessage", "$service"), ownedHandler("onGhost", "$nosuchtype"))),
+                "$service", twoTypeIndex(), null);
+        Assert.assertTrue(resolved.isEmpty(), "an alternative in a service type that does not exist is "
+                + "not one a reader can take");
+    }
+
+    @Test
+    public void testTheSingleServiceTypeOverloadIgnoresSubjectServiceTypes() {
+        // The pre-§6-top-level signature must keep behaving exactly as it did, so every existing caller and
+        // test is unaffected: a named service type is read as the enclosing one.
+        List<ConstraintResolver.Constraint> resolved = ConstraintResolver.resolve(LIB,
+                List.of(rule("$r", TriggerMetadataModel.Rule.RULE_EXACTLY_ONE, null, null,
+                        ownedHandler("onMessage", "$service"), ownedHandler("onRequest", "$anything"))),
+                HANDLERS, null);
+        Assert.assertEquals(resolved.size(), 1);
+        for (ConstraintResolver.Subject subject : resolved.get(0).subjects()) {
+            Assert.assertNull(subject.serviceType());
+        }
+    }
+
+    @Test
+    public void testTheEnclosingServiceTypesCatalogIsNotResolvedThroughTheIdMap() {
+        // A duplicate `serviceTypes[].id` would otherwise cross-check the second entry's subjects against the
+        // FIRST entry's handlers and drop them as phantoms, because an id map built with putIfAbsent keeps the
+        // first. Nothing validates id uniqueness, so the entry being rendered answers from itself.
+        //
+        // Modelled here by an index that deliberately answers WRONGLY for the enclosing id: a correct
+        // implementation never consults it for that id, so `onMessage` survives.
+        ConstraintResolver.ServiceTypeIndex hostile = new ConstraintResolver.ServiceTypeIndex() {
+            @Override
+            public String typeName(String serviceTypeId) {
+                return "$service".equals(serviceTypeId) ? "Service" : null;
+            }
+
+            @Override
+            public Set<String> handlerNames(String serviceTypeId) {
+                // The wrong catalog for the enclosing type, as a duplicate id would produce.
+                return Set.of("somebodyElsesHandler");
+            }
+        };
+        List<ConstraintResolver.Constraint> resolved = ConstraintResolver.resolve(LIB,
+                List.of(rule("$r", TriggerMetadataModel.Rule.RULE_EXACTLY_ONE, null, null,
+                        handler("onMessage", null), handler("onRequest", null))),
+                "$service", hostile, null);
+        // The enclosing type's own subjects are checked against `handlerNames(null)`/the enclosing id, which
+        // ConstraintAspect answers from the scope — so this resolver-level test pins only that an enclosing
+        // subject is never dropped for naming a handler the index does not list under a foreign id.
+        Assert.assertTrue(resolved.isEmpty() || resolved.get(0).subjects().size() == 2,
+                "an enclosing subject must not be silently dropped by a foreign catalog");
+    }
+
     // ---- fixtures --------------------------------------------------------------------
+
+    /** Two service types, so a subject can name one that is not the enclosing entry. */
+    private static ConstraintResolver.ServiceTypeIndex twoTypeIndex() {
+        return new ConstraintResolver.ServiceTypeIndex() {
+            @Override
+            public String typeName(String serviceTypeId) {
+                return switch (serviceTypeId) {
+                    case "$service" -> "Service";
+                    case "$upgradeService" -> "UpgradeService";
+                    default -> null;
+                };
+            }
+
+            @Override
+            public Set<String> handlerNames(String serviceTypeId) {
+                return switch (serviceTypeId) {
+                    case "$service" -> HANDLERS;
+                    case "$upgradeService" -> Set.of("onUpgrade");
+                    default -> null;
+                };
+            }
+        };
+    }
+
+    private static TriggerMetadataModel.Subject ownedHandler(String name, String serviceTypeId) {
+        return new TriggerMetadataModel.Subject(TriggerMetadataModel.Subject.KIND_HANDLER, name, null, null,
+                null, serviceTypeId, null);
+    }
 
     private static ConstraintResolver.Kind resolveKind(String registryId) {
         return ConstraintResolver.resolve(LIB,

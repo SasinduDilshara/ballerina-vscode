@@ -50,7 +50,8 @@ final class ResourceExtrasAspect implements HandlerAspect {
             draft.setAccessor(extras.accessor());
             draft.setAccessorConstraint(extras.accessorValues(), extras.accessorRequired(),
                     extras.accessorOpen());
-            draft.setPathRequired(extras.pathRequired());
+            draft.setPathConstraint(extras.path(), extras.pathValues(), extras.pathRequired(),
+                    extras.pathOpen());
         });
     }
 }

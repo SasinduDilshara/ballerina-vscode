@@ -307,7 +307,7 @@ function renderRecord(typeDef: RecordTypeDefinition): string {
     for (const field of typeDef.fields) {
         const externalLinks = collectExternalLinks(field.type);
         const typeName = applyPrefixToTypeName(field.type.name, externalLinks);
-        const optional = (field as any).optional ? "?" : "";
+        const optional = field.optional ? "?" : "";
         const defaultVal = field.default !== undefined ? ` = ${field.default}` : "";
         const fieldDesc = field.description ? `    # ${field.description}\n` : "";
         const fieldDeprecated = field.isDeprecated ? "    @deprecated\n" : "";
@@ -762,30 +762,54 @@ function renderBindingNotes(method: ServiceRemoteFunction, listenerAlias: string
     return lines;
 }
 
-/** One §9 variant, as zero or more `#` lines — one per shape it admits. */
+/**
+ * One §9 variant, as zero or more `#` lines — one per shape it admits, plus at most one prohibition.
+ *
+ * **`excludes` belongs to the variant, so it is stated once.** Spec §9 puts it on the `typedescs[]` entry, not
+ * on a shape: it names the instantiations a *sibling variant* owns, which is a fact about the variant as a
+ * whole. Appending it to every shape line repeated one prohibition as many times as the variant has
+ * embeddings — five lines all ending "— but never `probe:Envelope`" for a variant admitting bare, array,
+ * stream, included and array-of-included. Invisible in the corpus, where every `excludes`-carrying variant
+ * (kafka's, rabbitmq's ×2) declares exactly one shape, and pure noise for the first that does not.
+ */
 function renderBindingVariant(variant: TypedescVariant, paramName: string, visible: Set<string>,
                               listenerAlias: string | null, indent: string): string[] {
     const bound = qualifyDeclaredType(variant.constraint, listenerAlias);
     // `excludes` is compared against an empty visible set on purpose: a prohibition is derivable from
     // nothing else, so it survives even when every positive member is already on the page.
     const excluded = suppressMembersAlreadyVisible(variant.excludes, new Set<string>(), listenerAlias);
-    const lines: string[] = [];
+    const rendered: string[] = [];
     for (const shape of variant.shapes ?? []) {
         const line = renderBindingShape(shape, bound, paramName, visible, listenerAlias);
         if (line) {
-            lines.push(`${indent}# ${line}${excluded.length === 0 ? "" : ` — but never ${excluded.join(", ")}`}`);
-            continue;
-        }
-        // The shape said nothing because its bound is already visible in the signature. `excludes` is not:
-        // it is a prohibition, derivable from nothing else on the page, so it must survive the suppression
-        // that removed the positive half. Dropping the whole line here is how a "never bind the envelope
-        // itself" rule would silently vanish for any connector whose bound happens to match its parameter.
-        if (excluded.length > 0) {
-            lines.push(`${indent}# \`${paramName}\` may bind directly to any type shown above`
-                + ` — but never ${excluded.join(", ")}`);
+            rendered.push(line);
         }
     }
-    return lines;
+    if (excluded.length === 0) {
+        return rendered.map((line) => `${indent}# ${line}`);
+    }
+    const prohibition = `— but never ${excluded.join(", ")}`;
+    if (rendered.length === 1) {
+        // One embedding, one sentence. Keeping the prohibition inline here is not cosmetic: it is what every
+        // corpus variant carrying `excludes` renders today (kafka's, rabbitmq's two), and splitting it would
+        // rewrite their output for a defect they do not exhibit.
+        return [`${indent}# ${rendered[0]} ${prohibition}`];
+    }
+    if (rendered.length > 1) {
+        // Several embeddings, one prohibition — stated once, after them. `excludes` is a property of the
+        // VARIANT (spec §9 puts it on the `typedescs[]` entry), so appending it to each embedding presented
+        // one restriction as many, and read as a rendering fault.
+        return [
+            ...rendered.map((line) => `${indent}# ${line}`),
+            `${indent}# ...and in none of those forms may \`${paramName}\` bind to ${excluded.join(", ")}`,
+        ];
+    }
+    // Every shape was suppressed because its bound is already visible in the signature. `excludes` is not:
+    // it is a prohibition, derivable from nothing else on the page, so it must survive the suppression that
+    // removed the positive half. Dropping it here is how a "never bind the envelope itself" rule would
+    // silently vanish for any connector whose bound happens to match its parameter's declared type.
+    return [`${indent}# \`${paramName}\` may bind directly to any type shown above`
+        + ` — but never ${excluded.join(", ")}`];
 }
 
 /** One §9 shape, or "" when it has nothing left to say after suppression. */
@@ -970,6 +994,19 @@ function resourceAccessor(method: ServiceRemoteFunction): string | undefined {
     return method.accessorOpen ? RESOURCE_ACCESSOR_PLACEHOLDER : undefined;
 }
 
+/**
+ * The path segment to print for a resource handler.
+ *
+ * The document's own codegen default when it enumerates a vocabulary (spec §1: the first declared value),
+ * otherwise the placeholder — because §11.2 makes an unconstrained path intent-derived, and inventing one
+ * would be inventing API. Symmetric with {@link resourceAccessor}, since `path` and `accessor` are the same
+ * `valueSpec`: a reader must never be handed `pathSegment` to replace while a note two lines above says the
+ * path must be one of three specific values.
+ */
+function resourcePath(method: ServiceRemoteFunction): string {
+    return method.path ?? RESOURCE_PATH_PLACEHOLDER;
+}
+
 function renderMethodSignature(method: ServiceRemoteFunction): string {
     // The declared `isolated` qualifier, when the service type's own declaration carries one. It leads the
     // signature because that is the only position Ballerina accepts, and it is not decoration: implementing
@@ -981,7 +1018,7 @@ function renderMethodSignature(method: ServiceRemoteFunction): string {
     if (!accessor) {
         return `${qualifier}remote function ${method.name}`;
     }
-    return `${qualifier}resource function ${accessor} ${RESOURCE_PATH_PLACEHOLDER}`;
+    return `${qualifier}resource function ${accessor} ${resourcePath(method)}`;
 }
 
 /**
@@ -1033,7 +1070,22 @@ function renderResourceNote(method: ServiceRemoteFunction, indent: string): stri
     // already fixes what a resource path may look like" — the old note was restating the grammar back at
     // a reader who already had it. What remains is the one fact the language does NOT fix: that this
     // particular handler needs a path at all, and that its content is the author's to choose (§11.2).
-    if (method.pathRequired) {
+    //
+    // Unless the document says otherwise. `path` is the same `valueSpec` as `accessor`, so it may enumerate
+    // the paths this connector accepts, and then the path is emphatically NOT author-chosen: telling a reader
+    // to invent one would contradict the constraint. The three cases are worded exactly as the accessor's
+    // are, because they are the same three.
+    const pathValues = method.pathValues ?? [];
+    if (method.pathOpen) {
+        parts.push(method.pathRequired === false
+            ? `a path may be written, and it may be any the language accepts — replace \`${RESOURCE_PATH_PLACEHOLDER}\``
+            : `the path may be any the language accepts — replace \`${RESOURCE_PATH_PLACEHOLDER}\``);
+    } else if (pathValues.length > 0) {
+        const paths = pathValues.map((path) => `\`${path}\``).join(", ");
+        parts.push(method.pathRequired === false
+            ? `the path may be one of ${paths}`
+            : `the path must be one of ${paths}`);
+    } else if (method.pathRequired) {
         parts.push(`a path is required and is author-chosen — replace \`${RESOURCE_PATH_PLACEHOLDER}\``);
     }
     // The label follows the handler's actual kind, not the spec section the extras are filed under: a
@@ -1368,25 +1420,54 @@ function renderIdentifierSlot(identifier: ServiceIdentifier | undefined): {
     const form = identifier.form[0];
     const required = identifier.presence === "required";
     const requirement = required ? "requires" : "accepts";
+    // Spec §3 types `form` as an array with `minItems: 1` and no upper bound, so a connector may declare that
+    // its identifier slot accepts EITHER shape. Only the first was described, and the rest were discarded
+    // without trace — which contradicts the pipeline's own contract: `IdentifierResolver` keeps the whole list
+    // precisely "so the renderer can say which are legal". Every corpus document declares exactly one form, so
+    // this states nothing new for them; it is the second entry that had nowhere to go.
+    const alternatives = identifier.form.slice(1)
+        .filter((other) => other && other !== form)
+        .map(describeIdentifierForm);
+    const alsoLegal = alternatives.length > 0
+        ? ` It may instead be ${alternatives.join(", or ")}.`
+        : "";
 
     if (form === "basePath") {
         const note = `# The service identifier ${requirement} a base path, e.g. \`/orders\``;
         return required
-            ? { fragment: "/basePath ", notes: [`${note} — replace \`/basePath\`.`] }
-            : { fragment: "", notes: [`${note}; it may be omitted.`] };
+            ? { fragment: "/basePath ", notes: [`${note} — replace \`/basePath\`.${alsoLegal}`] }
+            : { fragment: "", notes: [`${note}; it may be omitted.${alsoLegal}`] };
     }
     if (form === "stringLiteral") {
         const note = `# The service identifier ${requirement} a quoted string literal, e.g. \`"orders"\``;
         return required
-            ? { fragment: `"identifier" `, notes: [`${note} — replace \`"identifier"\`.`] }
-            : { fragment: "", notes: [`${note}; it may be omitted.`] };
+            ? { fragment: `"identifier" `, notes: [`${note} — replace \`"identifier"\`.${alsoLegal}`] }
+            : { fragment: "", notes: [`${note}; it may be omitted.${alsoLegal}`] };
     }
     // A form outside spec §10's vocabulary. Named verbatim so the reader can look it up, rather than
     // flattened into "unknown".
     return {
         fragment: "",
-        notes: [`# The service identifier ${requirement} a value of form \`${form}\`.`],
+        notes: [`# The service identifier ${requirement} a value of form \`${form}\`.${alsoLegal}`],
     };
+}
+
+/**
+ * One alternative identifier form, as prose.
+ *
+ * Only the *placeholder* follows the codegen default (spec §1), so an alternative is described rather than
+ * written — writing two would emit two identifier slots. A form outside spec §10's vocabulary is named
+ * verbatim, for the reason the primary branch gives: inventing syntax for a shape whose grammar is unknown
+ * would be worse than naming it.
+ */
+function describeIdentifierForm(form: string): string {
+    if (form === "basePath") {
+        return "a base path, e.g. `/orders`";
+    }
+    if (form === "stringLiteral") {
+        return "a quoted string literal, e.g. `\"orders\"`";
+    }
+    return `a value of form \`${form}\``;
 }
 
 /**
@@ -1512,6 +1593,26 @@ function preferredSubject(constraint: ServiceConstraint, listenerAlias: string |
  * that exists in Ballerina source.
  */
 function renderConstraintSubject(
+    subject: ConstraintSubject,
+    listenerAlias: string | null
+): string | null {
+    const rendered = renderSubjectBody(subject, listenerAlias);
+    if (rendered === null) {
+        return null;
+    }
+    // Spec §6's top-level `rules[]`. The pipeline sets `serviceType` only for a subject belonging to a
+    // DIFFERENT service type than the one being rendered, so there is no permissive case to filter here and
+    // a service-type-scoped rule reads exactly as before. Naming the owner is not decoration: "exactly one
+    // of `onMessage` | `onRequest`" is a different constraint from "exactly one of `onMessage` on Service |
+    // `onRequest` on UpgradeService", and a reader given the first would look for both handlers in one body.
+    const owner = subject.serviceType
+        ? ` on the ${listenerAlias ? `\`${listenerAlias}:${subject.serviceType}\`` : `\`${subject.serviceType}\``} service`
+        : "";
+    return `${rendered}${owner}`;
+}
+
+/** One subject, without its service-type attribution. */
+function renderSubjectBody(
     subject: ConstraintSubject,
     listenerAlias: string | null
 ): string | null {
@@ -1715,7 +1816,7 @@ function renderHandlerTemplateBody(template: ServiceRemoteFunction,
     // `resource function get pathSegment <handlerName>(...)`, which is not a signature at all.
     const templateAccessor = resourceAccessor(template);
     const declarator = templateAccessor
-        ? `resource function ${templateAccessor} ${RESOURCE_PATH_PLACEHOLDER}`
+        ? `resource function ${templateAccessor} ${resourcePath(template)}`
         : "remote function <handlerName>";
 
     // The same facts a real handler states, in the same order, but as `//` prose. Reused from the shared
@@ -2217,6 +2318,45 @@ function renderServiceAlternativesNote(services: Service[]): string[] {
 }
 
 /**
+ * The curated `test.md` guidance a library's services carry — emitted **once per library**.
+ *
+ * The Java side attaches it to every service of the library, so the text is identical across them and
+ * repeating it per service type would state one fact several times; `ballerinax/trigger.github` would carry
+ * ten copies. Distinct texts are all emitted, in first-appearance order, because nothing guarantees a future
+ * producer keeps them uniform and silently dropping the second would be the same class of defect this
+ * function exists to fix.
+ *
+ * Until now the field was declared nowhere in TypeScript and rendered nowhere, while the system prompt told
+ * the model to "Respect … the testGenerationInstruction field in whatever library associated with the
+ * service" — so the instruction pointed at text the model was never shown.
+ *
+ * `//` rather than `#`: this is a library-level statement, and a `#` line here would attach to whatever
+ * declaration follows as its documentation. Emitted after the services, since it is about testing code the
+ * reader has not written yet.
+ */
+function renderTestGuidance(services: Service[]): string[] {
+    const seen = new Set<string>();
+    const blocks: string[] = [];
+    for (const service of services) {
+        const guidance = service.testGenerationInstruction;
+        if (!guidance || guidance.trim() === "" || seen.has(guidance)) {
+            continue;
+        }
+        seen.add(guidance);
+        blocks.push(guidance.trimEnd());
+    }
+    if (blocks.length === 0) {
+        return [];
+    }
+    return [
+        "",
+        "// --- Test generation guidance ---",
+        "// Applies only when generating tests for this library's services.",
+        ...blocks,
+    ];
+}
+
+/**
  * Renders a service to Ballerina syntax.
  */
 function renderService(service: Service): string {
@@ -2296,6 +2436,7 @@ export function toSyntaxString(libraries: Library[]): string {
                 output.push("");
                 output.push(renderService(service));
             }
+            output.push(...renderTestGuidance(lib.services));
         }
 
         // Annotation section

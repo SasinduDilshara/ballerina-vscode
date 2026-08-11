@@ -47,6 +47,7 @@ import java.nio.file.Path;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -63,18 +64,23 @@ public class CopilotLibraryManager {
 
     private static final Gson GSON = new Gson();
     private static final String EXCLUSION_JSON_PATH = "/copilot/exclusion.json";
+    private static final String README_LIBRARIES_JSON_PATH = "/copilot/readme-libraries.json";
     private static final String TYPE_GENERIC = "generic";
 
-    // Libraries for which README content should be included in the filtered response.
-    private static final Set<String> README_WHITELIST = Set.of(
-            "ballerinax/salesforce",
-            "ballerina/ai",
-            "ballerinax/cdc",
-            "ballerinax/mysql",
-            "ballerinax/postgresql",
-            "ballerina/ftp",
-            "ballerina/file"
-    );
+    /**
+     * Libraries whose package README is included in the filtered response, read from
+     * {@value #README_LIBRARIES_JSON_PATH}.
+     *
+     * <p>A curated list, like {@code exclusion.json} and {@code generic-services.json}: a README is long
+     * unstructured prose, so including every library's would crowd out the synthesized API surface. What
+     * changed is only <i>where</i> the list lives — it was a {@code Set.of(...)} in this class, so adding a
+     * library meant recompiling the language server, while the two curated lists beside it are data. Loaded
+     * once and cached, because it is consulted per library on a request path.
+     *
+     * <p>An unreadable or absent resource yields an empty set rather than a failure: a missing README is
+     * already an optional part of the payload, so the degradation is "no READMEs" rather than "no libraries".
+     */
+    private static volatile Set<String> readmeLibraries;
 
     /**
      * Loads all libraries from the database.
@@ -104,7 +110,7 @@ public class CopilotLibraryManager {
      * Loads filtered libraries using the semantic model.
      * Returns libraries with full details including clients, functions, typedefs, and services.
      * Applies exclusions and augments with instructions before returning.
-     * README content is included only for libraries in {@link #README_WHITELIST}.
+     * README content is included only for the libraries {@link #readmeLibraries()} lists.
      *
      * @param libraryNames Array of library names in "org/package_name" format to filter
      * @return List of Library objects with complete information
@@ -193,7 +199,7 @@ public class CopilotLibraryManager {
             // OBJECT_METHOD where the compiler reports RESOURCE), so it is no longer consulted.
             library.setAnnotations(symbolResult.getAnnotations());
 
-            if (README_WHITELIST.contains(libraryName)) {
+            if (readmeLibraries().contains(libraryName)) {
                 readPackageReadme(pkg).ifPresent(library::setReadme);
             }
 
@@ -228,6 +234,50 @@ public class CopilotLibraryManager {
 
         applyLibraryExclusions(libraries);
         return libraries;
+    }
+
+    /**
+     * The curated README opt-in list, loaded once.
+     *
+     * @return the library names, empty when the resource is absent or unreadable
+     */
+    static Set<String> readmeLibraries() {
+        Set<String> cached = readmeLibraries;
+        if (cached != null) {
+            return cached;
+        }
+        synchronized (CopilotLibraryManager.class) {
+            if (readmeLibraries == null) {
+                readmeLibraries = loadReadmeLibraries();
+            }
+            return readmeLibraries;
+        }
+    }
+
+    private static Set<String> loadReadmeLibraries() {
+        try (InputStream inputStream =
+                     CopilotLibraryManager.class.getResourceAsStream(README_LIBRARIES_JSON_PATH)) {
+            if (inputStream == null) {
+                return Set.of();
+            }
+            try (InputStreamReader reader = new InputStreamReader(inputStream, StandardCharsets.UTF_8)) {
+                ReadmeLibraries parsed = GSON.fromJson(reader, ReadmeLibraries.class);
+                if (parsed == null || parsed.libraries == null) {
+                    return Set.of();
+                }
+                Set<String> names = new LinkedHashSet<>();
+                for (String name : parsed.libraries) {
+                    if (name != null && !name.isBlank()) {
+                        names.add(name.trim());
+                    }
+                }
+                return Set.copyOf(names);
+            }
+        } catch (IOException | RuntimeException e) {
+            // A malformed list must not take library loading down: a README is optional content, so the
+            // degradation is "no READMEs" rather than "no libraries".
+            return Set.of();
+        }
     }
 
     /**
@@ -369,6 +419,11 @@ public class CopilotLibraryManager {
                         .ifPresent(service::setInstructions);
             }
         }
+    }
+
+    /** Deserialization target for {@value #README_LIBRARIES_JSON_PATH}. */
+    private static class ReadmeLibraries {
+        List<String> libraries = new ArrayList<>();
     }
 
     // Exclusion model classes for deserializing exclusion.json

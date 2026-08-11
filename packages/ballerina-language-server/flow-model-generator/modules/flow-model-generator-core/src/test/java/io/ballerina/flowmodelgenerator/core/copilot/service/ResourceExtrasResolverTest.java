@@ -23,6 +23,7 @@ import io.ballerina.modelgenerator.commons.trigger.models.ValueSpec;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
@@ -119,5 +120,56 @@ public class ResourceExtrasResolverTest {
     private static TriggerMetadataModel.ServiceType.HandlerOption option(ValueSpec accessor, ValueSpec path) {
         return new TriggerMetadataModel.ServiceType.HandlerOption("onEvent", "resource", null, null, null,
                 "optional", null, null, null, null, accessor, path);
+    }
+
+    // ---- the path half of the same `valueSpec` ------------------------------------------
+
+    @Test
+    public void testAPathThatOnlyStatesPresenceEnumeratesNothing() {
+        // Every corpus document's path is `{presence: required}`, so this is the shape that must not change.
+        ResourceExtrasResolver.ResourceExtras extras = ResourceExtrasResolver.resolve(
+                option(new ValueSpec("required", List.of("get")),
+                        new ValueSpec("required", null))).orElseThrow();
+        Assert.assertTrue(extras.pathRequired());
+        Assert.assertTrue(extras.pathValues().isEmpty());
+        Assert.assertNull(extras.path(), "nothing is enumerated, so there is no value to write");
+        Assert.assertFalse(extras.pathOpen());
+    }
+
+    @Test
+    public void testAnEnumeratedPathCarriesItsVocabularyAndCodegenDefault() {
+        // Spec §5 gives `path` the same `valueSpec` as `accessor`, so it may name the legal paths. Only the
+        // accessor half was carried, so this vocabulary was resolved nowhere at all.
+        ResourceExtrasResolver.ResourceExtras extras = ResourceExtrasResolver.resolve(
+                option(new ValueSpec("required", List.of("get")),
+                        new ValueSpec("required", List.of("orders", "invoices")))).orElseThrow();
+        Assert.assertEquals(extras.path(), "orders", "spec §1: the first element is the codegen default");
+        Assert.assertEquals(extras.pathValues(), List.of("orders", "invoices"));
+        Assert.assertTrue(extras.pathRequired());
+        Assert.assertFalse(extras.pathOpen());
+    }
+
+    @Test
+    public void testAnOpenPathIsToldApartFromAnEnumeratedOne() {
+        // `values: ["*"]` must never be rendered as a literal value: a note reading "the path must be one of
+        // `*`" would tell the reader to write a path called `*`.
+        ResourceExtrasResolver.ResourceExtras extras = ResourceExtrasResolver.resolve(
+                option(new ValueSpec("required", List.of("*")),
+                        new ValueSpec("optional", List.of("*")))).orElseThrow();
+        Assert.assertTrue(extras.pathOpen());
+        Assert.assertTrue(extras.pathValues().isEmpty(), "an open slot enumerates nothing");
+        Assert.assertNull(extras.path());
+        Assert.assertFalse(extras.pathRequired());
+        // The accessor half is unchanged by sharing the implementation.
+        Assert.assertTrue(extras.accessorOpen());
+        Assert.assertTrue(extras.accessorRequired());
+    }
+
+    @Test
+    public void testBlankPathValuesAreDroppedLikeAccessorValues() {
+        ResourceExtrasResolver.ResourceExtras extras = ResourceExtrasResolver.resolve(
+                option(null,
+                        new ValueSpec("required", Arrays.asList("orders", null, "  ")))).orElseThrow();
+        Assert.assertEquals(extras.pathValues(), List.of("orders"));
     }
 }

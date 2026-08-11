@@ -23,6 +23,11 @@ import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 /**
  * Tests {@link LibraryMetadataReader}'s three public reads: {@link LibraryMetadataReader#getTriggerMetadataModel}
  * and {@link LibraryMetadataReader#getTriggerUISchemaModel} (a connector's own shipped
@@ -94,5 +99,121 @@ public class LibraryMetadataReaderTest {
     public void testGetTriggerUISchemaModelUnresolvableModuleGracefullyEmpty() {
         ModuleInfo moduleInfo = new ModuleInfo("no-such-org", "no-such-module", "no-such-module", null);
         Assert.assertTrue(READER.getTriggerUISchemaModel(moduleInfo).isEmpty());
+    }
+
+    // ---- the shipped-document path, and why an absence is not a refusal --------------------
+
+    /**
+     * The four outcomes of reading a connector-shipped document.
+     *
+     * <p>This path had no test at all, and could not have had one going in through {@link
+     * io.ballerina.projects.Package}: no package published to Central ships a
+     * {@code resources/trigger-metadata.json} yet, so there was nothing to read. It is nonetheless the path a
+     * future connector takes, and the path on which conflating "no document" with "a document I must not
+     * read" causes a caller to serve the LS's own older copy of the same connector.
+     */
+    @Test
+    public void testAPackageShippingNoDocumentReportsAbsent() throws IOException {
+        Path root = Files.createTempDirectory("no-metadata");
+        LibraryMetadataReader.MetadataRead read = READER.readTriggerMetadataModel(root);
+        Assert.assertEquals(read.outcome(), LibraryMetadataReader.MetadataOutcome.ABSENT);
+        Assert.assertFalse(read.present(), "nothing was there, so a caller may fill the gap from elsewhere");
+        Assert.assertTrue(read.usable().isEmpty());
+    }
+
+    @Test
+    public void testAShippedDocumentIsReadAndReportedUsable() throws IOException {
+        Path root = shipping("""
+                {
+                  "version": "v1.0",
+                  "listeners": [{ "type": { "name": "Listener" }, "services": ["$service"] }],
+                  "serviceTypes": [{
+                    "id": "$service",
+                    "type": { "name": "Service" },
+                    "concrete": false,
+                    "multipleListenersAllowed": false,
+                    "handlers": { "backedByConcreteType": false, "options": [] }
+                  }]
+                }
+                """);
+        LibraryMetadataReader.MetadataRead read = READER.readTriggerMetadataModel(root);
+        Assert.assertEquals(read.outcome(), LibraryMetadataReader.MetadataOutcome.USABLE);
+        Assert.assertTrue(read.present());
+        Assert.assertEquals(read.usable().orElseThrow().serviceTypes().size(), 1);
+    }
+
+    @Test
+    public void testAShippedDocumentOfAnUnimplementedMajorIsRefusedNotAbsent() throws IOException {
+        // The regression this guards: a v2 document read as an ABSENCE lets the caller substitute the LS's
+        // bundled v1 copy of the SAME connector — answering a v2 package with a v1 contract and presenting it
+        // as authoritative. `present()` is what stops that, so it is asserted directly.
+        Path root = shipping("""
+                { "version": "v2.0", "listeners": [], "serviceTypes": [] }
+                """);
+        LibraryMetadataReader.MetadataRead read = READER.readTriggerMetadataModel(root);
+        Assert.assertEquals(read.outcome(),
+                LibraryMetadataReader.MetadataOutcome.UNSUPPORTED_VERSION);
+        Assert.assertTrue(read.present(), "the document IS there; it simply may not be read");
+        Assert.assertTrue(read.usable().isEmpty());
+    }
+
+    @Test
+    public void testAMalformedShippedDocumentIsRefusedNotAbsent() throws IOException {
+        // A third party with a JSON typo used to get complete silence: empty result, no log line, and a
+        // caller that could not tell the file existed.
+        Path root = shipping("{ \"version\": \"v1.0\", \"listeners\": [ ");
+        LibraryMetadataReader.MetadataRead read = READER.readTriggerMetadataModel(root);
+        Assert.assertEquals(read.outcome(), LibraryMetadataReader.MetadataOutcome.MALFORMED);
+        Assert.assertTrue(read.present());
+        Assert.assertTrue(read.usable().isEmpty());
+    }
+
+    @Test
+    public void testAShippedDocumentParsingToNothingIsRefusedNotAbsent() throws IOException {
+        // Valid JSON, no document. Still a defect in a file that exists, not an absent file.
+        Path root = shipping("null");
+        LibraryMetadataReader.MetadataRead read = READER.readTriggerMetadataModel(root);
+        Assert.assertEquals(read.outcome(), LibraryMetadataReader.MetadataOutcome.MALFORMED);
+        Assert.assertTrue(read.present());
+    }
+
+    @Test
+    public void testTheOptionalReturningReadStillCollapsesEveryFailureToEmpty() throws IOException {
+        // The pre-existing API is unchanged for callers that genuinely do not care why.
+        Assert.assertTrue(READER.getShippedTriggerMetadataModel(null).isEmpty());
+        Assert.assertTrue(READER.readTriggerMetadataModel(shipping("{ \"version\": \"v9.0\" }"))
+                .usable().isEmpty());
+    }
+
+    @Test
+    public void testAFailureBeforeTheDocumentIsEvenReadReportsAbsentNotMalformed() throws IOException {
+        // The distinction is expensive, not cosmetic. MALFORMED makes `present()` true, which tells the
+        // caller to suppress BOTH the LS-bundled document AND the service index — so classifying an
+        // unrelated failure as MALFORMED costs the library its entire service catalog, where before this
+        // tri-state existed it cost nothing. Anything that fails before the document's content is in
+        // question ("we could not even look") is therefore ABSENT.
+        //
+        // Provoked with a path that is a FILE where a package root must be a directory, so resolving
+        // `resources/trigger-metadata.json` under it cannot describe a document either way.
+        Path notADirectory = Files.createTempFile("not-a-package", ".txt");
+        LibraryMetadataReader.MetadataRead read = READER.readTriggerMetadataModel(notADirectory);
+        Assert.assertEquals(read.outcome(), LibraryMetadataReader.MetadataOutcome.ABSENT);
+        Assert.assertFalse(read.present(),
+                "a package we could not inspect must not be reported as shipping a broken document");
+    }
+
+    @Test
+    public void testANullPackageReportsAbsent() {
+        LibraryMetadataReader.MetadataRead read = READER.readShippedTriggerMetadata(null);
+        Assert.assertEquals(read.outcome(), LibraryMetadataReader.MetadataOutcome.ABSENT);
+        Assert.assertFalse(read.present());
+    }
+
+    /** A package root shipping the given {@code resources/trigger-metadata.json}. */
+    private static Path shipping(String json) throws IOException {
+        Path root = Files.createTempDirectory("shipped-metadata");
+        Path resources = Files.createDirectories(root.resolve("resources"));
+        Files.writeString(resources.resolve("trigger-metadata.json"), json, StandardCharsets.UTF_8);
+        return root;
     }
 }

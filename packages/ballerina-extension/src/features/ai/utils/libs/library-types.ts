@@ -136,6 +136,11 @@ export interface Field {
     description: string;
     type: Type;
     default?: string;
+    // Whether the record field is declared `T name?;`. Declared here rather than read through an `as any`
+    // cast in `renderRecord`, for the reason `Parameter.optional` gives one interface above: a producer that
+    // stops sending it must fail type-checking rather than silently turn every optional field into a
+    // mandatory one. The cast was the only reason this compiled while the field was undeclared.
+    optional?: boolean;
     isDeprecated?: boolean;
     annotations?: AnnotationAttachment[];
 }
@@ -248,6 +253,14 @@ export interface ServiceRemoteFunction {
     // because the two must be worded differently: a note reading "must be one of `*`" is nonsense.
     accessorOpen?: boolean;
     pathRequired?: boolean;
+    // Spec §5 gives `path` the same `valueSpec` as `accessor`, so it may enumerate the legal paths or declare
+    // itself open. `path` is the one to write (§1: the first declared value is the codegen default),
+    // `pathValues` the rest of the vocabulary, `pathOpen` the `values: ["*"]` case. All three were missing
+    // while the accessor half had them, so a document constraining its path reached the prompt with only
+    // "a path is required" — the specific paths, which are the part the language cannot infer, were dropped.
+    path?: string;
+    pathValues?: string[];
+    pathOpen?: boolean;
     // Spec §5.3 `deprecated` — why this handler is superseded, as the document's own prose. Distinct from
     // `isDeprecated`, which says only *that* the symbol carries the annotation: this names the replacement,
     // which is the part a reader can act on. `ftp`'s `onFileChange` is the corpus instance.
@@ -336,6 +349,15 @@ export interface ConstraintSubject {
     // This subject's name within its rule. Asymmetric constraints fix `when`/`then`; symmetric ones use
     // free labels, referenced by the rule's `prefer`.
     role?: string;
+    // Spec §6's top-level `rules[]`: a constraint spanning more than one service type. The declared *type
+    // name* of the service type this subject belongs to, present only when that is NOT the service type
+    // being rendered — so a rule scoped to one service type carries nothing here and reads exactly as it
+    // did. Without it a spanning rule would present every alternative as belonging to the service type the
+    // reader happens to be looking at.
+    serviceType?: string;
+    // The `serviceTypes[].id` the subject named. Carried for traceability; never rendered, for the same
+    // reason `annotationId` is not — an id names nothing that exists in Ballerina source.
+    serviceTypeId?: string;
 }
 
 // Spec §6 `rules[]`: a named constraint from an open registry.
@@ -408,6 +430,15 @@ export interface Service {
     // Spec §3 `deprecated` — why this service type is superseded, as prose. See
     // ServiceRemoteFunction.deprecated for why it is text and not a flag.
     deprecated?: string;
+    // Hand-authored guidance for writing TESTS against this service, from
+    // `resources/copilot/instructions/<org>/<module>/test.md`. Set by the Java side on every service of a
+    // library that ships one, and named by the system prompt: "Respect … the testGenerationInstruction field
+    // in whatever library associated with the service in the library API documentation".
+    //
+    // It was undeclared here and rendered nowhere, so the prompt instructed the model to honour text it never
+    // received. Declared on `Service` because that is where the producer sets it; rendered once per library,
+    // because the claim is about the library and repeating it per service type would say nothing more.
+    testGenerationInstruction?: string;
 }
 
 // Spec §2.1 — a native artifact the generated project needs on its classpath, which no public repository

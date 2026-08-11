@@ -73,7 +73,9 @@ public class WireContractRoundTripTest {
         draft.setOptional(false);
         draft.setAccessor("get");
         draft.setAccessorConstraint(List.of("get", "post"), true, false);
-        draft.setPathRequired(true);
+        // Both halves of §5's shared `valueSpec`, so the sweep covers the path vocabulary too. It did not,
+        // which is how `path.values` came to be resolved nowhere and declared nowhere.
+        draft.setPathConstraint("orders", List.of("orders", "invoices"), true, false);
         draft.setDeprecated("Superseded by the typed handlers.");
         draft.setReturn(new JsonObject());
 
@@ -104,7 +106,7 @@ public class WireContractRoundTripTest {
         draft.setAccessor("get");
         draft.setAccessorConstraint(
                 List.of("get", "post", "put", "delete", "patch", "head", "options", "default"), true, false);
-        draft.setPathRequired(true);
+        draft.setPathConstraint(null, null, true, false);
 
         ServiceRemoteFunction handler = GSON.fromJson(draft.toJson(), ServiceRemoteFunction.class);
         Assert.assertEquals(handler.getAccessorValues().size(), 8, "every legal accessor must survive");
@@ -112,6 +114,34 @@ public class WireContractRoundTripTest {
         Assert.assertEquals(handler.isAccessorRequired(), Boolean.TRUE);
         Assert.assertEquals(handler.isPathRequired(), Boolean.TRUE);
         Assert.assertNull(handler.isAccessorOpen(), "an enumerated slot is not an open one");
+    }
+
+    @Test
+    public void testThePathVocabularySurvivesWithItsValues() {
+        // The accessor half of this exact regression was found by eyeballing a render; the path half could
+        // not be, because no corpus document sets `path.values`. Pinned by value rather than key presence.
+        HandlerDraft draft = new HandlerDraft();
+        draft.setName("get");
+        draft.setKind("resource");
+        draft.setPathConstraint("orders", List.of("orders", "invoices"), true, false);
+
+        ServiceRemoteFunction handler = GSON.fromJson(draft.toJson(), ServiceRemoteFunction.class);
+        Assert.assertEquals(handler.getPath(), "orders", "spec §1: the first declared value is the default");
+        Assert.assertEquals(handler.getPathValues(), List.of("orders", "invoices"));
+        Assert.assertEquals(handler.isPathRequired(), Boolean.TRUE);
+        Assert.assertNull(handler.isPathOpen(), "an enumerated slot is not an open one");
+    }
+
+    @Test
+    public void testAnOpenPathSurvivesTheRoundTrip() {
+        HandlerDraft draft = new HandlerDraft();
+        draft.setName("get");
+        draft.setKind("resource");
+        draft.setPathConstraint(null, List.of(), true, true);
+
+        ServiceRemoteFunction handler = GSON.fromJson(draft.toJson(), ServiceRemoteFunction.class);
+        Assert.assertEquals(handler.isPathOpen(), Boolean.TRUE);
+        Assert.assertNull(handler.getPath(), "an open slot has no single value to write");
     }
 
     @Test

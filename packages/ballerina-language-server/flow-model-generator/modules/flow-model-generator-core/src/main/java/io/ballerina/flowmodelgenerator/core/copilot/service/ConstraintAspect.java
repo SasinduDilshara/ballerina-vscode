@@ -22,9 +22,13 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.logging.Logger;
 
 /**
  * Spec §6 {@code rules[]} — the exclusivity constraints a service type declares.
@@ -54,6 +58,8 @@ import java.util.Set;
  */
 final class ConstraintAspect implements ServiceAspect {
 
+    private static final Logger LOGGER = Logger.getLogger(ConstraintAspect.class.getName());
+
     @Override
     public String id() {
         return "constraints";
@@ -67,18 +73,149 @@ final class ConstraintAspect implements ServiceAspect {
     @Override
     public void contribute(TriggerScope scope, ServiceDraft draft) {
         TriggerMetadataModel.ServiceType serviceType = scope.serviceType();
-        if (serviceType == null || serviceType.rules() == null || serviceType.rules().isEmpty()) {
+        if (serviceType == null) {
+            return;
+        }
+        List<TriggerMetadataModel.Rule> rules = new ArrayList<>();
+        if (serviceType.rules() != null) {
+            rules.addAll(serviceType.rules());
+        }
+        rules.addAll(spanningRules(scope, serviceType));
+        if (rules.isEmpty()) {
             return;
         }
         List<ConstraintResolver.Constraint> constraints = ConstraintResolver.resolve(
-                scope.libraryName(), serviceType.rules(), declaredHandlerNames(scope, serviceType),
-                scope.annotations());
+                scope.libraryName(), rules, serviceType.id(), index(scope), scope.annotations());
         if (constraints.isEmpty()) {
             return;
         }
         JsonArray json = new JsonArray();
         constraints.forEach(constraint -> json.add(toJson(constraint)));
         draft.setConstraints(json);
+    }
+
+    /**
+     * Spec §6's <b>top-level</b> {@code rules[]} — "Constraints spanning more than one service type. Every
+     * subject must name its {@code serviceType}" — narrowed to the ones this service type participates in.
+     *
+     * <h2>Why a spanning rule is stated on every participant</h2>
+     *
+     * <p>A rule whose subjects live in two service types is a fact about writing <i>either</i> of them, and
+     * the entries render independently: a reader looking at one service never sees the other's notes. Stating
+     * it only once would therefore leave whichever entry the reader happens to be writing with no mention of
+     * the constraint at all. Restricting it to <i>participants</i> is what stops it from becoming noise on
+     * the service types it does not govern.
+     *
+     * <p><b>Latent, and verified so.</b> No document in the corpus declares a top-level rule, so this
+     * contributes nothing today — which is exactly why it needed wiring: the key was parsed, validated by
+     * {@code RuleRefCheck} (including its "every subject must name its serviceType" check), and then read by
+     * nothing on the render path, so the first document to use one would have lost it silently.
+     */
+    private static List<TriggerMetadataModel.Rule> spanningRules(TriggerScope scope,
+                                                                TriggerMetadataModel.ServiceType serviceType) {
+        if (scope.document() == null || scope.document().rules() == null || serviceType.id() == null) {
+            return List.of();
+        }
+        List<TriggerMetadataModel.Rule> participating = new ArrayList<>();
+        for (TriggerMetadataModel.Rule rule : scope.document().rules()) {
+            if (rule == null) {
+                continue;
+            }
+            if (mentions(rule, serviceType.id())) {
+                participating.add(rule);
+                continue;
+            }
+            // A rule that names NO service type at all reaches no entry, so it would otherwise disappear from
+            // the catalog with no veto and no log line — the same silent drop this change set added a Veto to
+            // ListenerPairingResolver to end, reintroduced at the entry point of the construct being wired up.
+            // Reported once per service type rather than globally because this aspect has no library-wide
+            // hook, and a repeated warning is still far better than none.
+            //
+            // Not a veto: the rule is the document's defect, not this service type's, and dropping a service
+            // over another construct's error is exactly what `drop` exists to avoid.
+            if (namesNoServiceType(rule)) {
+                LOGGER.warning("Skipped top-level rule '" + rule.id() + "' for " + scope.libraryName()
+                        + ": spec §6 requires every subject of a top-level rule to name its `serviceType`,"
+                        + " and none of this rule's subjects does, so it reaches no service type.");
+            }
+        }
+        return participating;
+    }
+
+    /** Whether no subject of a rule names a service type — which at top level makes it unreachable. */
+    private static boolean namesNoServiceType(TriggerMetadataModel.Rule rule) {
+        if (rule.subjects() == null || rule.subjects().isEmpty()) {
+            return true;
+        }
+        for (TriggerMetadataModel.Subject subject : rule.subjects()) {
+            if (subject != null && subject.serviceType() != null && !subject.serviceType().isBlank()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Whether a rule names this service type in any subject.
+     *
+     * <p>A subject naming no {@code serviceType} at all is <b>not</b> read as the enclosing one here, unlike
+     * in {@link ConstraintResolver}: at top level the spec requires every subject to name one, so an unnamed
+     * subject is a document defect ({@code RuleRefCheck} reports it) and treating it as a match would attach
+     * the rule to every service type in the document.
+     */
+    private static boolean mentions(TriggerMetadataModel.Rule rule, String serviceTypeId) {
+        if (rule.subjects() == null) {
+            return false;
+        }
+        for (TriggerMetadataModel.Subject subject : rule.subjects()) {
+            if (subject != null && serviceTypeId.equals(subject.serviceType())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The document's service types, for attributing a subject that names one.
+     *
+     * <p>Handler names are resolved per service type by the same {@link #declaredHandlerNames} the enclosing
+     * entry uses, so a spanning rule's subjects are cross-checked against <i>their own</i> catalogs.
+     */
+    private static ConstraintResolver.ServiceTypeIndex index(TriggerScope scope) {
+        Map<String, TriggerMetadataModel.ServiceType> byId = new LinkedHashMap<>();
+        if (scope.document() != null && scope.document().serviceTypes() != null) {
+            for (TriggerMetadataModel.ServiceType candidate : scope.document().serviceTypes()) {
+                if (candidate != null && candidate.id() != null) {
+                    byId.putIfAbsent(candidate.id(), candidate);
+                }
+            }
+        }
+        return new ConstraintResolver.ServiceTypeIndex() {
+            @Override
+            public String typeName(String serviceTypeId) {
+                TriggerMetadataModel.ServiceType found = byId.get(serviceTypeId);
+                return found == null || found.type() == null ? null : found.type().name();
+            }
+
+            @Override
+            public Set<String> handlerNames(String serviceTypeId) {
+                // The ENCLOSING service type is answered from the scope, never through the map. `byId` is
+                // built with `putIfAbsent`, so two entries sharing an id would resolve the second one's
+                // subjects against the first one's handlers and drop them as phantoms. Nothing validates id
+                // uniqueness, and the entry being rendered is the one case where the right answer is already
+                // in hand — so it is taken directly, exactly as it was before spanning rules existed.
+                String enclosingId = scope.serviceType() == null ? null : scope.serviceType().id();
+                if (serviceTypeId == null || serviceTypeId.equals(enclosingId)) {
+                    return scope.serviceType() == null
+                            ? null : declaredHandlerNames(scope, scope.serviceType());
+                }
+                // An id naming nothing yields `null`, which suppresses the cross-check rather than dropping
+                // the subject: the subject itself is dropped by `attribute`, so reaching here means the id
+                // resolved and only its catalog is unknown.
+                TriggerMetadataModel.ServiceType found = byId.get(serviceTypeId);
+                return found == null ? null : declaredHandlerNames(scope, found);
+            }
+        };
     }
 
     /**
@@ -103,10 +240,14 @@ final class ConstraintAspect implements ServiceAspect {
             }
             return names;
         }
-        if (scope.facts() == null || scope.serviceTypeName() == null) {
+        // The type's OWN name, not `scope.serviceTypeName()`: this is called for every service type a
+        // spanning rule mentions, and reading the enclosing entry's name would cross-check one service
+        // type's subjects against another's methods.
+        String typeName = serviceType.type() == null ? null : serviceType.type().name();
+        if (scope.facts() == null || typeName == null) {
             return null;
         }
-        return scope.facts().serviceObjectType(scope.serviceTypeName())
+        return scope.facts().serviceObjectType(typeName)
                 .map(objectType -> {
                     Set<String> names = new LinkedHashSet<>();
                     scope.facts().declaredMethods(objectType)
@@ -181,6 +322,16 @@ final class ConstraintAspect implements ServiceAspect {
         }
         if (subject.role() != null) {
             json.addProperty("role", subject.role());
+        }
+        // Spec §6: emitted only for a subject belonging to a DIFFERENT service type than the entry being
+        // rendered, so a service-type-scoped rule — every rule in the corpus — is byte-identical to before.
+        // The resolved type name is what a reader recognises; the id follows it for traceability, the same
+        // pairing an annotation subject already uses.
+        if (subject.serviceType() != null) {
+            json.addProperty("serviceType", subject.serviceType());
+            if (subject.serviceTypeId() != null) {
+                json.addProperty("serviceTypeId", subject.serviceTypeId());
+            }
         }
         return json;
     }
