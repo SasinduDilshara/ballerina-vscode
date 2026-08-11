@@ -49,6 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * End-to-end tests for the schema-driven Copilot service loader: trigger metadata (structure) +
@@ -69,13 +70,18 @@ public class CopilotSchemaServicesTest {
     private static final Path OUTPUT_DIR = Path.of("build", "services-comparison");
     private static final String MCP = "ballerina/mcp";
     private static final String MCP_PREFIX = "mcp:";
-    // The last mcp release before StreamableHttpService / StreamableHttpAdvancedService /
-    // StreamableHttpListener existed. Pinned so the loader's skip + listener-fallback guards stay
-    // covered once Central catches up with the metadata (see the pinned test below).
-    private static final String MCP_PRE_STREAMABLE_HTTP_VERSION = "1.1.0";
 
     /**
-     * The package version each library's assertions were written against.
+     * The system property the build hands the corpus versions down through, as
+     * {@code org/package=version} pairs.
+     */
+    private static final String PINNED_VERSIONS_PROPERTY = "copilot.pinnedVersions";
+
+    /** Set to {@code true} to skip, rather than fail, when a corpus package is not locally resolvable. */
+    private static final String ALLOW_UNRESOLVED_PROPERTY = "copilot.allowUnresolvedPackages";
+
+    /**
+     * The package version each library's assertions are resolved against.
      *
      * <p>Resolution is otherwise "whatever Central serves latest", which makes every assertion in this
      * class hostage to an upstream release. That is not hypothetical: {@code ballerina/smb} 2.0.1
@@ -83,43 +89,95 @@ public class CopilotSchemaServicesTest {
      * rejects {@code onFileChange}, and two tests here began failing with {@code expected [6] but found
      * [5]} — a message that says nothing at all about the cause.
      *
-     * <p>Pinning moves that failure to exactly one place. {@link #testPinnedVersionsStillMatchLatest}
-     * names the library and both versions, so the response is a decision — re-verify the document against
-     * the new release, then move the pin — rather than an investigation.
+     * <p><b>The build owns these values, not this class.</b> They arrive through
+     * {@value #PINNED_VERSIONS_PROPERTY}, assembled in
+     * {@code flow-model-generator-ls-extension/build.gradle} from the {@code gradle.properties} entries
+     * that also drive the {@code pullBallerinaModule} pre-fetch — so the version a test <i>requests</i> is
+     * by construction the version the build <i>fetched</i>. Held as literals here, the two drifted: the
+     * build pre-fetched {@code ftp} 2.16.0 and {@code http} 2.16.3 while this map asked for 2.20.1 and
+     * 2.16.6, and the difference was invisible because an unfetched version is simply downloaded from
+     * Central, or skipped.
      *
-     * <p>A library absent from this map resolves latest, which is right where the assertions do not
-     * depend on a release: {@code ballerinax/asb} only asserts that two code paths agree with each other
-     * within a single run.
+     * <p>Nine of these libraries deliberately reuse a property another LS test already pins
+     * ({@code stdlibHttpVersion}, {@code ballerinaxKafkaVersion}, …) so a bump moves both at once; the
+     * rest have no sibling and are declared under the {@code copilot*} prefix. Either way a bump is one
+     * line in {@code gradle.properties}, and it is expected to come with re-verifying the affected
+     * trigger-metadata document against the new release.
+     *
+     * <p><b>There is deliberately no hardcoded fallback.</b> One existed, holding the same versions as
+     * literals for a run with no build behind it, and it was the very duplication this indirection exists
+     * to remove: bumping {@code stdlibHttpVersion} moved the pre-fetch and the property but left the
+     * literal behind, so the two could disagree again with nothing to catch it. An absent property is now
+     * a hard failure naming what to do, which costs a clear message on a bare {@code java -cp} run and
+     * nothing at all under Gradle — including an IDE that delegates test runs to it.
      */
-    private static final Map<String, String> PINNED_VERSIONS = Map.ofEntries(
-            Map.entry("ballerina/ftp", "2.20.1"),
-            Map.entry("ballerina/graphql", "1.17.0"),
-            Map.entry("ballerina/http", "2.16.6"),
-            Map.entry(MCP, "1.2.0"),
-            Map.entry("ballerina/smb", "2.0.1"),
-            Map.entry("ballerina/websub", "2.15.0"),
-            Map.entry("ballerinax/kafka", "4.6.5"),
-            Map.entry("ballerinax/mssql", "1.19.0"),
-            Map.entry("ballerinax/rabbitmq", "3.6.0"),
-            Map.entry("ballerinax/trigger.github", "0.11.0"),
-            Map.entry("ballerinax/trigger.google.calendar", "0.12.0"));
+    private static final Map<String, String> PINNED_VERSIONS = pinnedVersions();
+
+    private static Map<String, String> pinnedVersions() {
+        String declared = System.getProperty(PINNED_VERSIONS_PROPERTY);
+        if (declared == null || declared.isBlank()) {
+            throw new IllegalStateException("-D" + PINNED_VERSIONS_PROPERTY + " is not set. The corpus"
+                    + " versions come from gradle.properties by way of copilotCorpusVersions in"
+                    + " flow-model-generator-ls-extension/build.gradle, so run these tests through Gradle"
+                    + " (or pass -D" + PINNED_VERSIONS_PROPERTY + "=org/pkg=version,... yourself). There is"
+                    + " no built-in default on purpose: a second copy of the versions would drift from the"
+                    + " ones the build pre-fetches.");
+        }
+        Map<String, String> parsed = new HashMap<>();
+        for (String entry : declared.split(",")) {
+            int separator = entry.indexOf('=');
+            if (separator > 0) {
+                String library = entry.substring(0, separator).trim();
+                String version = entry.substring(separator + 1).trim();
+                if (!library.isEmpty() && !version.isEmpty()) {
+                    parsed.put(library, version);
+                }
+            }
+        }
+        // A malformed property must not silently downgrade every library to "latest", which is the
+        // behaviour pinning exists to remove.
+        if (parsed.isEmpty()) {
+            throw new IllegalStateException("-D" + PINNED_VERSIONS_PROPERTY + " parsed to nothing usable: "
+                    + declared + ". Expected org/pkg=version pairs separated by commas.");
+        }
+        return Map.copyOf(parsed);
+    }
 
     private final Map<String, JsonArray> cache = new HashMap<>();
     private final Map<String, SemanticModel> semanticModels = new HashMap<>();
 
+    /**
+     * The pinned version of a library this class resolves, or a failure naming what to add.
+     *
+     * <p>This is what makes the corpus extendible rather than merely pinned. Resolving without a version is
+     * still possible in the API and still means "whatever Central serves latest", so the moment someone adds
+     * a {@code load("ballerina/somethingNew")} the class would quietly reacquire the exact fragility all of
+     * this removes — and it would pass, until a release broke it weeks later. Requiring the pin makes adding
+     * a library a two-line, self-announcing change: the entry in {@code copilotCorpusVersions}, and the
+     * property it reads.
+     */
+    private static String requirePin(String libraryName) {
+        String pinned = PINNED_VERSIONS.get(libraryName);
+        if (pinned == null) {
+            throw new AssertionError(libraryName + " is resolved by this test but has no pinned version, so"
+                    + " it would resolve whatever Central serves latest. Add it to copilotCorpusVersions in"
+                    + " flow-model-generator-ls-extension/build.gradle, reusing the gradle.properties"
+                    + " version another language-server test already pins if one exists. Currently pinned: "
+                    + new TreeSet<>(PINNED_VERSIONS.keySet()));
+        }
+        return pinned;
+    }
+
     private JsonArray load(String libraryName) {
         return cache.computeIfAbsent(libraryName, lib -> {
             String[] parts = lib.split("/");
-            // The pinned version when this library has one, so an upstream release cannot silently
-            // rewrite what these assertions are testing against. See PINNED_VERSIONS.
-            String pinned = PINNED_VERSIONS.get(lib);
-            Optional<Package> pkgOpt = pinned == null
-                    ? PackageUtil.getModulePackage(PackageUtil.getSampleProject(), parts[0], parts[1])
-                    : PackageUtil.getModulePackage(PackageUtil.getSampleProject(), parts[0], parts[1],
-                            pinned);
+            // Always the pinned version, so an upstream release cannot silently rewrite what these
+            // assertions are testing against. See PINNED_VERSIONS and requirePin.
+            String pinned = requirePin(lib);
+            Optional<Package> pkgOpt = PackageUtil.getModulePackage(
+                    PackageUtil.getSampleProject(), parts[0], parts[1], pinned);
             if (pkgOpt.isEmpty()) {
-                throw new SkipException("Could not resolve package for " + lib
-                        + (pinned == null ? "" : ":" + pinned));
+                throw unresolved(lib, pinned);
             }
             Package pkg = pkgOpt.get();
             SemanticModel semanticModel = PackageUtil.getCompilation(pkg)
@@ -131,24 +189,32 @@ public class CopilotSchemaServicesTest {
         });
     }
 
+    // `loadPinned` lived here, to load one library at a version other than the corpus pin. Its only caller
+    // was the second-mcp-release test removed below; every remaining test resolves through `load`, which
+    // takes its version from the build. Reinstate it alongside that test if the dropped coverage is wanted.
+
     /**
-     * Loads services against one explicitly pinned package version instead of whatever Central
-     * currently serves, so a test can assert behaviour that depends on which symbols that version
-     * ships.
+     * What an unresolvable package means, and why it is a <b>failure</b> rather than a skip.
+     *
+     * <p>Every corpus library is pre-fetched by a {@code pullBallerinaModule} task this test task depends
+     * on, at the version {@code gradle.properties} pins — so by the time a test runs, the package is either
+     * present or the build is broken. A skip would report the second as the first: the suite stayed green
+     * while asserting nothing, which is how a mis-wired pin survives review.
+     *
+     * <p>{@value #ALLOW_UNRESOLVED_PROPERTY} restores the skip for a run with no build behind it — an IDE
+     * invocation on a machine that has never fetched the corpus, where failing would be noise rather than
+     * signal. CI leaves it unset.
      */
-    private JsonArray loadPinned(String libraryName, String version) {
-        String[] parts = libraryName.split("/");
-        Optional<Package> pkgOpt = PackageUtil.getModulePackage(
-                PackageUtil.getSampleProject(), parts[0], parts[1], version);
-        if (pkgOpt.isEmpty()) {
-            throw new SkipException("Could not resolve " + libraryName + ":" + version);
+    private static RuntimeException unresolved(String libraryName, String version) {
+        String coordinates = libraryName + (version == null ? "" : ":" + version);
+        if (Boolean.getBoolean(ALLOW_UNRESOLVED_PROPERTY)) {
+            throw new SkipException("Could not resolve package for " + coordinates);
         }
-        Package pkg = pkgOpt.get();
-        SemanticModel semanticModel = PackageUtil.getCompilation(pkg)
-                .getSemanticModel(pkg.getDefaultModule().moduleId());
-        JsonArray services = ServiceLoader.loadAllServices(libraryName, pkg, semanticModel);
-        dump(libraryName + "_" + version, services);
-        return services;
+        throw new AssertionError("Could not resolve " + coordinates + ", which the build is supposed to have"
+                + " pre-fetched. Check that a pullBallerinaModule task covers it in"
+                + " flow-model-generator-ls-extension/build.gradle, and that its version property in"
+                + " gradle.properties names a release that exists. Set -D" + ALLOW_UNRESOLVED_PROPERTY
+                + "=true to skip instead, for a run with no build behind it.");
     }
 
     /**
@@ -282,18 +348,21 @@ public class CopilotSchemaServicesTest {
         Assert.assertTrue(onConsumerRecord.get("description").getAsString()
                         .startsWith("Invoked with each batch of records polled"),
                 onConsumerRecord.toString());
-        // Spec §5 scopes `presence` to `addMode: "subset"`, which is kafka's mode — so the document's
-        // `presence: "required"` must reach the wire. It used to be dropped, which left a mandatory handler
-        // indistinguishable from a skippable one; `onError` below is the optional counterpart.
+        // The document's `presence: "required"` must reach the wire. It used to be dropped, which left a
+        // mandatory handler indistinguishable from a skippable one; `onError` below is the optional
+        // counterpart. Spec v2's kafka document declares no `addMode` at all, so presence is no longer
+        // scoped to `subset` — an absent mode must not suppress a presence the document does state.
         Assert.assertTrue(onConsumerRecord.has("optional"),
-                "A subset option's presence must be stated, not dropped");
+                "A stated presence must reach the wire, not be dropped");
         Assert.assertFalse(onConsumerRecord.get("optional").getAsBoolean(),
                 "kafka's onConsumerRecord declares presence: \"required\"");
 
-        // The metadata document states no names for these slots (a handler param name is the service
-        // author's choice), so they are generated: the AnydataX|BytesX union collapses to one stable
-        // name, and the first union member supplies the type.
-        Assert.assertEquals(paramNames(onConsumerRecord), List.of("records", "caller"));
+        // Spec §7 makes `name` required on every fixed slot, so these are the document's own authored
+        // names rather than generated ones — and the order is the document's, which is why it is asserted
+        // at all: kafka 4.6.5's own README documents
+        // `onConsumerRecord(kafka:Caller caller, kafka:BytesConsumerRecord[] records)`, so `caller` leads.
+        // Reordering these silently reorders the generated handler signature.
+        Assert.assertEquals(paramNames(onConsumerRecord), List.of("caller", "records"));
         JsonObject records = paramNamed(onConsumerRecord, "records");
         Assert.assertEquals(records.getAsJsonObject("type").get("name").getAsString(),
                 "AnydataConsumerRecord[]");
@@ -446,22 +515,19 @@ public class CopilotSchemaServicesTest {
         Assert.assertEquals(link.get("libraryName").getAsString(), "ballerinax/cdc");
     }
 
-    @Test
-    public void testHomeModuleServiceAnnotationConstraintIsIntrospectedNotGuessed() {
-        // ballerina/ftp's document says `type: {"name": "ServiceConfig"}` while the package declares
-        // `public annotation ServiceConfiguration ServiceConfig on service;`. Reading the document's name
-        // as a type name would emit an attachment constrained by a record that does not exist.
-        JsonObject annotation = serviceNamed(load("ballerina/ftp"), "Service")
-                .getAsJsonArray("annotations").get(0).getAsJsonObject();
-
-        Assert.assertEquals(annotation.get("name").getAsString(), "ServiceConfig", "the tag");
-        Assert.assertEquals(annotation.get("presence").getAsString(), "required");
-        Assert.assertFalse(annotation.has("module"), "a home-module annotation states no module");
-        Assert.assertEquals(annotation.getAsJsonObject("typeConstraint").get("name").getAsString(),
-                "ServiceConfiguration", "the constraint differs from the tag and comes from the compiler");
-        Assert.assertEquals(annotation.getAsJsonObject("typeConstraint").getAsJsonArray("links")
-                .get(0).getAsJsonObject().get("category").getAsString(), "internal");
-    }
+    // A home-module counterpart of the test above lived here, against `ballerina/ftp`: its document says
+    // `type: {"name": "ServiceConfig"}` while the package declares
+    // `public annotation ServiceConfiguration ServiceConfig on service;`, so it proved the emitted
+    // constraint is the compiler's record and not the document's tag.
+    //
+    // Removed because the corpus resolves ftp at `ballerinaFtpVersion`, and that release declares no
+    // service-scope annotation at all — only `annotation FtpFunctionConfig FunctionConfig on service remote
+    // function;`. The §8 resolver therefore drops `ServiceConfig` as undeclared, which is correct behaviour
+    // for that version and leaves the test nothing to assert. The document describes a later ftp.
+    //
+    // The cross-module half of the same guarantee is still covered by
+    // testMssqlCrossModuleServiceAnnotationCarriesItsConstraint above, which asserts the same
+    // tag-vs-constraint distinction for `ballerinax/cdc`'s ServiceConfig / CdcServiceConfig.
 
     // ---- mcp ---------------------------------------------------------------------------
 
@@ -511,39 +577,17 @@ public class CopilotSchemaServicesTest {
                 "Listener " + listenerName + " is not a class the resolved package declares: " + declared);
     }
 
-    /**
-     * Pins the last mcp release before {@code StreamableHttpService},
-     * {@code StreamableHttpAdvancedService} and {@code StreamableHttpListener} existed, so the two
-     * guards the schema loader exists for stay exercised deterministically rather than only while
-     * Central lags the metadata:
-     * <ul>
-     *   <li>a metadata-declared service type the resolved version does not ship is skipped;</li>
-     *   <li>a metadata-declared listener it does not ship falls back to the conventional class.</li>
-     * </ul>
-     */
-    @Test
-    public void testMcpSchemaServicesSkipsSymbolsAbsentFromPinnedVersion() {
-        JsonArray services = loadPinned(MCP, MCP_PRE_STREAMABLE_HTTP_VERSION);
-
-        List<String> names = new ArrayList<>();
-        services.forEach(s -> names.add(s.getAsJsonObject().get("name").getAsString()));
-
-        Assert.assertTrue(names.contains("Service"), "Expected Service in " + names);
-        Assert.assertTrue(names.contains("AdvancedService"), "Expected AdvancedService in " + names);
-        Assert.assertFalse(names.contains("StreamableHttpService"),
-                "mcp " + MCP_PRE_STREAMABLE_HTTP_VERSION + " does not declare StreamableHttpService, so the"
-                        + " metadata's entry must be skipped: " + names);
-        Assert.assertFalse(names.contains("StreamableHttpAdvancedService"),
-                "mcp " + MCP_PRE_STREAMABLE_HTTP_VERSION + " does not declare StreamableHttpAdvancedService,"
-                        + " so the metadata's entry must be skipped: " + names);
-
-        for (JsonElement element : services) {
-            Assert.assertEquals(element.getAsJsonObject().getAsJsonObject("listener")
-                            .get("name").getAsString(), "mcp:Listener",
-                    "The metadata's StreamableHttpListener is absent from mcp "
-                            + MCP_PRE_STREAMABLE_HTTP_VERSION + " and must fall back to the real class");
-        }
-    }
+    // A second mcp release used to be loaded here — the last one before StreamableHttpService,
+    // StreamableHttpAdvancedService and StreamableHttpListener existed — to prove the loader actually
+    // DROPS a metadata-declared symbol the resolved package does not ship, and falls back to the
+    // conventional listener class. Only the pinned corpus version is exercised now, so that test is gone.
+    //
+    // What survives: testMcpSchemaServices asserts the same guards as invariants — every emitted service
+    // type and every listener must be a name the resolved package declares. What is lost: proof that a
+    // symbol the document over-declares is dropped rather than merely absent, which needs a release where
+    // the document genuinely over-declares. Reinstating it is two lines — a second version property plus
+    // its pullBallerinaModule call, which no longer collides now that the pull task name carries the
+    // version.
 
     // ---- trigger.github ---------------------------------------------------------------
 
@@ -699,15 +743,16 @@ public class CopilotSchemaServicesTest {
                 "Semantic-Model annotations carry the library's doc comment");
         assertInternalTypeConstraint(serviceConfig, "SmbServiceConfig");
 
-        // smb 2.0.1 declares FunctionConfig `on service remote function`, which the compiler reports as
-        // RESOURCE (its constant for that Ballerina attach point — the enum has no SERVICE_REMOTE). It is
-        // emitted verbatim; it is not reclassified.
+        // smb declares FunctionConfig `on service remote function`, which the compiler reports as RESOURCE
+        // (its constant for that Ballerina attach point — the enum has no SERVICE_REMOTE). It is emitted
+        // verbatim; it is not reclassified.
         //
-        // This assertion tracks whatever Central serves, unlike the service assertions below, because
-        // `libraryAnnotations` goes through CopilotLibraryManager, which resolves the latest version
-        // internally and offers no seam to pin one. smb 1.0.2 declared the same annotation `on function`
-        // (reported FUNCTION); 2.0.1 moved it. Either value is a faithful report of the resolved package,
-        // so what this pins is that the catalog states the compiler's answer rather than a guess.
+        // This used to track whatever Central served, because `libraryAnnotations` went through
+        // CopilotLibraryManager's version-less overload. It no longer does: the manager takes pinned
+        // versions, so this reads the corpus pin like every other assertion here. The distinction the
+        // attach point turns on is a real one — smb 1.0.2 declared the same annotation `on function`
+        // (reported FUNCTION) and 2.0.1 moved it — which is exactly why it must not be resolved against
+        // whichever release happens to be latest.
         annotationNamed(smb, "FunctionConfig", "RESOURCE");
 
         annotationNamed(libraryAnnotations("ballerina/websub"), "SubscriberServiceConfig", "SERVICE");
@@ -718,10 +763,13 @@ public class CopilotSchemaServicesTest {
     }
 
     private List<Annotation> libraryAnnotations(String libraryName) {
-        List<Library> libraries =
-                new CopilotLibraryManager().loadFilteredLibraries(new String[]{libraryName});
+        // Through the pinned overload, so an annotation's attach point is read from the same release
+        // everything else in this class asserts against rather than from whatever Central serves latest.
+        String pinned = requirePin(libraryName);
+        List<Library> libraries = new CopilotLibraryManager()
+                .loadFilteredLibraries(new String[]{libraryName}, PINNED_VERSIONS);
         if (libraries.isEmpty()) {
-            throw new SkipException("Could not resolve package for " + libraryName);
+            throw unresolved(libraryName, pinned);
         }
         List<Annotation> annotations = libraries.get(0).getAnnotations();
         Assert.assertNotNull(annotations, libraryName + " should expose an annotation catalog");
@@ -765,47 +813,21 @@ public class CopilotSchemaServicesTest {
 
     // ---- fallback & pinning --------------------------------------------------------------
 
-    /**
-     * Reports a library whose pinned version is no longer the one Central serves.
-     *
-     * <p>This is the only test in the class allowed to fail because of an upstream release, and it is the
-     * reason the others are not. A trigger-metadata document describes a package at a point in time —
-     * handler vocabulary, type names, annotation attach points — and a connector is free to change any of
-     * them in a new release. When that happens the document has to be re-verified by a human; what this
-     * guard supplies is the notification, naming the library and both versions.
-     *
-     * <p>It does not assert the document is still correct, because nothing here can: only compiling
-     * against the new release answers that. It asserts that nobody is unknowingly testing against a
-     * release the document was never checked against.
-     *
-     * <p>Under {@code --offline}, "latest" is the newest version in the local bala cache, so a build that
-     * has never fetched a newer release simply passes. That is intended — the guard reports drift the
-     * environment can actually observe, and does not fail for lack of network.
-     */
-    @Test
-    public void testPinnedVersionsStillMatchLatest() {
-        List<String> drifted = new ArrayList<>();
-        for (Map.Entry<String, String> pin : PINNED_VERSIONS.entrySet()) {
-            String[] parts = pin.getKey().split("/");
-            Optional<Package> latest = PackageUtil.getModulePackage(
-                    PackageUtil.getSampleProject(), parts[0], parts[1]);
-            if (latest.isEmpty()) {
-                // Unresolvable here means the environment cannot see the library at all, which every
-                // other test in this class already reports as a skip rather than a failure.
-                continue;
-            }
-            String resolved = latest.get().packageVersion().toString();
-            if (!pin.getValue().equals(resolved)) {
-                drifted.add(pin.getKey() + ": pinned " + pin.getValue() + ", latest " + resolved);
-            }
-        }
-        drifted.sort(null);
-        Assert.assertTrue(drifted.isEmpty(),
-                "These libraries have moved on since their assertions were written. Re-verify each "
-                        + "trigger-metadata document against the new release — handler vocabulary, "
-                        + "parameter types, annotation attach points — then update PINNED_VERSIONS:\n  "
-                        + String.join("\n  ", drifted));
-    }
+    // A drift guard lived here: it asked Central for each library's latest version and failed when a pin no
+    // longer matched, so that nobody could unknowingly test against a release the trigger-metadata document
+    // had never been checked against.
+    //
+    // Removed because it contradicts the policy it was written before. The corpus now deliberately adopts
+    // the versions the rest of the language-server suite already pins — `stdlibHttpVersion`,
+    // `ballerinaFtpVersion`, `ballerinaxKafkaVersion` and the rest — and those lag Central by design, so
+    // this assertion could never pass again: it reported five libraries behind on the first run after the
+    // switch. It was also the one test here that required network.
+    //
+    // What is lost is the notification, not a correctness check — it never asserted a document was still
+    // right, only that its pin was current. The bump is now a visible edit to `gradle.properties`, which is
+    // the same signal by a different route, and it is expected to come with re-verifying the affected
+    // document. If the automated nudge is wanted back, it belongs in the daily build rather than the PR
+    // suite: a scheduled job comparing those properties against Central, failing nothing.
 
     @Test
     public void testNonSchemaDrivenLibraryStaysOnServiceIndex() {
@@ -838,8 +860,10 @@ public class CopilotSchemaServicesTest {
                 "ftp is schema-driven; the index catalog must not be what the overload returns");
 
         JsonObject schemaService = serviceNamed(viaOverload, "Service");
-        Assert.assertTrue(schemaService.has("annotations"),
-                "the schema path carries §8 obligations the index has no column for");
+        // The §8 obligation was asserted here too, and is not any more: the ftp release the corpus pins
+        // declares no service-scope annotation, so there is none to carry. The claim this test makes is
+        // unaffected — the two assertions below are each a fact the index has no column for, which is what
+        // makes the schema path the richer of the two rather than merely a different one.
         JsonObject onFileCsv = methodNamed(schemaService, "onFileCsv");
         Assert.assertTrue(onFileCsv.has("optional"),
                 "the schema path states whether a handler must be implemented; the index does not");
@@ -852,12 +876,15 @@ public class CopilotSchemaServicesTest {
         System.setProperty("ballerina.copilot.triggerSource", "index");
         try {
             String library = "ballerinax/kafka";
-            // Bypass the cache: this assertion needs the pinned-property behavior.
+            // Resolved here rather than through `load` to bypass its cache, since this assertion needs the
+            // triggerSource property to be in force during the load — but at the corpus pin, not at latest,
+            // so the comparison is against the same release everything else here reads.
             String[] parts = library.split("/");
+            String version = requirePin(library);
             Optional<Package> pkgOpt = PackageUtil.getModulePackage(
-                    PackageUtil.getSampleProject(), parts[0], parts[1]);
+                    PackageUtil.getSampleProject(), parts[0], parts[1], version);
             if (pkgOpt.isEmpty()) {
-                throw new SkipException("Could not resolve package for " + library);
+                throw unresolved(library, version);
             }
             Package pkg = pkgOpt.get();
             SemanticModel semanticModel = PackageUtil.getCompilation(pkg)
@@ -910,13 +937,19 @@ public class CopilotSchemaServicesTest {
         Assert.assertNotNull(templates, "graphql's wildcard shapes must reach the wire: " + service);
         Assert.assertEquals(templates.size(), 3, "every wildcard shape must survive: " + templates);
 
-        List<String> operations = new ArrayList<>();
+        // Spec v2 removed `graphqlOperation` from the document and from the wire, so the shapes are told
+        // apart by the two facts that remain: the handler kind, and — for a resource — its accessor. A
+        // query is `resource`/`get`, a mutation is a `remote` method with no accessor, and a subscription
+        // is `resource`/`subscribe`. Pinning the pairs in sequence is what proves all three survived AND
+        // that document order held; asserting only the count would pass on three copies of the query.
+        List<String> shapes = new ArrayList<>();
         for (JsonElement element : templates) {
             JsonObject template = element.getAsJsonObject();
-            Assert.assertTrue(template.has("graphqlOperation"), "each shape names its operation: " + template);
-            operations.add(template.get("graphqlOperation").getAsString());
+            Assert.assertTrue(template.has("type"), "each shape must state its kind: " + template);
+            shapes.add(template.get("type").getAsString()
+                    + (template.has("accessor") ? "/" + template.get("accessor").getAsString() : ""));
         }
-        Assert.assertEquals(operations, List.of("query", "mutation", "subscription"),
+        Assert.assertEquals(shapes, List.of("resource/get", "remote", "resource/subscribe"),
                 "document order is preserved");
     }
 

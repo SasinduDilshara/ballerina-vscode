@@ -108,7 +108,13 @@ if (moduleVersion.indexOf('-') != -1) {
 
 // TODO: Remove this once the workspace manager is refactored to import modules where necessary.
 def pullBallerinaModule(String packageName, String version = null, String orgName = "ballerinax") {
-    def taskName = "pull${orgName.capitalize()}Module_${packageName.replace('/', '_')}"
+    // The version is part of the task name, not just of the command. Keyed on org+package alone, a second
+    // call for the same package at a DIFFERENT version returned the first task and the second version was
+    // never pulled — silently, because the caller still got a task to depend on. Two callers legitimately
+    // want different versions of one package: ballerina/ftp is pinned separately by service-model and by
+    // the Copilot corpus, and the mcp tests exercise one release against the previous one.
+    def taskName = "pull${orgName.capitalize()}Module_${packageName.replace('/', '_')}" +
+            (version ? "_${version.replace('.', '_')}" : "")
     if (tasks.findByName(taskName) != null) {
         return tasks.named(taskName)
     }

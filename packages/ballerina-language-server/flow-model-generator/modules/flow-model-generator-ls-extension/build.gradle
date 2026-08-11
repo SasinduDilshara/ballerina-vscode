@@ -129,6 +129,40 @@ test.dependsOn rootProject.pullBallerinaModule('ai', ballerinaAiVersion, "baller
 // TODO: Re-enable this once the `np` module is available on central
 //test.dependsOn rootProject.pullBallerinaModule('np')
 
+// The Copilot trigger-metadata corpus, pre-fetched at the versions gradle.properties pins so the
+// schema-driven service tests never resolve "whatever Central serves latest". See the corpus block in
+// gradle.properties for why, and for which libraries share a property with another LS test.
+//
+// `bal pull` rather than a Maven `*-ballerina` artifact: those artifacts declare no dependencies in their
+// POM (verified against mssql-ballerina 1.19.0), so a Maven route would seed one bare bala and leave its
+// transitive closure — 101 packages across this corpus, including stdlib versions the test distribution
+// does not ship — to be resolved from Central at test time anyway. `bal pull` fetches the closure.
+//
+// ballerina/ftp is already pulled above at ballerinaFtpVersion, which is the version the corpus uses too,
+// so it is not repeated here.
+ext.copilotCorpusVersions = [
+        'ballerina/http': stdlibHttpVersion,
+        'ballerina/graphql': stdlibGraphqlVersion,
+        'ballerina/grpc': stdlibGrpcVersion,
+        'ballerina/ftp': ballerinaFtpVersion,
+        'ballerina/smb': copilotSmbVersion,
+        'ballerina/mcp': copilotMcpVersion,
+        'ballerina/websub': copilotWebsubVersion,
+        'ballerina/websocket': copilotWebsocketVersion,
+        'ballerinax/kafka': ballerinaxKafkaVersion,
+        'ballerinax/rabbitmq': ballerinaxRabbitmqVersion,
+        'ballerinax/mssql': ballerinaxMSSQLVersion,
+        'ballerinax/cdc': ballerinaxCdcVersion,
+        'ballerinax/trigger.github': ballerinaxGithubTriggerVersion,
+        'ballerinax/trigger.google.calendar': copilotTriggerGoogleCalendarVersion,
+        'ballerinax/asb': copilotAsbVersion,
+]
+
+copilotCorpusVersions.each { library, version ->
+    def (org, name) = library.tokenize('/')
+    test.dependsOn rootProject.pullBallerinaModule(name, version, org)
+}
+
 task copyServiceIndex(type: Copy) {
     from "${rootDir}/service-model-generator/modules/service-model-generator-ls-extension/src/main/resources/service-index.sqlite"
     into "${buildDir}/resources/test"
@@ -139,6 +173,12 @@ checkstyleTest.dependsOn copyServiceIndex
 test {
     dependsOn copyStdlibs, copyServiceIndex
     systemProperty "ballerina.home", balDistribution
+    // The corpus versions, handed to the tests as the single source of truth. Without this the pinned
+    // version lives twice — once here, where it is pre-fetched, and once as a literal in the test, where it
+    // is requested — and the two drift: the tests asked for http 2.16.6 and ftp 2.20.1 while the build
+    // pre-fetched 2.16.3 and 2.16.0, so those tests either downloaded from Central or skipped silently.
+    systemProperty "copilot.pinnedVersions",
+            copilotCorpusVersions.collect { library, version -> "$library=$version" }.join(",")
     // Allocate a larger heap for the test JVM as the suite compiles full Ballerina projects.
     maxHeapSize = "2g"
     useTestNG() {
