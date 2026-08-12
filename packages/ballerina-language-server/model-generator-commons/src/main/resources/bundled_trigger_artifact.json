@@ -13,12 +13,24 @@
       "kind": "event"
     }
   },
+  "aws.sqs": {
+    "displayName": "SQS Event Integration"
+  },
+  "business": {
+    "displayName": "Whatsapp Event Integration"
+  },
+  "chat": {
+    "displayName": "Google Chat Event Integration"
+  },
   "file": {
     "displayName": "Local Files",
     "icon": {
       "glyph": "bi-file",
       "kind": "file"
     }
+  },
+  "files": {
+    "displayName": "Azure Storage Files Integration"
   },
   "ftp": {
     "displayName": "FTP Integration",
@@ -29,6 +41,9 @@
     "labelFields": [
       "path"
     ]
+  },
+  "github": {
+    "displayName": "GitHub Event Integration"
   },
   "graphql": {
     "displayName": "GraphQL Service",
@@ -43,12 +58,21 @@
       "kind": "http"
     }
   },
+  "hubspot": {
+    "displayName": "Hubspot Event Integration"
+  },
+  "jco": {
+    "displayName": "SAP JCO Event Integration"
+  },
   "kafka": {
     "displayName": "Kafka Event Integration",
     "icon": {
       "glyph": "bi-kafka",
       "kind": "event"
     }
+  },
+  "mcp": {
+    "displayName": "MCP Service"
   },
   "mqtt": {
     "displayName": "MQTT Event Integration",
@@ -76,6 +100,9 @@
     "labelFields": [
       "tables"
     ]
+  },
+  "oracledb": {
+    "displayName": "CDC Oracle Service"
   },
   "postgresql": {
     "displayName": "CDC PostgreSQL Service",
@@ -105,6 +132,12 @@
       "kind": "event"
     }
   },
+  "shopify": {
+    "displayName": "Shopify Event Integration"
+  },
+  "smb": {
+    "displayName": "SMB Integration"
+  },
   "solace": {
     "displayName": "Solace Event Integration",
     "icon": {
@@ -116,12 +149,18 @@
       "topicName"
     ]
   },
+  "solace.jms": {
+    "displayName": "Solace (JMS) Event Integration"
+  },
   "tcp": {
     "displayName": "TCP Service",
     "icon": {
       "glyph": "bi-tcp",
       "kind": "listener"
     }
+  },
+  "telegram": {
+    "displayName": "Telegram Event Integration"
   },
   "trigger.github": {
     "displayName": "GitHub Event Integration",
@@ -142,5 +181,8 @@
     "icon": {
       "kind": "event"
     }
+  },
+  "twilio": {
+    "displayName": "Twilio Event Integration"
   }
 }

@@ -29,9 +29,8 @@ import io.ballerina.servicemodelgenerator.extension.builder.service.DefaultServi
 import io.ballerina.servicemodelgenerator.extension.builder.service.GraphqlServiceBuilder;
 import io.ballerina.servicemodelgenerator.extension.builder.service.HttpServiceBuilder;
 import io.ballerina.servicemodelgenerator.extension.builder.service.SchemaDrivenServiceBuilder;
-import io.ballerina.servicemodelgenerator.extension.builder.service.SolaceServiceBuilder;
 import io.ballerina.servicemodelgenerator.extension.builder.service.TCPServiceBuilder;
-import io.ballerina.servicemodelgenerator.extension.connector.ConnectorModelReader;
+import io.ballerina.servicemodelgenerator.extension.connector.TriggerModelReader;
 import io.ballerina.servicemodelgenerator.extension.model.Service;
 import io.ballerina.servicemodelgenerator.extension.model.ServiceInitModel;
 import io.ballerina.servicemodelgenerator.extension.model.ServiceMetadata;
@@ -56,7 +55,6 @@ import java.util.function.Supplier;
 import static io.ballerina.servicemodelgenerator.extension.util.Constants.AI;
 import static io.ballerina.servicemodelgenerator.extension.util.Constants.GRAPHQL;
 import static io.ballerina.servicemodelgenerator.extension.util.Constants.HTTP;
-import static io.ballerina.servicemodelgenerator.extension.util.Constants.SOLACE;
 import static io.ballerina.servicemodelgenerator.extension.util.Constants.TCP;
 
 /**
@@ -67,18 +65,17 @@ import static io.ballerina.servicemodelgenerator.extension.util.Constants.TCP;
  */
 public class ServiceBuilderRouter {
 
-    // RABBITMQ/KAFKA/MSSQL/POSTGRESQL/MYSQL/FTP/TRIGGER_GITHUB/TRIGGER_SHOPIFY/MCP (and ASB, never
-    // registered here) are deliberately absent: each now ships a bundled TriggerUISchemaModel schema (see
-    // ConnectorModelReader.BUNDLED_TRIGGER_MODEL_RESOURCES), so useSchemaDrivenPath always routes
-    // them to SchemaDrivenServiceBuilder before this map is consulted — a hardcoded entry here
-    // would be dead code. HTTP/AI/TCP/GRAPHQL/SOLACE are not (yet) schema-driven and keep their
+    // RABBITMQ/KAFKA/MSSQL/POSTGRESQL/MYSQL/FTP/TRIGGER_GITHUB/TRIGGER_SHOPIFY/MCP/SOLACE (and ASB,
+    // never registered here) are deliberately absent: each now ships a bundled TriggerUISchemaModel
+    // schema (see TriggerModelReader.BUNDLED_TRIGGER_MODEL_RESOURCES), so useSchemaDrivenPath
+    // always routes them to SchemaDrivenServiceBuilder before this map is consulted — a hardcoded
+    // entry here would be dead code. HTTP/AI/TCP/GRAPHQL are not (yet) schema-driven and keep their
     // dedicated builders.
     private static final Map<String, Supplier<? extends ServiceNodeBuilder>> CONSTRUCTOR_MAP = new HashMap<>() {{
         put(HTTP, HttpServiceBuilder::new);
         put(AI, AiChatServiceBuilder::new);
         put(TCP, TCPServiceBuilder::new);
         put(GRAPHQL, GraphqlServiceBuilder::new);
-        put(SOLACE, SolaceServiceBuilder::new);
     }};
 
     public static ServiceNodeBuilder getServiceBuilder(String protocol) {
@@ -89,11 +86,18 @@ public class ServiceBuilderRouter {
      * Returns {@code true} when the connector's schema is bundled as a classpath resource in this jar,
      * or -- on a miss, when {@code orgName} is known -- synthesizable from the connector's own shipped
      * {@code resources/trigger-authoring.json} plus semantic-API introspection of its {@code .bala}
-     * (see {@link ConnectorModelReader#getSchemaDrivenTriggerModel}). The hardcoded builder still wins
+     * (see {@link TriggerModelReader#getSchemaDrivenTriggerModel}). The hardcoded builder still wins
      * whenever neither source has a model, so an unrecognized connector's behavior is unchanged.
      */
     private static boolean useSchemaDrivenPath(String orgName, String moduleName) {
-        return ConnectorModelReader.getInstance().hasSchemaDrivenModel(orgName, moduleName);
+        return useSchemaDrivenPath(orgName, moduleName, null, false);
+    }
+
+    /** {@code isLocalRepository} variant, checking the Ballerina local repository instead. */
+    private static boolean useSchemaDrivenPath(String orgName, String moduleName, String version,
+                                               boolean isLocalRepository) {
+        return TriggerModelReader.getInstance()
+                .hasSchemaDrivenModel(orgName, moduleName, version, isLocalRepository);
     }
 
     public static Optional<Service> getModelTemplate(String orgName, String moduleName) {
@@ -160,9 +164,10 @@ public class ServiceBuilderRouter {
                                                        SemanticModel semanticModel, Document document) {
         GetServiceInitModelContext context = new GetServiceInitModelContext(
                 request.orgName(), request.pkgName(), request.moduleName(), request.version(),
-                project, semanticModel, document);
+                project, semanticModel, document, request.isLocalRepository());
         ServiceNodeBuilder serviceBuilder =
-                useSchemaDrivenPath(request.orgName(), request.moduleName())
+                useSchemaDrivenPath(request.orgName(), request.moduleName(), request.version(),
+                        request.isLocalRepository())
                         ? new SchemaDrivenServiceBuilder()
                         : getServiceBuilder(request.moduleName());
         return serviceBuilder.getServiceInitModel(context);
@@ -177,7 +182,8 @@ public class ServiceBuilderRouter {
         AddServiceInitModelContext context = new AddServiceInitModelContext(serviceInitModel, semanticModel, project,
                 workspaceManager, filePath, document);
         ServiceNodeBuilder serviceBuilder = useSchemaDrivenPath(
-                        serviceInitModel.getOrgName(), serviceInitModel.getModuleName())
+                        serviceInitModel.getOrgName(), serviceInitModel.getModuleName(),
+                        serviceInitModel.getVersion(), serviceInitModel.isLocalRepository())
                         ? new SchemaDrivenServiceBuilder()
                         : getServiceBuilder(serviceInitModel.getModuleName());
         return serviceBuilder.addServiceInitSource(context);

@@ -915,16 +915,14 @@ public class CopilotSchemaServicesTest {
                 "http is an addMode:\"many\" catalog, so its shape must reach the wire: " + service);
         Assert.assertTrue(service.has("identifier"),
                 "§3's required base path is stated by the document and must survive");
-        Assert.assertTrue(service.has("instructions"),
-                "...and the curated guidance must be carried onto it, not discarded: " + service.keySet());
-    }
-
-    @Test
-    public void testTheCuratedGuidanceIsTheLibrarysOwnServiceMarkdown() {
-        JsonObject service = serviceNamed(load("ballerina/http"), "Service");
-        String instructions = service.get("instructions").getAsString();
-        Assert.assertTrue(instructions.contains("module level"),
-                "the absorbed text must be ballerina/http's own service.md: " + instructions);
+        // The fourth assertion -- that the curated guidance is carried onto the surviving entry -- and the
+        // testTheCuratedGuidanceIsTheLibrarysOwnServiceMarkdown case that checked the absorbed text both
+        // asserted the content of copilot/instructions/ballerina/http/service.md. That file (with the other
+        // eight curated .md overlays) was deleted when this branch adopted the upstream documentation policy
+        // wholesale, so those two assertions have no subject left: no library ships a curated overlay, and
+        // `instructions` is absent from every service on the wire. The merge behaviour they guarded -- a
+        // name collision must not delete the metadata-derived entry -- is still fully covered by the three
+        // assertions above, which is the regression this test was written for.
     }
 
     @Test

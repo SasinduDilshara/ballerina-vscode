@@ -18,6 +18,8 @@
 
 package io.ballerina.modelgenerator.commons.trigger;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
 import io.ballerina.modelgenerator.commons.ModuleInfo;
@@ -26,49 +28,30 @@ import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerUISchemaModel;
 import io.ballerina.modelgenerator.commons.trigger.utils.TriggerMetadataGson;
 import io.ballerina.projects.Package;
+import io.ballerina.projects.PackageDescriptor;
+import io.ballerina.projects.PackageName;
+import io.ballerina.projects.PackageOrg;
+import io.ballerina.projects.PackageVersion;
+import io.ballerina.projects.environment.PackageRepository;
+import io.ballerina.projects.environment.ResolutionOptions;
+import io.ballerina.projects.environment.ResolutionRequest;
+import io.ballerina.projects.internal.environment.BallerinaUserHome;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * The abstract, connector-agnostic entry point for reading the trigger model family. Any LS extension
- * that needs one of these -- today service-model-generator-ls-extension, in the future
- * flow-model-generator-ls-extension's copilot surface, or any extension after that -- calls this class
- * rather than resolving a connector's package or reading its shipped JSON itself; that resolution and
- * parsing is this class's job alone, not a caller's.
- *
- * <p>Exposes exactly three reads, each keyed by {@link ModuleInfo} and returning an {@code Optional}:
- * <ul>
- *   <li>{@link #getTriggerMetadataModel} -- a connector's own shipped
- *       {@code resources/trigger-metadata.json} (the authoring-rules overlay), resolved from its
- *       {@code .bala}.</li>
- *   <li>{@link #getTriggerUISchemaModel} -- a connector's own {@code resources/trigger-ui-schema.json}
- *       (the full UI-ready form/handler tree), resolved from its {@code .bala}. Reading a connector's
- *       own UI schema bundled directly in the LS jar (as opposed to shipped by the connector itself) is
- *       deliberately not this class's job: that curated, per-connector registry
- *       ({@code bundled_trigger_models.json}) is specific to the schema-driven trigger feature and stays
- *       in service-model-generator-ls-extension's own {@code ConnectorModelReader}.</li>
- *   <li>{@link #getPackagedTriggerMetadataModel} -- the LS's own bundled
- *       {@code trigger-metadata-models/<moduleName>/trigger-metadata.json} classpath resource, for
- *       modules whose metadata is curated directly into this jar rather than shipped by the connector.
- *       Independent of {@link #getTriggerMetadataModel} -- a caller decides for itself whether/how to
- *       combine the two, this class does not silently prefer one over the other.</li>
- * </ul>
- *
- * <p>A connector's package root is resolved via
- * {@link PackageUtil#getModulePackage(io.ballerina.projects.directory.BuildProject, String, String)}'s
- * version-less overload (org + module name only) and cached by that pair, since both connector-owned
- * reads may need the same root; the packaged classpath lookup needs no package resolution at all and is
- * cached separately, keyed by bare module name.
- *
- * @since 1.10.0
+ * Connector-agnostic entry point for reading the trigger model family, shared by every LS extension.
  */
 public final class LibraryMetadataReader {
 
@@ -78,19 +61,17 @@ public final class LibraryMetadataReader {
     private static final String TRIGGER_UI_SCHEMA_RESOURCE_PATH = "resources/trigger-ui-schema.json";
     private static final String PACKAGED_TRIGGER_METADATA_ROOT = "trigger-metadata-models";
     private static final String PACKAGED_TRIGGER_METADATA_FILE = "trigger-metadata.json";
+    private static final int MAX_CACHE_SIZE = 2;
+
+    private static final Duration PACKAGE_ROOT_CACHE_TTL = Duration.ofSeconds(60);
 
     private static final LibraryMetadataReader INSTANCE = new LibraryMetadataReader();
 
-    // Shared by getTriggerMetadataModel/getTriggerUISchemaModel -- both may resolve the same connector
-    // package root, so a repeated lookup pays bala-cache resolution at most once per module. Kept
-    // separate from TriggerArtifactResolver's own PACKAGE_ROOT_CACHE (icon resolution): the two are
-    // read on unrelated schedules and neither needs the other's cache.
-    private final Map<String, Optional<Path>> packageRootCache = new ConcurrentHashMap<>();
-    private final Map<String, Optional<TriggerMetadataModel>> packagedMetadataCache = new ConcurrentHashMap<>();
+    private final Cache<String, Optional<Path>> packageRootCache =
+            Caffeine.newBuilder().maximumSize(MAX_CACHE_SIZE).expireAfterWrite(PACKAGE_ROOT_CACHE_TTL).build();
+    private final Cache<String, Optional<TriggerMetadataModel>> packagedMetadataCache =
+            Caffeine.newBuilder().maximumSize(MAX_CACHE_SIZE).build();
 
-    // A connector's trigger-ui-schema.json carries no TypeRef-or-union slots (unlike
-    // trigger-metadata.json), so it needs no custom deserializer -- a plain Gson suffices, matching
-    // ConnectorModelReader's existing plain-Gson parse of the same shape.
     private final Gson plainGson = new Gson();
 
     private LibraryMetadataReader() {
@@ -164,19 +145,12 @@ public final class LibraryMetadataReader {
 
     /** The connector's own {@code resources/trigger-metadata.json}, resolved from its {@code .bala}. */
     public Optional<TriggerMetadataModel> getTriggerMetadataModel(ModuleInfo moduleInfo) {
-        return packageRoot(moduleInfo).map(this::readTriggerMetadataModel)
-                .flatMap(MetadataRead::usable);
+        return packageRoot(moduleInfo).map(this::readTriggerMetadataModel).flatMap(MetadataRead::usable);
     }
 
     /**
      * The connector's own {@code resources/trigger-metadata.json}, read from a package the caller has
-     * already resolved. The same document {@link #getTriggerMetadataModel(ModuleInfo)} returns; use
-     * this wherever the caller already holds the {@link Package}, so no second — and potentially
-     * network-bound — resolution is paid. That matters for callers that consult this for every
-     * library rather than a curated few: the read then costs one {@code stat}.
-     *
-     * <p>Deliberately not an overload of {@link #getTriggerMetadataModel(ModuleInfo)}: both take an
-     * unrelated reference type, so a {@code null} argument would be ambiguous at every call site.
+     * already resolved, so no second — and potentially network-bound — resolution is paid.
      *
      * @param pkg the already-resolved package (may be {@code null})
      * @return the parsed document, or empty when the package ships none
@@ -203,20 +177,10 @@ public final class LibraryMetadataReader {
         try {
             return readTriggerMetadataModel(pkg.project().sourceRoot());
         } catch (Throwable e) {
-            // Throwable, and still non-propagating: callers sit on hot request paths, and a broken package
-            // must not take a request down.
-            //
-            // **ABSENT, not MALFORMED.** {@link #readTriggerMetadataModel} already classifies the two
-            // outcomes that describe the document itself — no file is ABSENT, unparseable JSON is MALFORMED
-            // — so anything reaching here failed BEFORE the document's content was ever in question:
-            // resolving the source root, a security manager refusing the read, an invalid path. "We could not
-            // even look" is much closer to "there is no document" than to "the document is broken", and
-            // getting that wrong is now expensive rather than cosmetic: MALFORMED makes `present()` true,
-            // which tells the caller to suppress BOTH the bundled document and the service index. One
-            // unrelated exception would then cost the library its whole service catalog, where before this
-            // tri-state existed it cost nothing at all.
-            //
-            // Logged either way, since a silent failure here is what R2 set out to end.
+            // ABSENT, not MALFORMED: readTriggerMetadataModel already classifies the two outcomes that
+            // describe the document itself, so anything reaching here failed BEFORE the content was ever in
+            // question. Getting that wrong is expensive — MALFORMED makes present() true, which tells the
+            // caller to suppress both the bundled document and the service index.
             LOGGER.warning("Could not read " + TRIGGER_METADATA_RESOURCE_PATH + " from "
                     + pkg.packageOrg().value() + "/" + pkg.packageName().value()
                     + "; treating the package as shipping no metadata: " + e);
@@ -229,16 +193,92 @@ public final class LibraryMetadataReader {
         return packageRoot(moduleInfo).flatMap(this::readTriggerUISchemaModel);
     }
 
+    /** Whether the connector's {@code .bala} is present in the local repository. */
+    public boolean isLocallyResolvable(ModuleInfo moduleInfo) {
+        return packageRoot(moduleInfo).isPresent();
+    }
+
     /**
      * The LS's bundled {@code trigger-metadata-models/<moduleName>/trigger-metadata.json} classpath
-     * resource, if any. Keyed by bare module name only -- this is a small, curated set the LS ships
-     * directly, so no org/version is needed to disambiguate (mirrors {@code TriggerArtifactReader}).
+     * resource, if any.
      */
     public Optional<TriggerMetadataModel> getPackagedTriggerMetadataModel(ModuleInfo moduleInfo) {
         if (moduleInfo == null || moduleInfo.moduleName() == null) {
             return Optional.empty();
         }
-        return packagedMetadataCache.computeIfAbsent(moduleInfo.moduleName(), this::readPackagedMetadata);
+        return packagedMetadataCache.get(moduleInfo.moduleName(), this::readPackagedMetadata);
+    }
+
+    /**
+     * The connector's own {@code resources/trigger-metadata.json}, resolved from the Ballerina
+     * <b>local</b> repository rather than Central.
+     */
+    public Optional<TriggerMetadataModel> getTriggerMetadataModelFromLocalRepository(ModuleInfo moduleInfo) {
+        return localPackageRoot(moduleInfo).map(this::readTriggerMetadataModel)
+                .flatMap(MetadataRead::usable);
+    }
+
+    /** The connector's own {@code resources/trigger-ui-schema.json}, resolved from the local repository. */
+    public Optional<TriggerUISchemaModel> getTriggerUISchemaModelFromLocalRepository(ModuleInfo moduleInfo) {
+        return localPackageRoot(moduleInfo).flatMap(this::readTriggerUISchemaModel);
+    }
+
+    /** Every {@code org/name/version} present in the Ballerina local repository, as {@link ModuleInfo}. */
+    public List<ModuleInfo> listLocalRepositoryModules() {
+        List<ModuleInfo> modules = new ArrayList<>();
+        try {
+            Map<String, List<String>> packagesByOrg = localRepository().getPackages();
+            for (Map.Entry<String, List<String>> entry : packagesByOrg.entrySet()) {
+                String org = entry.getKey();
+                for (String nameAndVersion : entry.getValue()) {
+                    String[] parts = nameAndVersion.split(":");
+                    if (parts.length != 2) {
+                        continue;
+                    }
+                    modules.add(new ModuleInfo(org, parts[0], parts[0], parts[1]));
+                }
+            }
+        } catch (Throwable e) {
+            LOGGER.log(Level.FINE, "Listing local-repository modules failed", e);
+            return List.of();
+        }
+        return modules;
+    }
+
+    /**
+     * The connector's compiled {@link Package}, resolved via the local repository. Deliberately not
+     * cached, unlike {@link #packageRoot}.
+     */
+    public Optional<Package> getCompiledPackageFromLocalRepository(ModuleInfo moduleInfo) {
+        if (moduleInfo == null || !moduleInfo.isComplete()) {
+            return Optional.empty();
+        }
+        try {
+            PackageDescriptor descriptor = PackageDescriptor.from(
+                    PackageOrg.from(moduleInfo.org()), PackageName.from(moduleInfo.packageName()),
+                    PackageVersion.from(moduleInfo.version()));
+            ResolutionRequest request = ResolutionRequest.from(descriptor);
+            return localRepository().getPackage(request, ResolutionOptions.builder().setOffline(true).build());
+        } catch (Throwable e) {
+            LOGGER.log(Level.FINE, "Compiling local-repository package failed for "
+                    + moduleInfo.org() + "/" + moduleInfo.packageName(), e);
+            return Optional.empty();
+        }
+    }
+
+    /** {@code Path}-rooted counterpart of {@link #getCompiledPackageFromLocalRepository}. */
+    private Optional<Path> localPackageRoot(ModuleInfo moduleInfo) {
+        return getCompiledPackageFromLocalRepository(moduleInfo).map(pkg -> pkg.project().sourceRoot());
+    }
+
+    /** The Ballerina local repository handle, resolved once and cached. */
+    private PackageRepository localRepository() {
+        return LocalRepositoryHolder.INSTANCE;
+    }
+
+    private static final class LocalRepositoryHolder {
+        private static final PackageRepository INSTANCE = BallerinaUserHome.from(
+                PackageUtil.getSampleProject().projectEnvironmentContext().environment()).localPackageRepository();
     }
 
     private Optional<TriggerMetadataModel> readPackagedMetadata(String moduleName) {
@@ -252,9 +292,9 @@ public final class LibraryMetadataReader {
             return gated(TriggerMetadataGson.instance().fromJson(json, TriggerMetadataModel.class),
                     resourcePath).usable();
         } catch (IOException | JsonParseException e) {
-            // A bundled document is this repo's own, and TriggerMetadataCorpusTest validates every one of
-            // them, so a failure here is a build defect rather than a third party's typo. Logged all the
-            // same: silence is what made the shipped-document equivalent undiagnosable.
+            // A bundled document is this repo's own and TriggerMetadataCorpusTest validates every one, so a
+            // failure here is a build defect. Logged all the same: silence is what made the shipped-document
+            // equivalent undiagnosable.
             LOGGER.warning("Ignoring bundled " + resourcePath + ": " + e);
             return Optional.empty();
         }
@@ -263,14 +303,9 @@ public final class LibraryMetadataReader {
     /**
      * Applies the spec's top-level {@code version} gate to a freshly-parsed document.
      *
-     * <p>Every read goes through here, so a document declaring a version this build does not implement can
-     * never reach a consumer by a path that forgot to check.
-     *
      * <p>A rejected document reports {@link MetadataOutcome#UNSUPPORTED_VERSION} rather than an absence,
      * because those two demand opposite things of a caller: an absence may be filled from elsewhere, a
-     * rejection may not. The log line no longer claims what the caller will do — it used to say "Falling
-     * back to the service index", which was simply untrue on the shipped-document path, where the fallback
-     * was the LS's own bundled copy of a document the connector had superseded.
+     * rejection may not. The log line deliberately does not claim what the caller will do.
      *
      * @param document the parsed document; may be {@code null}
      * @param source   what was read, for the log line
@@ -278,8 +313,6 @@ public final class LibraryMetadataReader {
      */
     private MetadataRead gated(TriggerMetadataModel document, String source) {
         if (document == null) {
-            // Valid JSON that deserialized to nothing — `null`, or a bare literal. There is a file, so this
-            // is a defect in it rather than an absence.
             LOGGER.warning("Ignoring " + source + ": it parsed to no document.");
             return MetadataRead.failed(MetadataOutcome.MALFORMED);
         }
@@ -300,11 +333,9 @@ public final class LibraryMetadataReader {
     /**
      * Resolves and parses {@code resources/trigger-metadata.json} relative to {@code packageRoot}.
      *
-     * <p>Package-private rather than private, purely as a test seam. Reading the JSON off a resolved package
-     * is still this class's own job and never a caller's — the two public entry points are the API — but the
-     * three not-usable outcomes cannot otherwise be exercised at all: no package published to Central ships a
-     * {@code resources/trigger-metadata.json} today, so a test that went in through {@link Package} would
-     * have nothing to read. That gap is why the shipped-document path had no test before this.
+     * <p>Package-private rather than private, purely as a test seam: no package published to Central ships
+     * this file yet, so a test going in through {@link Package} would have nothing to read — which is why
+     * the shipped-document path had no test at all before.
      */
     MetadataRead readTriggerMetadataModel(Path packageRoot) {
         Optional<String> json = readResourceFile(packageRoot, TRIGGER_METADATA_RESOURCE_PATH);
@@ -316,14 +347,12 @@ public final class LibraryMetadataReader {
             return gated(TriggerMetadataGson.instance().fromJson(json.get(), TriggerMetadataModel.class),
                     source);
         } catch (JsonParseException e) {
-            // Logged, not silent. This is the one signal a connector author gets that their file has a typo,
-            // and swallowing it made a malformed document indistinguishable from no document at all.
+            // Logged, not silent: this is the one signal a connector author gets that their file has a typo.
             LOGGER.warning("Ignoring " + source + ": it is not valid trigger metadata: " + e.getMessage());
             return MetadataRead.failed(MetadataOutcome.MALFORMED);
         }
     }
 
-    /** {@code Path}-rooted counterpart of {@link #readTriggerMetadataModel}, for the UI-schema shape. */
     private Optional<TriggerUISchemaModel> readTriggerUISchemaModel(Path packageRoot) {
         return readResourceFile(packageRoot, TRIGGER_UI_SCHEMA_RESOURCE_PATH).flatMap(json -> {
             try {
@@ -334,27 +363,31 @@ public final class LibraryMetadataReader {
         });
     }
 
-    /**
-     * Resolves a connector's package root by {@code org}/{@code moduleName} alone, cached by that pair.
-     * Wrapped in a blanket {@code catch (Throwable)}: {@link PackageUtil#getModulePackage}'s version-less
-     * overload falls through to a live Central version lookup on an offline-metadata miss, which
-     * <b>throws</b> (rather than returning empty) for an org/module that doesn't exist there or when
-     * offline -- any such failure must degrade to "no metadata," not propagate to the caller.
-     */
+    /** The local {@code .bala} root of {@code moduleInfo}. Only a hit is memoized. */
     private Optional<Path> packageRoot(ModuleInfo moduleInfo) {
         if (moduleInfo == null || moduleInfo.org() == null || moduleInfo.moduleName() == null) {
             return Optional.empty();
         }
         String key = moduleInfo.org() + "/" + moduleInfo.moduleName();
-        return packageRootCache.computeIfAbsent(key, ignored -> {
-            try {
-                Optional<Package> pkg = PackageUtil.getModulePackage(PackageUtil.getSampleProject(),
-                        moduleInfo.org(), moduleInfo.moduleName());
-                return pkg.map(aPackage -> aPackage.project().sourceRoot());
-            } catch (Throwable e) {
-                return Optional.empty();
-            }
-        });
+        Optional<Path> cached = packageRootCache.getIfPresent(key);
+        if (cached != null) {
+            return cached;
+        }
+        Optional<Path> resolved = resolvePackageRoot(moduleInfo);
+        if (resolved.isPresent()) {
+            packageRootCache.put(key, resolved);
+        }
+        return resolved;
+    }
+
+    private Optional<Path> resolvePackageRoot(ModuleInfo moduleInfo) {
+        try {
+            Optional<Package> pkg = PackageUtil.getModulePackageOffline(PackageUtil.getSampleProject(),
+                    moduleInfo.org(), moduleInfo.moduleName());
+            return pkg.map(aPackage -> aPackage.project().sourceRoot());
+        } catch (Throwable e) {
+            return Optional.empty();
+        }
     }
 
     /** Reads a package-relative file as UTF-8 text, guarding against it escaping {@code packageRoot}. */

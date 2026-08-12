@@ -39,6 +39,7 @@ import { InputMode } from "../editors/MultiModeExpressionEditor/ChipExpressionEd
 import { getValueForDropdown, isDropdownField } from "../editors/utils";
 import {
     Diagnostic,
+    CodeData,
     LineRange,
     NodeKind,
     SubPanel,
@@ -118,6 +119,16 @@ namespace S {
         width: 100%;
     `;
 
+    // A field rendered indented under the field above it, so the two read as grouped (e.g. a
+    // fixed-value input that belongs to the checkbox above it).
+    export const IndentedRow = styled(Row)`
+        width: calc(100% - 14px);
+        margin-left: 14px;
+        padding-left: 10px;
+        border-left: 2px solid ${ThemeColors.OUTLINE_VARIANT};
+        box-sizing: border-box;
+    `;
+
     export const CategoryRow = styled.div<{ bottomBorder?: boolean; topBorder?: boolean }>`
         display: flex;
         flex-direction: column;
@@ -159,6 +170,9 @@ namespace S {
         align-items: center;
         z-index: 10;
         width: 100%;
+        padding: 16px 0 0;
+        background: var(--vscode-editor-background);
+        border-top: 1px solid var(--vscode-panel-border);
     `;
 
     export const FooterActionButton = styled(Button)`
@@ -306,6 +320,7 @@ namespace S {
 }
 export interface FormProps {
     infoLabel?: string;
+    hideInfoBanner?: boolean;
     formFields: FormField[];
     submitText?: string;
     cancelText?: string;
@@ -360,20 +375,26 @@ export interface FormProps {
     hideSaveButton?: boolean; // Option to hide the save button
     footerActionButton?: boolean; // Render save button as footer action button
     onValidityChange?: (isValid: boolean) => void; // Callback for form validity status
+    // Optional extra primary action rendered next to the save button (e.g. a "Next" that submits the
+    // form but continues to a following step). Validated through the same path as save.
+    secondarySubmitButton?: { text: string; onClick: (data: FormValues, dirtyFields?: any) => void };
     changeOptionalFieldTitle?: string; // Option to change the title of optional fields
     openFormTypeEditor?: (open: boolean, newType?: string, editingField?: FormField) => void;
     derivedFields?: FieldDerivation[]; // Configuration for auto-deriving field values from other fields
+    bottomFields?: string[];
     updateImports?: (key: string, imports: Imports) => void;
     defaultExpandAdvanced?: boolean;
     onRequestCreateConnection?: (params: {
         selectedConnector: AvailableNode;
         onSaved: (variableName: string) => void;
     }) => void;
+    onCreateNode?: (kind: string, onCreated: (variableName: string) => void, nodeCodeData?: CodeData) => void;
 }
 
 export const Form = forwardRef((props: FormProps, _ref) => {
     const {
         infoLabel,
+        hideInfoBanner = false,
         formFields,
         selectedNode,
         submitText,
@@ -405,17 +426,20 @@ export const Form = forwardRef((props: FormProps, _ref) => {
         concertMessage,
         formImports,
         preserveOrder = false,
+        bottomFields = [],
         handleSelectedTypeChange,
         scopeFieldAddon,
         injectedComponents,
         hideSaveButton = false,
         footerActionButton = false,
         onValidityChange,
+        secondarySubmitButton,
         changeOptionalFieldTitle = undefined,
         openFormTypeEditor,
         derivedFields = [],
         updateImports,
         onRequestCreateConnection,
+        onCreateNode,
     } = props;
 
     const { rpcClient } = useRpcContext();
@@ -809,14 +833,35 @@ export const Form = forwardRef((props: FormProps, _ref) => {
         });
     }, [advancedChoiceFields, getValues, setValue]);
 
+    // Drop react-hook-form state for fields that were removed from formFields. A dynamic form can
+    // remove a field (e.g. a required parameter's inline value field disappears when its checkbox is
+    // re-checked); react-hook-form otherwise keeps that field's last value and any validation error,
+    // which leaves the form invalid (Save/Next disabled) even though the field is gone. Unregister the
+    // removed keys and revalidate so validity reflects only the fields currently on screen.
+    const prevFieldKeysRef = useRef<string[]>([]);
+    useEffect(() => {
+        const currentKeys = new Set(formFields.map((field) => field.key));
+        const removedKeys = prevFieldKeysRef.current.filter((key) => !currentKeys.has(key));
+        if (removedKeys.length > 0) {
+            unregister(removedKeys);
+            trigger();
+        }
+        prevFieldKeysRef.current = Array.from(currentKeys);
+    }, [formFields, unregister, trigger]);
+
     // has advance fields
-    const hasAdvanceFields = formFields.some((field) => field.advanced && field.enabled && !field.hidden) || advancedChoiceFields.length > 0;
+    const hasAdvanceFields = formFields.some((field) => field.advanced && field.enabled && !field.hidden)
+        || advancedChoiceFields.length > 0
+        || injectedComponents?.some((component) => component.advanced) === true;
     const variableField = formFields.find((field) => field.key === "variable");
     // Exclude PARAM_FOR_TYPE_INFER fields (e.g. the activity/human-task "Databinding Type"): those are
     // rendered via targetTypeField below, so matching them here too would render the same field twice.
     const typeField = formFields.find((field) => !field.advanced && !field.hidden && field.codedata?.kind !== "PARAM_FOR_TYPE_INFER" && getPrimaryInputType(field.types)?.fieldType === "TYPE");
     const expressionField = formFields.find((field) => getSecondaryInputType(field.types)?.fieldType === "EXPRESSION" || getPrimaryInputType(field.types)?.fieldType === "ACTION_OR_EXPRESSION");
     const targetTypeField = formFields.find((field) => field.codedata?.kind === "PARAM_FOR_TYPE_INFER");
+    const bottomFieldList = bottomFields.length > 0
+        ? formFields.filter((field) => bottomFields.includes(field.key) && !field.hidden)
+        : [];
     const hasParameters = hasRequiredParameters(formFields, selectedNode) || hasOptionalParameters(formFields);
 
     const canOpenInDataMapper = (selectedNode === "VARIABLE" &&
@@ -849,6 +894,7 @@ export const Form = forwardRef((props: FormProps, _ref) => {
             kind: selectedNode,
         },
         onRequestCreateConnection,
+        onCreateNode,
     };
 
     // Find the first editable identifier field
@@ -909,6 +955,7 @@ export const Form = forwardRef((props: FormProps, _ref) => {
     }, [diagnosticsInfo, formFields]);
 
     const prevValuesRef = useRef<FormValues>({});
+    const lastDerivedValuesRef = useRef<Record<string, any>>({});
     const watchedValues = watch();
     const hasIncompleteRequiredFields = !!onFormValidation &&
         hasIncompleteRequiredFormFields(formFields, watchedValues);
@@ -976,48 +1023,30 @@ export const Form = forwardRef((props: FormProps, _ref) => {
         if (derivedFields.length === 0) return;
 
         derivedFields.forEach(({ sourceField, targetField, deriveFn, breakOnManualEdit = true }) => {
-            const sourceValue = watchedValues[sourceField];
-            const currentTargetValue = watchedValues[targetField];
-
-            // Skip if this field has been manually edited and breakOnManualEdit is true
             if (breakOnManualEdit && manuallyEditedFields.has(targetField)) {
                 return;
             }
 
-            // Derive the new target value
-            const derivedValue = deriveFn(sourceValue);
+            const currentTargetValue = watchedValues[targetField];
+            const lastDerived = lastDerivedValuesRef.current[targetField];
 
-            // Only update if the value has actually changed
+            if (breakOnManualEdit && lastDerived !== undefined && currentTargetValue !== lastDerived) {
+                setManuallyEditedFields(prev => {
+                    if (prev.has(targetField)) return prev;
+                    const newSet = new Set(prev);
+                    newSet.add(targetField);
+                    return newSet;
+                });
+                return;
+            }
+
+            const derivedValue = deriveFn(watchedValues[sourceField]);
+            lastDerivedValuesRef.current[targetField] = derivedValue;
             if (derivedValue !== currentTargetValue) {
                 setValue(targetField, derivedValue);
             }
         });
     }, [watchedValues, derivedFields, manuallyEditedFields, setValue]);
-
-    // Track manual edits to derived target fields
-    useEffect(() => {
-        if (derivedFields.length === 0) return;
-
-        const prevValues = prevValuesRef.current;
-        derivedFields.forEach(({ targetField, breakOnManualEdit = true }) => {
-            if (!breakOnManualEdit) return;
-
-            const currentValue = watchedValues[targetField];
-            const prevValue = prevValues[targetField];
-
-            if (currentValue !== prevValue && prevValue !== undefined) {
-                // Mark this field as manually edited
-                setManuallyEditedFields(prev => {
-                    if (!prev.has(targetField)) {
-                        const newSet = new Set(prev);
-                        newSet.add(targetField);
-                        return newSet;
-                    }
-                    return prev;
-                });
-            }
-        });
-    }, [watchedValues, derivedFields]);
 
     const handleOnOpenInDataMapper = () => {
         setSavingButton('dataMapper');
@@ -1073,6 +1102,33 @@ export const Form = forwardRef((props: FormProps, _ref) => {
         )();
     };
 
+    // Mirrors handleOnSaveClick for the optional secondary action ("Next"): validate through the same
+    // path, then route to the caller's handler instead of the save handler.
+    const handleOnSecondaryClick = () => {
+        if (!secondarySubmitButton) {
+            return;
+        }
+        setSavingButton('secondary');
+        handleSubmit(
+            async (data) => {
+                try {
+                    const isValidForm = await runExternalFormValidation(data);
+                    if (!isValidForm) {
+                        setSavingButton(null);
+                        return;
+                    }
+                    secondarySubmitButton.onClick(data, dirtyFields);
+                } catch (error) {
+                    console.error(">>> Error validating form before secondary action", error);
+                    setSavingButton(null);
+                }
+            },
+            () => {
+                setSavingButton(null);
+            }
+        )();
+    };
+
     const formContent = (
         <>
             {actionButton && <S.ActionButtonContainer>{actionButton}</S.ActionButtonContainer>}
@@ -1098,7 +1154,7 @@ export const Form = forwardRef((props: FormProps, _ref) => {
                     )}
                 </S.MarkdownWrapper>
             )}
-            {!preserveOrder && !compact && (
+            {!preserveOrder && !compact && !hideInfoBanner && (
                 <FormDescription formFields={formFields} selectedNode={selectedNode} />
             )}
             {formDiagnostics && formDiagnostics.length > 0 && (
@@ -1157,13 +1213,17 @@ export const Form = forwardRef((props: FormProps, _ref) => {
                             return;
                         }
                         // When preserveOrder is false, skip prioritized fields (they'll be rendered at bottom)
-                        if (!preserveOrder && isPrioritizedField(field)) {
+                        if (!preserveOrder && (isPrioritizedField(field) || bottomFields.includes(field.key))) {
+                            return;
+                        }
+                        if (!preserveOrder && bottomFields.includes(field.key)) {
                             return;
                         }
 
                         const updatedField = updateFormFieldWithImports(field, formImports);
+                        const RowComponent = updatedField.indent ? S.IndentedRow : S.Row;
                         renderedComponents.push(
-                            <S.Row key={updatedField.key}>
+                            <RowComponent key={updatedField.key}>
                                 <FieldFactory
                                     field={updatedField}
                                     selectedNode={selectedNode}
@@ -1189,7 +1249,7 @@ export const Form = forwardRef((props: FormProps, _ref) => {
                                     updateImports={updateImports}
                                 />
                                 {updatedField.key === "scope" && scopeFieldAddon}
-                            </S.Row>
+                            </RowComponent>
                         );
                         renderedFieldCount++;
                     });
@@ -1320,13 +1380,13 @@ export const Form = forwardRef((props: FormProps, _ref) => {
                                     onIdentifierEditingStateChange={handleIdentifierEditingStateChange}
                                     onBlur={handleOnBlur}
                                     handleFormValidation={handleFormValidation}
-                                    />
+                                />
                             </S.Row>
                         );
                     })}
             </S.CategoryRow>
 
-            {!preserveOrder && (variableField || typeField || targetTypeField) && (
+            {!preserveOrder && (variableField || typeField || targetTypeField || bottomFieldList.length > 0) && (
                 <S.CategoryRow topBorder={!compact && hasParameters}>
                     {variableField && (
                         <FieldFactory
@@ -1372,6 +1432,20 @@ export const Form = forwardRef((props: FormProps, _ref) => {
                             )}
                         </>
                     )}
+                    {bottomFieldList.map((field) => {
+                        const updatedField = updateFormFieldWithImports(field, formImports);
+                        return (
+                            <FieldFactory
+                                key={updatedField.key}
+                                field={updatedField}
+                                handleOnFieldFocus={handleOnFieldFocus}
+                                recordTypeFields={recordTypeFields}
+                                onIdentifierEditingStateChange={handleIdentifierEditingStateChange}
+                                onBlur={handleOnBlur}
+                                handleFormValidation={handleFormValidation}
+                            />
+                        );
+                    })}
                 </S.CategoryRow>
             )}
 
@@ -1385,97 +1459,110 @@ export const Form = forwardRef((props: FormProps, _ref) => {
 
     return (
         <DiagnosticsStoreContext.Provider value={diagnosticsStore}>
-        <FormFieldLoadingProvider
-            loadingFields={loadingFields}
-            registerLoading={registerLoading}
-            unregisterLoading={unregisterLoading}
-        >
-            <Provider {...contextValue}>
-                <S.Container nestedForm={nestedForm} compact={compact} footerActionButton={footerActionButton} className="side-panel-body">
-                    {isFormLoading && (
-                        <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: "12px", flex: 1 }}>
-                            <ProgressRing color={ThemeColors.PRIMARY} />
-                            <span style={{ fontSize: "12px", color: ThemeColors.ON_SURFACE_VARIANT }}>Loading form data...</span>
-                        </div>
-                    )}
-                    {/* NOTE: isFormLoading is only expected to be true during initial field value
+            <FormFieldLoadingProvider
+                loadingFields={loadingFields}
+                registerLoading={registerLoading}
+                unregisterLoading={unregisterLoading}
+            >
+                <Provider {...contextValue}>
+                    <S.Container nestedForm={nestedForm} compact={compact} footerActionButton={footerActionButton} className="side-panel-body">
+                        {isFormLoading && (
+                            <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: "12px", flex: 1 }}>
+                                <ProgressRing color={ThemeColors.PRIMARY} />
+                                <span style={{ fontSize: "12px", color: ThemeColors.ON_SURFACE_VARIANT }}>Loading form data...</span>
+                            </div>
+                        )}
+                        {/* NOTE: isFormLoading is only expected to be true during initial field value
     resolution on form open. If this ever becomes true during user interaction,
     it will drop focus — treat that as a bug in the loading registration logic. */}
-                    <div style={{ display: isFormLoading ? "none" : "contents" }}>
-                        {footerActionButton ? (
-                            <S.ScrollableContent>
-                                {formContent}
-                            </S.ScrollableContent>
-                        ) : (
-                            formContent
-                        )}
-                        {onSubmit && !hideSaveButton && !footerActionButton && (
-                            <S.Footer>
-                                {onCancelForm && (
-                                    <Button appearance="secondary" onClick={onCancelForm}>
-                                        {" "}
-                                        {cancelText || "Cancel"}{" "}
-                                    </Button>
-                                )}
-                                {canOpenInDataMapper &&
-                                    <Button
-                                        appearance="secondary"
-                                        onClick={handleOnOpenInDataMapper}
-                                        disabled={isSaving}
-                                    >
-                                        {isSaving && savingButton === 'dataMapper' ? (
-                                            <Typography variant="progress">{submitText || "Opening in Data Mapper..."}</Typography>
-                                        ) : submitText || "Open in Data Mapper"}
-                                    </Button>
-                                }
-                                {canOpenInFunctionEditor && (
-                                    <Button
-                                        appearance="secondary"
-                                        onClick={handleOnOpenInFunctionEditor}
-                                        disabled={isSaving}
-                                    >
-                                        {isSaving && savingButton === 'functionEditor' ? (
-                                            <Typography variant="progress">{submitText || "Opening in Function Editor..."}</Typography>
-                                        ) : submitText || "Open in Function Editor"}
-                                    </Button>
-                                )}
-                                <Button
-                                    appearance="primary"
-                                    onClick={handleOnSaveClick}
-                                    disabled={disableSaveButton || isSaving}
-                                >
-                                    {isValidatingForm ? (
-                                        <Typography variant="progress">Validating...</Typography>
-                                    ) : isSaving && savingButton === 'save' ? (
-                                        <Typography variant="progress">{submitText || "Saving..."}</Typography>
-                                    ) : (
-                                        submitText || "Save"
+                        <div style={{ display: isFormLoading ? "none" : "contents" }}>
+                            {footerActionButton ? (
+                                <S.ScrollableContent>
+                                    {formContent}
+                                </S.ScrollableContent>
+                            ) : (
+                                formContent
+                            )}
+                            {onSubmit && !hideSaveButton && !footerActionButton && (
+                                <S.Footer>
+                                    {onCancelForm && (
+                                        <Button appearance="secondary" onClick={onCancelForm}>
+                                            {" "}
+                                            {cancelText || "Cancel"}{" "}
+                                        </Button>
                                     )}
-                                </Button>
-                            </S.Footer>
-                        )}
-                        {onSubmit && !hideSaveButton && footerActionButton && (
-                            <S.FooterActionButtonContainer>
-                                <S.FooterActionButton
-                                    appearance="primary"
-                                    onClick={handleOnSaveClick}
-                                    disabled={disableSaveButton || isSaving}
-                                    buttonSx={{ width: "100%", height: "35px" }}
-                                >
-                                    {isValidatingForm ? (
-                                        <Typography variant="progress">Validating...</Typography>
-                                    ) : isSaving && savingButton === 'save' ? (
-                                        <Typography variant="progress">{submitText || "Saving..."}</Typography>
-                                    ) : (
-                                        submitText || "Save"
+                                    {canOpenInDataMapper &&
+                                        <Button
+                                            appearance="secondary"
+                                            onClick={handleOnOpenInDataMapper}
+                                            disabled={isSaving}
+                                        >
+                                            {isSaving && savingButton === 'dataMapper' ? (
+                                                <Typography variant="progress">{submitText || "Opening in Data Mapper..."}</Typography>
+                                            ) : submitText || "Open in Data Mapper"}
+                                        </Button>
+                                    }
+                                    {canOpenInFunctionEditor && (
+                                        <Button
+                                            appearance="secondary"
+                                            onClick={handleOnOpenInFunctionEditor}
+                                            disabled={isSaving}
+                                        >
+                                            {isSaving && savingButton === 'functionEditor' ? (
+                                                <Typography variant="progress">{submitText || "Opening in Function Editor..."}</Typography>
+                                            ) : submitText || "Open in Function Editor"}
+                                        </Button>
                                     )}
-                                </S.FooterActionButton>
-                            </S.FooterActionButtonContainer>
-                        )}
-                    </div>
-                </S.Container>
-            </Provider>
-        </FormFieldLoadingProvider>
+                                    {secondarySubmitButton && (
+                                        <Button
+                                            appearance="secondary"
+                                            onClick={handleOnSecondaryClick}
+                                            disabled={disableSaveButton || isSaving}
+                                        >
+                                            {isSaving && savingButton === 'secondary' ? (
+                                                <Typography variant="progress">{secondarySubmitButton.text}</Typography>
+                                            ) : (
+                                                secondarySubmitButton.text
+                                            )}
+                                        </Button>
+                                    )}
+                                    <Button
+                                        appearance="primary"
+                                        onClick={handleOnSaveClick}
+                                        disabled={disableSaveButton || isSaving}
+                                    >
+                                        {isValidatingForm ? (
+                                            <Typography variant="progress">Validating...</Typography>
+                                        ) : isSaving && savingButton === 'save' ? (
+                                            <Typography variant="progress">{submitText || "Saving..."}</Typography>
+                                        ) : (
+                                            submitText || "Save"
+                                        )}
+                                    </Button>
+                                </S.Footer>
+                            )}
+                            {onSubmit && !hideSaveButton && footerActionButton && (
+                                <S.FooterActionButtonContainer>
+                                    <S.FooterActionButton
+                                        appearance="primary"
+                                        onClick={handleOnSaveClick}
+                                        disabled={disableSaveButton || isSaving}
+                                        buttonSx={{ width: "100%", height: "35px" }}
+                                    >
+                                        {isValidatingForm ? (
+                                            <Typography variant="progress">Validating...</Typography>
+                                        ) : isSaving && savingButton === 'save' ? (
+                                            <Typography variant="progress">{submitText || "Saving..."}</Typography>
+                                        ) : (
+                                            submitText || "Save"
+                                        )}
+                                    </S.FooterActionButton>
+                                </S.FooterActionButtonContainer>
+                            )}
+                        </div>
+                    </S.Container>
+                </Provider>
+            </FormFieldLoadingProvider>
         </DiagnosticsStoreContext.Provider>
     );
 });

@@ -24,20 +24,22 @@ export {
     resourcesFolder, 
     newProjectPath,
     extensionsFolder,
-    initTest, 
-    initMigrationTest, 
-    createProject, 
-    setupBallerinaIntegrator, 
+    initTest,
+    initMigrationTest,
+    reacquireWindow,
+    createProject,
+    setupBallerinaIntegrator,
     toggleNotifications,
     zipProjectSnapshot,
-    captureFailureScreenshot
+    captureFailureScreenshot,
+    executeBallPullCommand
 } from './setup';
 
 // Re-export from webview
 export { getWebview } from './webview';
 
 // Re-export from artifacts
-export { addArtifact, createArtifactAndGetWebview, enableICP } from './artifacts';
+export { addArtifact, createArtifactAndGetWebview, enableICP, submitArtifactCreation, domClick } from './artifacts';
 
 // Re-export from serviceActions
 export { confirmSaveChangesAndGoBack, deleteArtifactFromTree } from './serviceActions';

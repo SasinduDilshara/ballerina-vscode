@@ -432,13 +432,13 @@
           }
         },
         "returnType": {
-          "hasError": true,
+          "hasError": false,
           "isGraphqlId": false,
           "metadata": {
             "label": "Return Type",
             "description": "The return type of the function."
           },
-          "placeholder": "anydata|error",
+          "placeholder": "",
           "value": "Weather|error",
           "types": [
             {
@@ -820,13 +820,13 @@
           }
         },
         "returnType": {
-          "hasError": true,
+          "hasError": false,
           "isGraphqlId": false,
           "metadata": {
             "label": "Return Type",
             "description": "The return type of the function."
           },
-          "placeholder": "anydata|error",
+          "placeholder": "",
           "value": "WeatherForecast|error",
           "types": [
             {
@@ -1049,14 +1049,14 @@
           }
         },
         "returnType": {
-          "hasError": true,
+          "hasError": false,
           "isGraphqlId": false,
           "metadata": {
             "label": "Return Type",
             "description": "The return type of the function."
           },
-          "placeholder": "anydata|error",
-          "value": "anydata|error",
+          "placeholder": "",
+          "value": "",
           "types": [
             {
               "fieldType": "TYPE",

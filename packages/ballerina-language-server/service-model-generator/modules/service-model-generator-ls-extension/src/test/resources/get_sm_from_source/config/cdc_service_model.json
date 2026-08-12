@@ -120,6 +120,27 @@
         "editable": true,
         "optional": false,
         "advanced": false
+      },
+      "readOnlyMetadata": {
+        "codedata": {
+          "type": "READONLY"
+        },
+        "placeholder": "false",
+        "value": {
+          "Table Name": [
+            "db1.schema1.t1"
+          ]
+        },
+        "types": [
+          {
+            "fieldType": "SINGLE_SELECT",
+            "selected": true
+          }
+        ],
+        "enabled": true,
+        "editable": true,
+        "optional": false,
+        "advanced": false
       }
     },
     "codedata": {
@@ -915,7 +936,7 @@
         "parameters": [
           {
             "metadata": {
-              "label": "err",
+              "label": "cdcError",
               "description": "The error that occurred during event processing."
             },
             "kind": "REQUIRED",
@@ -924,8 +945,8 @@
                 "label": "Parameter Type",
                 "description": "The type of the parameter"
               },
-              "placeholder": "cdc:Error?",
-              "value": "cdc:Error?",
+              "placeholder": "cdc:Error",
+              "value": "cdc:Error",
               "types": [
                 {
                   "fieldType": "TYPE",
@@ -939,11 +960,11 @@
             },
             "name": {
               "metadata": {
-                "label": "err",
+                "label": "cdcError",
                 "description": "The error that occurred during event processing."
               },
-              "placeholder": "err",
-              "value": "err",
+              "placeholder": "cdcError",
+              "value": "cdcError",
               "types": [
                 {
                   "fieldType": "IDENTIFIER",

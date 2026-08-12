@@ -103,66 +103,47 @@ task copyStdlibs() {
     }
 }
 
-test.dependsOn rootProject.pullBallerinaModule('redis', ballerinaxRedisVersion)
-test.dependsOn rootProject.pullBallerinaModule('postgresql', ballerinaxPostgresqlVersion)
-test.dependsOn rootProject.pullBallerinaModule('postgresql.driver', ballerinaxPostgresqlDriverVersion)
-test.dependsOn rootProject.pullBallerinaModule('salesforce', ballerinaxSalesforceVersion)
-test.dependsOn rootProject.pullBallerinaModule('trigger.salesforce', ballerinaxTriggerSalesforceVersion)
-test.dependsOn rootProject.pullBallerinaModule('github', ballerinaxGithubVersion)
-test.dependsOn rootProject.pullBallerinaModule('snowflake', ballerinaxSnowflakeVersion)
-test.dependsOn rootProject.pullBallerinaModule('docusign.dsadmin', ballerinaxDocusignDsadminVersion)
-test.dependsOn rootProject.pullBallerinaModule('mysql', ballerinaxMysqlVersion)
-test.dependsOn rootProject.pullBallerinaModule('wso2.controlplane', ballerinaxWso2ControlplaneVersion)
-test.dependsOn rootProject.pullBallerinaModule('ftp', ballerinaFtpVersion, 'ballerina')
-
-test.dependsOn rootProject.pullBallerinaModule('ai.pinecone', ballerinaxAiPineconeVersion)
-test.dependsOn rootProject.pullBallerinaModule('ai.devant', ballerinaxAiDevantVersion)
-test.dependsOn rootProject.pullBallerinaModule('ai.openai', ballerinaxAiOpenaiVersion)
-test.dependsOn rootProject.pullBallerinaModule('ai.ollama', ballerinaxAiOllamaVersion)
-test.dependsOn rootProject.pullBallerinaModule('ai.azure', ballerinaxAiAzureVersion)
-test.dependsOn rootProject.pullBallerinaModule('ai.anthropic', ballerinaxAiAnthropicVersion)
-test.dependsOn rootProject.pullBallerinaModule('ai.deepseek', ballerinaxAiDeepseekVersion)
-test.dependsOn rootProject.pullBallerinaModule('ai.mistral', ballerinaxAiMistralVersion)
-test.dependsOn rootProject.pullBallerinaModule('ai', ballerinaAiVersion, "ballerina")
-
-
-// TODO: Re-enable this once the `np` module is available on central
-//test.dependsOn rootProject.pullBallerinaModule('np')
-
-// The Copilot trigger-metadata corpus, pre-fetched at the versions gradle.properties pins so the
-// schema-driven service tests never resolve "whatever Central serves latest". See the corpus block in
-// gradle.properties for why, and for which libraries share a property with another LS test.
+// The Copilot trigger-metadata corpus: the libraries whose schema-driven service assertions are written
+// against a specific package release.
 //
-// `bal pull` rather than a Maven `*-ballerina` artifact: those artifacts declare no dependencies in their
-// POM (verified against mssql-ballerina 1.19.0), so a Maven route would seed one bare bala and leave its
-// transitive closure — 101 packages across this corpus, including stdlib versions the test distribution
-// does not ship — to be resolved from Central at test time anyway. `bal pull` fetches the closure.
+// Provisioning is no longer per package — the root build's hermetic `resolveBallerinaDependencies` task
+// populates a build-owned Ballerina home from build-config/ballerina_dependencies, and the root
+// `allprojects { tasks.withType(Test) }` block points every test at it.
 //
-// ballerina/ftp is already pulled above at ballerinaFtpVersion, which is the version the corpus uses too,
-// so it is not repeated here.
-ext.copilotCorpusVersions = [
-        'ballerina/http': stdlibHttpVersion,
-        'ballerina/graphql': stdlibGraphqlVersion,
-        'ballerina/grpc': stdlibGrpcVersion,
-        'ballerina/ftp': ballerinaFtpVersion,
-        'ballerina/smb': copilotSmbVersion,
-        'ballerina/mcp': copilotMcpVersion,
-        'ballerina/websub': copilotWebsubVersion,
-        'ballerina/websocket': copilotWebsocketVersion,
-        'ballerinax/kafka': ballerinaxKafkaVersion,
-        'ballerinax/rabbitmq': ballerinaxRabbitmqVersion,
-        'ballerinax/mssql': ballerinaxMSSQLVersion,
-        'ballerinax/cdc': ballerinaxCdcVersion,
-        'ballerinax/trigger.github': ballerinaxGithubTriggerVersion,
-        'ballerinax/trigger.google.calendar': copilotTriggerGoogleCalendarVersion,
-        'ballerinax/asb': copilotAsbVersion,
+// The VERSIONS are therefore read straight out of that project's Ballerina.toml rather than duplicated in
+// gradle.properties. This is what makes the invariant CopilotSchemaServicesTest depends on true by
+// construction: the version a test REQUESTS is the version the build PROVISIONED, so the two can never
+// drift. Duplicating them is exactly how they drifted before (the build pre-fetched ftp 2.16.0 while the
+// test asked for 2.20.1, invisibly). A library added here must also be declared in that Ballerina.toml, or
+// it resolves nothing and the schema test skips.
+ext.copilotCorpusLibraries = [
+        'ballerina/http', 'ballerina/graphql', 'ballerina/grpc', 'ballerina/ftp', 'ballerina/smb',
+        'ballerina/mcp', 'ballerina/websub', 'ballerina/websocket', 'ballerinax/kafka',
+        'ballerinax/rabbitmq', 'ballerinax/mssql', 'ballerinax/cdc', 'ballerinax/trigger.github',
+        'ballerinax/trigger.google.calendar', 'ballerinax/asb',
 ]
 
-copilotCorpusVersions.each { library, version ->
-    def (org, name) = library.tokenize('/')
-    test.dependsOn rootProject.pullBallerinaModule(name, version, org)
-}
-
+ext.copilotCorpusVersions = { ->
+    // Dependencies.toml, not Ballerina.toml: the latter declares version FLOORS, the former is the lock and
+    // is what actually gets provisioned. Reading the floors would report mcp 1.0.3 while the build installs
+    // 1.2.0 — the same requested-vs-provisioned drift this derivation exists to eliminate.
+    def lock = rootProject.file('build-config/ballerina_dependencies/Dependencies.toml').text
+    def locked = [:]
+    (lock =~ /(?s)\[\[package\]\]\s*\norg = "([^"]+)"\s*\nname = "([^"]+)"\s*\nversion = "([^"]+)"/)
+            .each { full, org, name, version -> locked["$org/$name"] = version }
+    def resolved = [:]
+    copilotCorpusLibraries.each { library ->
+        def version = locked[library]
+        if (version == null) {
+            throw new GradleException("Copilot corpus library '$library' is not in " +
+                    "build-config/ballerina_dependencies/Dependencies.toml, so the hermetic Ballerina home " +
+                    "will not contain it and the schema-driven tests would skip silently. Add it to that " +
+                    "project's Ballerina.toml and regenerate the lock with `bal build`.")
+        }
+        resolved[library] = version
+    }
+    return resolved
+}()
 task copyServiceIndex(type: Copy) {
     from "${rootDir}/service-model-generator/modules/service-model-generator-ls-extension/src/main/resources/service-index.sqlite"
     into "${buildDir}/resources/test"
@@ -194,9 +175,22 @@ task dumpCopilotRender(type: JavaExec) {
     group = "verification"
     description = "Dumps the Copilot getFilteredLibraries payload for the trigger corpus."
     dependsOn copyStdlibs, copyServiceIndex, compileTestJava, processTestResources
+    dependsOn rootProject.tasks.named("resolveBallerinaDependencies")
     classpath = sourceSets.test.runtimeClasspath
     mainClass = "io.ballerina.flowmodelgenerator.extension.CopilotRenderDump"
     systemProperty "ballerina.home", balDistribution
+    // Resolve the corpus from the build-owned Ballerina home rather than the developer's own ~/.ballerina
+    // cache. This is a JavaExec, not a Test, so the root build's `allprojects { tasks.withType(Test) }` block
+    // does not reach it, and without this the versions float away from Dependencies.toml (observed:
+    // websocket 2.15.0 -> 2.15.5, ai.azure 1.4.1 -> 1.5.0), which makes a render comparison unattributable.
+    environment "BALLERINA_HOME_DIR", rootProject.ballerinaTestHomeDir.absolutePath
+    // Deliberately NOT `ls.test.offline`, which the test tasks do set. That flag flips PackageUtil's
+    // FORCE_OFFLINE, whose balaBuildOptions() then loads dependency balas offline with SOFT locking instead
+    // of production's sticky load. Under that mode an annotation value that has to be recovered from the
+    // dependency's own source is lost: ballerina/grpc's eight `@protobuf:Descriptor {value: REFLECTION_DESC}`
+    // attachments render with no value at all. This harness exists to show what LibraryGetTool actually
+    // hands the model in production, so it must use production's load mode. BALLERINA_HOME_DIR alone still
+    // pins the versions, so reproducibility is not traded away.
     // Compiles seventeen full Ballerina packages in one JVM; 2g is not enough for ballerina/http.
     maxHeapSize = "4g"
     doFirst {

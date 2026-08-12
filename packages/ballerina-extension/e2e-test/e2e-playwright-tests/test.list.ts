@@ -66,7 +66,7 @@ import directoryIntegration from './file-integration/directory.spec';
 
 import functionArtifact from './other-artifacts/function.spec';
 import naturalFunctionArtifact from './other-artifacts/np.spec';
-import connectionArtifact from './other-artifacts/connection.spec';
+import connections from './connections/connections.spec';
 
 import configuration from './configuration/configuration.spec';
 import typeTest from './type-editor/type.spec';
@@ -86,6 +86,8 @@ import automationFlowNodes from './diagram/flow-nodes.spec';
 import httpTryItExisting from './tryit/http-try-it-existing.spec';
 
 import testExplorer from './test-explorer/test-explorer.spec';
+
+import projectExplorer from './project-explorer/project-explorer.spec';
 
 test.describe.configure({ mode: 'default' });
 
@@ -158,6 +160,9 @@ test.describe('Ballerina E2E Group 2', { tag: '@group2' }, async () => {
 
     // <----Other Artifacts Test---->
     test.describe(functionArtifact);
+
+    // <----Project Explorer Test---->
+    test.describe(projectExplorer);
 });
 
 test.describe('Ballerina E2E Group 3', { tag: '@group3' }, async () => {
@@ -171,7 +176,6 @@ test.describe('Ballerina E2E Group 3', { tag: '@group3' }, async () => {
 
     // <----Other Artifacts Test---->
     test.describe.skip(naturalFunctionArtifact); // TODO: Enable this once the ballerina version is switchable
-    test.describe(connectionArtifact);
     test.describe(configuration);
 
     // <----Import Integration Test---->
@@ -203,6 +207,8 @@ test.describe('Ballerina E2E Group 4', { tag: '@group4' }, async () => {
 
     // <----Test Explorer Test---->
     test.describe(testExplorer);
+
+    test.describe(connections);
 });
 
 test.afterAll(async () => {

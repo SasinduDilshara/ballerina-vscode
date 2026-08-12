@@ -44,6 +44,7 @@ import { registerTestManagerRpcHandlers } from './rpc-managers/test-manager/rpc-
 import { registerIcpServiceRpcHandlers } from './rpc-managers/icp-service/rpc-handler';
 import { registerWorkflowManagementServiceRpcHandlers } from './rpc-managers/workflow-management-service/rpc-handler';
 import { extension } from './BalExtensionContext';
+import { isICPSupported } from './utils/config';
 import { registerAgentChatRpcHandlers } from './rpc-managers/agent-chat/rpc-handler';
 import { ChatPanel } from './views/agent-chat/webview';
 import { activeAgentChanged, tracingStatusChanged, TraceStatus } from '@wso2/ballerina-core';
@@ -52,6 +53,10 @@ import { registerMigrateIntegrationRpcHandlers } from './rpc-managers/migrate-in
 import { registerPlatformExtRpcHandlers } from './rpc-managers/platform-ext/rpc-handler';
 import { MigrationPanelWebview } from './views/migration-panel/webview';
 import { isRecording, recordRpc } from './test-support/fixtureRecorder';
+import { chatStateStorage } from './views/ai-panel/chatStateStorage';
+
+// Event types that trigger MainPanel's remount/re-fetch regardless of state value.
+const DISRUPTIVE_TRANSITION_EVENTS = new Set(['VIEW_UPDATE', 'UPDATE_PROJECT_STRUCTURE']);
 
 export class RPCLayer {
     static _messenger: Messenger = new Messenger({ ignoreHiddenViews: false });
@@ -59,7 +64,10 @@ export class RPCLayer {
     constructor(webViewPanel: WebviewPanel | WebviewView) {
         if (isWebviewPanel(webViewPanel)) {
             RPCLayer._messenger.registerWebviewPanel(webViewPanel as WebviewPanel);
-            StateMachine.service().onTransition((state) => {
+            StateMachine.service().onTransition((state, event) => {
+                if (DISRUPTIVE_TRANSITION_EVENTS.has(event?.type) && chatStateStorage.hasAnyActiveExecution()) {
+                    return;
+                }
                 RPCLayer._messenger.sendNotification(stateChanged, { type: 'webview', webviewType: VisualizerWebview.viewType }, state.value);
             });
             // Popup machine transition
@@ -161,6 +169,7 @@ async function getContext(): Promise<VisualizerLocation> {
             view: context.view,
             identifier: context.identifier,
             parentIdentifier: context.parentIdentifier,
+            artifactType: context.artifactType,
             position: context.position,
             syntaxTree: context.syntaxTree,
             isBI: context.isBI,
@@ -175,6 +184,7 @@ async function getContext(): Promise<VisualizerLocation> {
             rootDiagramId: context.rootDiagramId,
             metadata: {
                 isBISupported: context.isBISupported,
+                isICPSupported: isICPSupported(),
                 haveLS: StateMachine.langClient() && true,
                 recordFilePath: context.projectPath ? path.join(context.projectPath, "types.bal") : undefined,
                 enableSequenceDiagram: extension.ballerinaExtInstance.enableSequenceDiagramView(),

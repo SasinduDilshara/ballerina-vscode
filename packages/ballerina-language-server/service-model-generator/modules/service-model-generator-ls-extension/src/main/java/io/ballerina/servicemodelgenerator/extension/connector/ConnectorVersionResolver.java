@@ -31,7 +31,7 @@ import java.util.Optional;
 
 /**
  * Resolves which version of a connector a schema-driven flow should be modelled against, so a
- * version-gated {@link ConnectorModelReader} variant can be selected.
+ * version-gated {@link TriggerModelReader} variant can be selected.
  *
  * <p>Needed only on the <b>add</b> path. Reading an existing service already knows the exact version
  * from the source's {@code ModuleID}; adding one does not, and the version the client requested (from

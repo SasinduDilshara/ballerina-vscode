@@ -25,7 +25,13 @@ import {
     Parameter,
     FormImports,
 } from "@wso2/ballerina-side-panel";
-import { findCurrentIntegrationCategory, normalizeFunctionSearchCategories } from "./function-category";
+import {
+    buildHelperCategory,
+    CURRENT_INTEGRATION_CATEGORY_TITLE,
+    findCurrentIntegrationCategory,
+    getItemKind,
+    normalizeFunctionSearchCategories,
+} from "./function-category";
 import { AddNodeVisitor, RemoveNodeVisitor, NodeIcon, traverseFlow, ConnectorIcon, AIModelIcon } from "@wso2/bi-diagram";
 import {
     Category,
@@ -61,6 +67,9 @@ import {
     isTemplateType,
     DropdownType,
     isDropDownType,
+    InputType,
+    CodeData,
+    isAgentCallNode,
 } from "@wso2/ballerina-core";
 import {
     HelperPaneVariableInfo,
@@ -73,15 +82,17 @@ import { cloneDeep } from "lodash";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import hljs from "highlight.js";
-import { COMPLETION_ITEM_KIND, CompletionItem, CompletionItemKind, convertCompletionItemKind, FnSignatureDocumentation } from "@wso2/ui-toolkit";
+import { COMPLETION_ITEM_KIND, CompletionItem, CompletionItemKind, convertCompletionItemKind, FnSignatureDocumentation, getAIModuleIcon, Icon } from "@wso2/ui-toolkit";
 import { FunctionDefinition, STNode } from "@wso2/syntax-tree";
 import { DocSection } from "../components/ExpressionEditor";
 
 // @ts-ignore
 import ballerina from "../languages/ballerina.js";
 import { FUNCTION_REGEX } from "../resources/constants";
-import { ConnectionKind, getConnectionKindConfig } from "../components/ConnectionSelector";
+import { ConnectionKind, getConnectionKindDisplayName } from "../components/ConnectionSelector";
 import { ConnectionListItem } from "@wso2/wso2-platform-core";
+import { handleRepeatableProperty } from "./node-property-utils";
+export { updateNodeProperties } from "./node-property-utils";
 hljs.registerLanguage("ballerina", ballerina);
 
 export const BALLERINA_INTEGRATOR_ISSUES_URL = "https://github.com/wso2/product-ballerina-integrator/issues";
@@ -108,7 +119,11 @@ function convertAvailableNodeToPanelNode(
         description: node.metadata.description,
         enabled: node.enabled,
         metadata: node,
-        icon: node.codedata.node === "NEW_CONNECTION" ? (
+        icon: node.metadata.icon?.startsWith("bi-") ? (
+            // A codicon-style icon name distinguishes items sharing a node kind (e.g. durable
+            // agentic workflows in the same startable list as workflow functions).
+            <Icon name={node.metadata.icon} sx={{ fontSize: "16px", width: "16px", height: "16px" }} />
+        ) : node.codedata.node === "NEW_CONNECTION" ? (
             <ConnectorIcon
                 url={node.metadata.icon}
                 style={{ width: "16px", height: "16px", fontSize: "16px" }}
@@ -132,6 +147,63 @@ function convertAvailableNodeToPanelNode(
 }
 
 
+type IconFactory = (codedata: any, iconUrl?: string) => React.ReactElement;
+
+// Central icon URLs are `…/{org}_{package}_{version}.png`; the middle segment is the package key.
+function getPackageKeyFromIconUrl(iconUrl?: string): string | undefined {
+    const fileName = iconUrl?.split("/").pop();
+    const parts = fileName?.split("_");
+    return parts && parts.length >= 3 ? parts[1] : undefined;
+}
+
+// Prefer the embedded provider SVG so monochrome logos stay visible in dark mode.
+function resolveChildBadgeIcon(codedata: any, iconUrl?: string): React.ReactElement {
+    const embedded =
+        getAIModuleIcon(getPackageKeyFromIconUrl(iconUrl), 14) ?? getAIModuleIcon(codedata?.object, 14);
+    if (embedded) {
+        return embedded;
+    }
+    // Fall back to the node glyph: the URL is synthesised from package coordinates and 404s for unpublished packages.
+    return (
+        <ConnectorIcon
+            url={iconUrl}
+            style={{ width: "14px", height: "14px", fontSize: "14px" }}
+            codedata={codedata}
+            fallbackIcon={<NodeIcon type={codedata?.node} size={14} />}
+        />
+    );
+}
+
+// Keeps the package icon on the group header and gives each child its own @display icon.
+function applyGroupedChildIcons(group: PanelCategory, rawItems: any[], groupIconFactory?: IconFactory): void {
+    const rawGroup = rawItems?.find(
+        (r) => r && !("codedata" in r) && r.metadata?.label === group.title
+    );
+    const packageIconUrl: string | undefined = rawGroup?.metadata?.icon;
+    const firstChild = group.items?.at(0) as PanelNode | undefined;
+
+    if (packageIconUrl) {
+        group.icon = (
+            <ConnectorIcon url={packageIconUrl} style={{ width: "20px", height: "20px", fontSize: "20px" }} />
+        );
+    } else if (groupIconFactory) {
+        // No package icon, so the group falls back to its first child's — which needs the caller's fallback too.
+        group.icon = groupIconFactory(firstChild?.metadata?.codedata, firstChild?.metadata?.metadata?.icon);
+    }
+
+    group.items?.forEach((child) => {
+        const childNode = child as PanelNode;
+        const codedata = childNode.metadata?.codedata;
+        const childIconUrl: string | undefined = childNode.metadata?.metadata?.icon;
+        const hasClassIcon = Boolean(childIconUrl) && childIconUrl !== packageIconUrl;
+        child.icon = hasClassIcon ? (
+            resolveChildBadgeIcon(codedata, childIconUrl)
+        ) : (
+            <NodeIcon type={codedata?.node} size={14} />
+        );
+    });
+}
+
 function convertDiagramCategoryToSidePanelCategory(category: Category, functionType?: FUNCTION_TYPE): PanelCategory {
     const connectorType = (category?.metadata?.data as NodeMetadata)?.connectorType;
 
@@ -148,9 +220,11 @@ function convertDiagramCategoryToSidePanelCategory(category: Category, functionT
                 return false;
             }
             if ((item as PanelCategory).items !== undefined) {
-                // Always keep subcategories that represent the current integration, even if empty
+                // Always keep subcategories that represent the active package, even if empty
                 const title = (item as PanelCategory).title;
-                if (title?.toLowerCase().endsWith("(current integration)")) {
+                if (title?.toLowerCase().endsWith(
+                    `(${CURRENT_INTEGRATION_CATEGORY_TITLE.toLowerCase()})`
+                )) {
                     return true;
                 }
                 // For other categories, use recursive check to see if they have any functions
@@ -231,20 +305,28 @@ export function convertFunctionCategoriesToSidePanelCategories(
     return panelCategories;
 }
 
+export function convertAgentCategoriesToSidePanelCategories(categories: Category[]): PanelCategory[] {
+    return convertCategoriesToSidePanelCategoriesWithIcon(categories, (codedata, iconUrl) => (
+        <ConnectorIcon
+            url={iconUrl}
+            codedata={codedata}
+            fallbackIcon={<Icon name="bi-ai-agent" sx={{ width: 20, height: 20, fontSize: 20 }} />}
+            style={{ width: "20px", height: "20px", fontSize: "20px" }}
+        />
+    ));
+}
+
 export function convertModelProviderCategoriesToSidePanelCategories(categories: Category[]): PanelCategory[] {
     const panelCategories = categories.map((category) => convertDiagramCategoryToSidePanelCategory(category));
-    panelCategories.forEach((category) => {
+    panelCategories.forEach((category, index) => {
         category.items?.forEach((item) => {
             if ((item as PanelNode).metadata?.codedata) {
                 const codedata = (item as PanelNode).metadata.codedata;
                 const iconUrl = (item as PanelNode)?.metadata?.metadata?.icon;
                 const iconType = codedata?.module == "ai" ? codedata.object : codedata?.module;
                 item.icon = <AIModelIcon type={iconType} codedata={codedata} iconUrl={iconUrl} />;
-            } else if (((item as PanelCategory).items.at(0) as PanelNode)?.metadata?.codedata) {
-                const codedata = ((item as PanelCategory).items.at(0) as PanelNode)?.metadata.codedata;
-                const iconUrl = ((item as PanelCategory).items.at(0) as PanelNode)?.metadata?.metadata?.icon;
-                const iconType = codedata?.module == "ai" ? codedata.object : codedata?.module;
-                item.icon = <AIModelIcon type={iconType} codedata={codedata} iconUrl={iconUrl} />;
+            } else if ((item as PanelCategory).items) {
+                applyGroupedChildIcons(item as PanelCategory, categories[index]?.items as any[]);
             }
         });
     });
@@ -275,19 +357,17 @@ export function convertKnowledgeBaseCategoriesToSidePanelCategories(categories: 
 
 export function convertCategoriesToSidePanelCategoriesWithIcon(
     categories: Category[],
-    iconFactory: (codedata: any, iconUrl?: string) => React.ReactElement
+    iconFactory: IconFactory
 ): PanelCategory[] {
     const panelCategories = categories.map((category) => convertDiagramCategoryToSidePanelCategory(category));
-    panelCategories.forEach((category) => {
+    panelCategories.forEach((category, index) => {
         category.items?.forEach((item) => {
             if ((item as PanelNode).metadata?.codedata) {
                 const codedata = (item as PanelNode).metadata.codedata;
                 const iconUrl = (item as PanelNode)?.metadata?.metadata?.icon;
                 item.icon = iconFactory(codedata, iconUrl);
-            } else if (((item as PanelCategory).items.at(0) as PanelNode)?.metadata?.codedata) {
-                const codedata = ((item as PanelCategory).items.at(0) as PanelNode)?.metadata.codedata;
-                const iconUrl = ((item as PanelCategory).items.at(0) as PanelNode)?.metadata?.metadata?.icon;
-                item.icon = iconFactory(codedata, iconUrl);
+            } else if ((item as PanelCategory).items) {
+                applyGroupedChildIcons(item as PanelCategory, categories[index]?.items as any[], iconFactory);
             }
         });
     });
@@ -317,10 +397,10 @@ export function convertMemoryStoreCategoriesToSidePanelCategories(categories: Ca
 export {
     convertNodePropertiesToFormFields,
     convertNodePropertyToFormField,
-    updateNodeProperties,
     // convertConfig moved to node-property-utils (unit-tested there); re-exported so
     // existing `utils/bi` importers are unaffected.
     convertConfig,
+    DEFAULT_MODEL_PROVIDER_ITEM,
 } from "./node-property-utils";
 
 export function getFormProperties(flowNode: FlowNode): NodeProperties {
@@ -342,57 +422,34 @@ export function getRegularFunctions(functions: Category[]): Category[] {
 
 export function getDataMappingFunctions(functions: Category[]): Category[] {
     return functions
-        .filter((category) => category.metadata.label === "Current Integration")
+        .filter((category) => category.metadata.label === CURRENT_INTEGRATION_CATEGORY_TITLE)
         .filter((category) => category.items.length > 0);
 }
 
-
-function getConnectionDisplayName(connectionKind?: ConnectionKind): string {
-    if (!connectionKind) return 'Connection';
-    try {
-        const config = getConnectionKindConfig(connectionKind);
-        return config.displayName;
-    } catch {
-        return 'Connection';
-    }
-}
 
 export function getContainerTitle(view: SidePanelView, activeNode: FlowNode, clientName?: string, connectionKind?: ConnectionKind): string {
     switch (view) {
         case SidePanelView.NODE_LIST:
             return ""; // Show switch instead of title
         case SidePanelView.CONNECTION_CONFIG:
-            return `Configure ${getConnectionDisplayName(connectionKind)}`;
+            return `Configure ${getConnectionKindDisplayName(connectionKind)}`;
         case SidePanelView.CONNECTION_SELECT:
-            return `Select ${getConnectionDisplayName(connectionKind)}`;
+            return `Select ${getConnectionKindDisplayName(connectionKind)}`;
         case SidePanelView.CONNECTION_CREATE:
-            return `Create ${getConnectionDisplayName(connectionKind)}`;
+            return `Create ${getConnectionKindDisplayName(connectionKind)}`;
         case SidePanelView.ERROR:
             return "Error";
         case SidePanelView.LOADING:
             return "";
-        case SidePanelView.AGENT_MEMORY_MANAGER:
-            return "Configure Memory";
-        case SidePanelView.AGENT_TOOL:
-            return "Configure Tool";
-        case SidePanelView.ADD_TOOL:
-            return "Add Tool";
-        case SidePanelView.ADD_MCP_SERVER:
-            return "Add MCP Server";
-        case SidePanelView.EDIT_MCP_SERVER:
-            return "Edit MCP Server";
-        case SidePanelView.NEW_TOOL:
-            return "Add New Tool";
-        case SidePanelView.NEW_TOOL_FROM_CONNECTION:
-            return "Create Tool from Connection";
-        case SidePanelView.NEW_TOOL_FROM_FUNCTION:
-            return "Create Tool from Function";
         case SidePanelView.FORM:
             if (!activeNode) {
                 return "";
             }
-            if (activeNode.codedata?.node === "AGENT_CALL" || activeNode.codedata?.node === "AGENT_RUN") {
+            if (isAgentCallNode(activeNode.codedata?.node)) {
                 return `AI Agent`;
+            }
+            if (activeNode.codedata?.node === "MCP_TOOL_KIT") {
+                return "Add MCP Server";
             }
             if (activeNode.codedata?.node === "KNOWLEDGE_BASE" && activeNode.codedata?.object === "VectorKnowledgeBase") {
                 return `ai: Vector Knowledge Base`;
@@ -403,14 +460,23 @@ export function getContainerTitle(view: SidePanelView, activeNode: FlowNode, cli
             ) {
                 return `${clientName || activeNode.properties.connection.value} → ${activeNode.metadata.label}`;
             } else if (activeNode.codedata?.node === "DATA_MAPPER_CALL") {
-                return `${activeNode.codedata?.module ? activeNode.codedata?.module + " :" : ""} ${activeNode.codedata.symbol
-                    }`;
+                return `${modulePrefix(activeNode)}${activeNode.codedata.symbol}`;
             }
-            return `${activeNode.codedata?.module ? activeNode.codedata?.module + " :" : ""} ${activeNode.metadata.label
-                }`;
+            return `${modulePrefix(activeNode)}${activeNode.metadata.label}`;
         default:
             return "";
     }
+}
+
+// The module a form title is qualified with ("regex : matches"), which disambiguates same-named
+// functions across modules. Workflow and durable agent nodes are the module's own concepts, so
+// their titles read better unqualified ("Run Workflow", not "workflow : Run Workflow").
+function modulePrefix(activeNode: FlowNode): string {
+    const module = activeNode.codedata?.module;
+    if (!module || module === "workflow" || activeNode.codedata?.node?.startsWith("DURABLE_AGENT")) {
+        return "";
+    }
+    return `${module} : `;
 }
 
 export function addDraftNodeToDiagram(flowModel: Flow, parent: FlowNode | Branch, target: LineRange) {
@@ -842,12 +908,9 @@ export const convertToHelperPaneConfigurableVariable = (variables: VisibleType[]
     };
 };
 
-const isCategoryType = (item: Item): item is Category => {
-    return !(item as AvailableNode)?.codedata;
-};
-
 export const getFunctionItemKind = (category: string): FunctionKind => {
-    if (category.toLocaleLowerCase().includes("current") || category.toLocaleLowerCase().includes("within project")) {
+    if (category.toLocaleLowerCase().includes("current")
+        || category.toLocaleLowerCase().includes("within project")) {
         return functionKinds.CURRENT;
     } else if (category.toLocaleLowerCase().includes("imported")) {
         return functionKinds.IMPORTED;
@@ -862,37 +925,23 @@ export const convertToHelperPaneFunction = (functions: Category[]): HelperPaneFu
     };
     for (const category of functions.filter((category) => category.metadata.label !== "Agent Tools")) {
         const categoryKind = getFunctionItemKind(category.metadata.label);
-        const items: HelperPaneCompletionItem[] = [];
-        const subCategory: HelperPaneFunctionCategory[] = [];
-        for (const categoryItem of category?.items) {
-            if (isCategoryType(categoryItem)) {
-                if (categoryItem.metadata.label === "Agent Tools") {
-                    continue;
-                }
-                subCategory.push({
-                    label: categoryItem.metadata.label,
-                    items: categoryItem.items.map((item) => ({
-                        label: item.metadata.label,
-                        insertText: item.metadata.label,
-                        kind: categoryKind,
-                        codedata: !isCategoryType(item) && item.codedata,
-                    })),
-                });
-            } else {
-                items.push({
-                    label: categoryItem.metadata.label,
-                    insertText: categoryItem.metadata.label,
-                    kind: categoryKind,
-                    codedata: categoryItem.codedata,
-                });
-            }
-        }
-
-        const categoryItem: HelperPaneFunctionCategory = {
-            label: category.metadata.label,
-            items: items.length ? items : undefined,
-            subCategory: subCategory.length ? subCategory : undefined,
-        };
+        const categoryItem = buildHelperCategory<
+            HelperPaneCompletionItem,
+            HelperPaneFunctionCategory,
+            HelperPaneFunctionCategory
+        >(
+            category,
+            categoryKind,
+            (item, fallback) => ({
+                label: item.metadata.label,
+                insertText: item.metadata.label,
+                kind: getItemKind(item.codedata, fallback),
+                codedata: item.codedata,
+            }),
+            (label, items) => ({ label, items }),
+            (label, items, subCategory) => ({ label, items, subCategory }),
+            (item) => item.metadata.label !== "Agent Tools"
+        );
         response.category.push(categoryItem);
     }
     return response;

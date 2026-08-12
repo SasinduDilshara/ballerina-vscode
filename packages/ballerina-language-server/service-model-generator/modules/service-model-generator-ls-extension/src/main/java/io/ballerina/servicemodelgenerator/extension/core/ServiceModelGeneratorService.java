@@ -33,12 +33,12 @@ import io.ballerina.compiler.syntax.tree.ObjectFieldNode;
 import io.ballerina.compiler.syntax.tree.ServiceDeclarationNode;
 import io.ballerina.compiler.syntax.tree.SyntaxKind;
 import io.ballerina.compiler.syntax.tree.SyntaxTree;
+import io.ballerina.modelgenerator.commons.CommonUtils;
 import io.ballerina.modelgenerator.commons.ModuleInfo;
 import io.ballerina.modelgenerator.commons.PackageUtil;
 import io.ballerina.modelgenerator.commons.ServiceDatabaseManager;
 import io.ballerina.modelgenerator.commons.ServiceDeclaration;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerUISchemaModel;
-import io.ballerina.modelgenerator.commons.trigger.utils.TriggerArtifactResolver;
 import io.ballerina.projects.Document;
 import io.ballerina.projects.Module;
 import io.ballerina.projects.ModuleId;
@@ -47,7 +47,7 @@ import io.ballerina.projects.Package;
 import io.ballerina.projects.Project;
 import io.ballerina.servicemodelgenerator.extension.builder.FunctionBuilderRouter;
 import io.ballerina.servicemodelgenerator.extension.builder.ServiceBuilderRouter;
-import io.ballerina.servicemodelgenerator.extension.connector.ConnectorModelReader;
+import io.ballerina.servicemodelgenerator.extension.connector.TriggerModelReader;
 import io.ballerina.servicemodelgenerator.extension.model.Codedata;
 import io.ballerina.servicemodelgenerator.extension.model.Function;
 import io.ballerina.servicemodelgenerator.extension.model.Listener;
@@ -61,6 +61,7 @@ import io.ballerina.servicemodelgenerator.extension.model.request.AddFieldReques
 import io.ballerina.servicemodelgenerator.extension.model.request.ClassFieldModifierRequest;
 import io.ballerina.servicemodelgenerator.extension.model.request.ClassModelFromSourceRequest;
 import io.ballerina.servicemodelgenerator.extension.model.request.CommonModelFromSourceRequest;
+import io.ballerina.servicemodelgenerator.extension.model.request.CreateClassDependencyRequest;
 import io.ballerina.servicemodelgenerator.extension.model.request.FunctionModelRequest;
 import io.ballerina.servicemodelgenerator.extension.model.request.FunctionModifierRequest;
 import io.ballerina.servicemodelgenerator.extension.model.request.FunctionSourceRequest;
@@ -68,6 +69,7 @@ import io.ballerina.servicemodelgenerator.extension.model.request.ListenerDiscov
 import io.ballerina.servicemodelgenerator.extension.model.request.ListenerModelRequest;
 import io.ballerina.servicemodelgenerator.extension.model.request.ListenerModifierRequest;
 import io.ballerina.servicemodelgenerator.extension.model.request.ListenerSourceRequest;
+import io.ballerina.servicemodelgenerator.extension.model.request.ModifyClassDependencyRequest;
 import io.ballerina.servicemodelgenerator.extension.model.request.ServiceClassSourceRequest;
 import io.ballerina.servicemodelgenerator.extension.model.request.ServiceInitSourceRequest;
 import io.ballerina.servicemodelgenerator.extension.model.request.ServiceModelRequest;
@@ -453,7 +455,7 @@ public class ServiceModelGeneratorService implements ExtendedLanguageServerServi
      * locally and degrades to an empty list when Central is unavailable.
      *
      * @param request Trigger list request ({@code query} is the search term)
-     * @return {@link TriggerListResponse} of the matching Central triggers
+     * @return {@link TriggerListResponse} of the matching triggers
      */
     @JsonRequest
     public CompletableFuture<TriggerListResponse> searchTriggers(TriggerListRequest request) {
@@ -463,8 +465,11 @@ public class ServiceModelGeneratorService implements ExtendedLanguageServerServi
                     .collect(Collectors.toSet());
             String query = request == null ? null : request.query();
             List<TriggerBasicInfo> centralTriggers = TriggerSearchUtil.searchCentral(
-                    RemoteCentral.getInstance(), query, null, null, localKeys);
-            return new TriggerListResponse(centralTriggers);
+                    RemoteCentral.getInstance(), query, null, localKeys);
+            List<TriggerBasicInfo> localRepositoryTriggers = (request != null && request.includeLocalRepository())
+                    ? TriggerSearchUtil.searchLocalRepository(localKeys)
+                    : List.of();
+            return new TriggerListResponse(centralTriggers, localRepositoryTriggers);
         });
     }
 
@@ -1007,6 +1012,83 @@ public class ServiceModelGeneratorService implements ExtendedLanguageServerServi
         });
     }
 
+    @JsonRequest
+    public CompletableFuture<CommonSourceResponse> createClassDependency(CreateClassDependencyRequest request) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                Path filePath = Path.of(request.filePath());
+                this.workspaceManager.loadProject(filePath);
+                Optional<Document> document = this.workspaceManager.document(filePath);
+                if (document.isEmpty()) {
+                    return new CommonSourceResponse();
+                }
+                SyntaxTree syntaxTree = document.get().syntaxTree();
+                ModulePartNode modulePartNode = syntaxTree.rootNode();
+                TextDocument textDocument = syntaxTree.textDocument();
+                LineRange lineRange = request.classLineRange();
+                int start = textDocument.textPositionFrom(lineRange.startLine());
+                int end = textDocument.textPositionFrom(lineRange.endLine());
+                NonTerminalNode node = modulePartNode.findNode(TextRange.from(start, end - start), true);
+                if (!(node instanceof ClassDefinitionNode classDefinitionNode)) {
+                    return new CommonSourceResponse();
+                }
+                List<TextEdit> edits = ServiceClassUtil.buildAddInitParameterEdits(classDefinitionNode,
+                        request.field(), textDocument, modulePartNode);
+                return new CommonSourceResponse(Map.of(request.filePath(), edits));
+            } catch (Throwable e) {
+                return new CommonSourceResponse(e);
+            }
+        });
+    }
+
+    @JsonRequest
+    public CompletableFuture<CommonSourceResponse> updateClassDependency(ModifyClassDependencyRequest request) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                Path filePath = Path.of(request.filePath());
+                this.workspaceManager.loadProject(filePath);
+                Optional<Document> document = this.workspaceManager.document(filePath);
+                if (document.isEmpty()) {
+                    return new CommonSourceResponse();
+                }
+                NonTerminalNode node = findNonTerminalNode(request.field().codedata(), document.get());
+                if (!(node instanceof ObjectFieldNode fieldNode)) {
+                    return new CommonSourceResponse();
+                }
+                ModulePartNode modulePartNode = document.get().syntaxTree().rootNode();
+                List<TextEdit> edits = ServiceClassUtil.buildUpdateInitParameterEdits(fieldNode, request.field(),
+                        modulePartNode);
+                return new CommonSourceResponse(Map.of(request.filePath(), edits));
+            } catch (Throwable e) {
+                return new CommonSourceResponse(e);
+            }
+        });
+    }
+
+    @JsonRequest
+    public CompletableFuture<CommonSourceResponse> removeClassDependency(ModifyClassDependencyRequest request) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                Path filePath = Path.of(request.filePath());
+                this.workspaceManager.loadProject(filePath);
+                Optional<Document> document = this.workspaceManager.document(filePath);
+                if (document.isEmpty()) {
+                    return new CommonSourceResponse();
+                }
+                SyntaxTree syntaxTree = document.get().syntaxTree();
+                TextDocument textDocument = syntaxTree.textDocument();
+                NonTerminalNode node = findNonTerminalNode(request.field().codedata(), document.get());
+                if (!(node instanceof ObjectFieldNode fieldNode)) {
+                    return new CommonSourceResponse();
+                }
+                List<TextEdit> edits = ServiceClassUtil.buildRemoveInitParameterEdits(fieldNode, textDocument);
+                return new CommonSourceResponse(Map.of(request.filePath(), edits));
+            } catch (Throwable e) {
+                return new CommonSourceResponse(e);
+            }
+        });
+    }
+
     /**
      * Get the filtered list of types for a given protocol context.
      *
@@ -1044,7 +1126,7 @@ public class ServiceModelGeneratorService implements ExtendedLanguageServerServi
                     throw new IllegalStateException("Failed to load the document or semantic model");
                 }
                 Utils.resolveModule(request.orgName(), request.pkgName(), request.moduleName(),
-                        request.version(), lsClientLogger);
+                        request.version(), request.isLocalRepository(), lsClientLogger);
                 return new ServiceInitModelResponse(ServiceBuilderRouter.getServiceInitModel(request,
                         project, semanticModel.get(), document.get()));
             } catch (Throwable e) {
@@ -1152,13 +1234,13 @@ public class ServiceModelGeneratorService implements ExtendedLanguageServerServi
      * {@code resources/trigger-metadata.json} plus semantic-API introspection of its {@code .bala} --
      * over the legacy sqlite index derived from {@code service_artifacts.json}. This lets a
      * schema-driven trigger appear in the picker with no {@code service_artifacts.json} entry or index
-     * rebuild; a trigger with neither source (e.g. HTTP, AI, TCP, GraphQL, Solace) falls through to the
+     * rebuild; a trigger with neither source (e.g. HTTP, AI, TCP, GraphQL) falls through to the
      * legacy index.
      *
      * <p>Package-visible for unit testing without a full LS bootstrap.
      */
     Optional<TriggerBasicInfo> getTriggerBasicInfoByName(String orgName, String name) {
-        Optional<TriggerUISchemaModel> schemaDriven = ConnectorModelReader.getInstance()
+        Optional<TriggerUISchemaModel> schemaDriven = TriggerModelReader.getInstance()
                 .getSchemaDrivenTriggerModel(orgName, name);
         if (schemaDriven.isPresent()) {
             return schemaDriven.map(this::toTriggerBasicInfo);
@@ -1172,8 +1254,7 @@ public class ServiceModelGeneratorService implements ExtendedLanguageServerServi
         String protocol = getProtocol(model.moduleName());
         String label = model.displayName();
         String icon = (model.icon() == null || model.icon().isBlank())
-                ? TriggerArtifactResolver.resolveIcon(
-                        model.orgName(), model.packageName(), model.moduleName(), model.version()).url()
+                ? CommonUtils.generateIcon(model.orgName(), model.packageName(), model.version())
                 : model.icon();
         // TriggerUISchemaModel.id is a String catalog id and is inconsistently populated across real models
         // (null / numeric / a slug), so it can't be reused as TriggerBasicInfo's int id. Nothing
@@ -1198,7 +1279,7 @@ public class ServiceModelGeneratorService implements ExtendedLanguageServerServi
         ServiceDeclaration.Package pkg = serviceTemplate.packageInfo();
         String protocol = getProtocol(name);
         String label = serviceTemplate.displayName();
-        String icon = TriggerArtifactResolver.resolveIcon(pkg.org(), pkg.name(), pkg.name(), pkg.version()).url();
+        String icon = CommonUtils.generateIcon(pkg.org(), pkg.name(), pkg.version());
         TriggerBasicInfo triggerBasicInfo = new TriggerBasicInfo(pkg.packageId(),
                 label, pkg.org(), pkg.name(), pkg.name(),
                 pkg.version(), serviceTemplate.kind(), label, "",
@@ -1209,18 +1290,16 @@ public class ServiceModelGeneratorService implements ExtendedLanguageServerServi
 
     /**
      * Resolves a trigger picker entry's basic info. When {@code trigger_properties.json} already
-     * carries {@code version}/{@code icon}/{@code kind} for this entry, builds {@link TriggerBasicInfo}
-     * straight from those scalars -- no {@code TriggerUISchemaModel} is parsed or cached, so listing the full
-     * picker never pays the cost of reading every connector's (potentially large, deeply-nested) schema
-     * just to render a list row. Only an entry missing those fields (a legacy trigger with no
-     * schema-driven model, e.g. Solace, or one not yet backfilled) falls back to the fuller
-     * {@link #getTriggerBasicInfoByName(String, String)} resolution chain.
+     * carries {@code version}/{@code kind} for this entry, builds {@link TriggerBasicInfo} straight from
+     * those scalars (deriving the icon URL from {@code orgName}/{@code packageName}/{@code version}) --
+     * no {@code TriggerUISchemaModel} is parsed or cached just to render a list row. Only an entry
+     * missing those fields (a legacy trigger with no schema-driven model, e.g. HTTP, or one not yet
+     * backfilled) falls back to the fuller {@link #getTriggerBasicInfoByName(String, String)} chain.
      *
      * <p>Package-visible for unit testing without a full LS bootstrap.
      */
     Optional<TriggerBasicInfo> getTriggerBasicInfoByName(TriggerProperty triggerProperty) {
-        if (triggerProperty.version() != null && triggerProperty.icon() != null
-                && triggerProperty.kind() != null) {
+        if (triggerProperty.version() != null && triggerProperty.kind() != null) {
             return Optional.of(toTriggerBasicInfo(triggerProperty));
         }
 
@@ -1240,8 +1319,10 @@ public class ServiceModelGeneratorService implements ExtendedLanguageServerServi
         String label = triggerProperty.triggerName() != null ? triggerProperty.triggerName() : triggerProperty.name();
         String protocol = getProtocol(triggerProperty.name());
         int id = triggerProperty.name().hashCode();
+        String icon = CommonUtils.generateIcon(triggerProperty.orgName(), triggerProperty.packageName(),
+                triggerProperty.version());
         return new TriggerBasicInfo(id, label, triggerProperty.orgName(), triggerProperty.packageName(),
                 triggerProperty.name(), triggerProperty.version(), triggerProperty.kind(), label, "",
-                protocol, triggerProperty.icon());
+                protocol, icon);
     }
 }

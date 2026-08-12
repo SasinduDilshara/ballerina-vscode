@@ -778,6 +778,44 @@ public final class Utils {
         });
     }
 
+    public static void updateFunctionAndReturnDocs(FunctionDefinitionNode functionDef, Function function) {
+        Optional<MetadataNode> metadata = functionDef.metadata();
+        if (metadata.isEmpty()) {
+            return;
+        }
+        Optional<Node> docString = metadata.get().documentationString();
+        if (docString.isEmpty() || docString.get().kind() != SyntaxKind.MARKDOWN_DOCUMENTATION) {
+            return;
+        }
+        function.getDocumentation().setValue(getFunctionDesc(functionDef));
+        function.getParameters().forEach(parameter -> {
+            if (!parameter.getName().getValue().equals(GRAPHQL_CONTEXT)
+                    && !parameter.getName().getValue().equals(GRAPHQL_FIELD)) {
+                parameter.getDocumentation().setValue(getParamDesc(functionDef, parameter.getName().getValue()));
+            }
+        });
+        if (Objects.nonNull(function.getReturnType())) {
+            String returnDesc = getReturnDesc(functionDef);
+            if (!returnDesc.isEmpty()) {
+                function.getReturnType().getDocumentation().setValue(returnDesc);
+            }
+        }
+    }
+
+    private static String getReturnDesc(FunctionDefinitionNode funcDefNode) {
+        Optional<MetadataNode> metadata = funcDefNode.metadata();
+        Optional<Node> docString = metadata.get().documentationString();
+        MarkdownDocumentationNode docNode = (MarkdownDocumentationNode) docString.get();
+        StringBuilder returnDoc = new StringBuilder();
+        for (Node documentationLine : docNode.documentationLines()) {
+            if (documentationLine.kind() == SyntaxKind.MARKDOWN_RETURN_PARAMETER_DOCUMENTATION_LINE) {
+                NodeList<Node> nodes = ((MarkdownParameterDocumentationLineNode) documentationLine).documentElements();
+                nodes.stream().forEach(node -> returnDoc.append(node.toSourceCode()));
+            }
+        }
+        return returnDoc.toString().stripTrailing();
+    }
+
     private static String getFunctionDesc(FunctionDefinitionNode funcDefNode) {
         Optional<MetadataNode> metadata = funcDefNode.metadata();
         Optional<Node> docString = metadata.get().documentationString();
@@ -846,6 +884,9 @@ public final class Utils {
             target.setResponses(source.getResponses());
         }
         target.setIsGraphqlId(source.isGraphqlId());
+        if (source.hasDocumentationValue()) {
+            updateValue(target.getDocumentation(), source.getDocumentation());
+        }
     }
 
     public static List<String> getAnnotationEdits(Service service) {
@@ -1004,7 +1045,21 @@ public final class Utils {
                 docEdits = formatted.isEmpty() ? docEdits : docEdits + NEW_LINE + formatted;
             }
         }
+        FunctionReturnType returnType = function.getReturnType();
+        if (Objects.nonNull(returnType) && Objects.nonNull(returnType.getDocumentation())
+                && returnType.getDocumentation().getValue() != null) {
+            String formatted = getFormattedReturnDesc(returnType.getDocumentation().getValue());
+            docEdits = formatted.isEmpty() ? docEdits : docEdits + NEW_LINE + formatted;
+        }
         return docEdits;
+    }
+
+    public static String getFormattedReturnDesc(String desc) {
+        if (desc.isBlank()) {
+            return "";
+        }
+        String[] docs = desc.trim().split(NEW_LINE);
+        return "# + return - " + String.join(" ", docs);
     }
 
     public static String getFormattedDesc(String desc) {
@@ -1556,6 +1611,15 @@ public final class Utils {
      */
     public static void resolveModule(String orgName, String packageName, String moduleName, String version,
                                      LSClientLogger lsClientLogger) {
+        resolveModule(orgName, packageName, moduleName, version, false, lsClientLogger);
+    }
+
+    /** {@code isLocalRepository} variant: a no-op, since a local-repository connector needs no Central pull. */
+    public static void resolveModule(String orgName, String packageName, String moduleName, String version,
+                                     boolean isLocalRepository, LSClientLogger lsClientLogger) {
+        if (isLocalRepository) {
+            return;
+        }
         if (BALLERINA.equals(orgName) && DISTRIBUTION_MODULES.contains(packageName)) {
             return;
         }
@@ -1578,6 +1642,14 @@ public final class Utils {
                 return;
             }
             // Requested version not resolvable locally -> fall through to pull it below.
+        }
+
+        // Tests run offline (-Dls.test.offline): never contact Ballerina Central to pull a module.
+        // Distribution-bundled packages (e.g. ballerina/file, ballerina/mcp) are resolved by the
+        // downstream builder from the build-provisioned distribution; a package that is genuinely
+        // unavailable offline fails loudly there instead of being pulled. Production is unchanged.
+        if (PackageUtil.isOffline()) {
+            return;
         }
 
         CentralAPI centralApi = RemoteCentral.getInstance();
@@ -1628,5 +1700,13 @@ public final class Utils {
     }
 
     public record SelectionRecord(String label, String value) {
+    }
+
+    /** Strips a leading and trailing double quote, if both are present; returns {@code text} unchanged otherwise. */
+    public static String unquote(String text) {
+        if (text != null && text.length() >= 2 && text.startsWith("\"") && text.endsWith("\"")) {
+            return text.substring(1, text.length() - 1);
+        }
+        return text;
     }
 }

@@ -620,7 +620,8 @@ export interface TestsDiscoveryRequest {
 }
 
 export interface TestsDiscoveryResponse {
-    result?: Map<string, FunctionTreeNode[]>;
+    // The language client returns a Map in-process, while JSON RPC can deserialize it as a plain object.
+    result?: Map<string, FunctionTreeNode[]> | Record<string, FunctionTreeNode[]>;
     errorMsg?: string;
     stacktrace?: string;
 }
@@ -666,6 +667,16 @@ export interface GetTestFunctionRequest {
 export interface AddOrUpdateTestFunctionRequest {
     filePath: string;
     function: TestFunction;
+    evalTemplate?: {
+        symbol: string;
+        parameters: Record<string, string>;
+        dataSource?: {
+            paramName: string;
+            mode: "evalset" | "queries";
+            evalSetFile?: string;
+            queries?: string[];
+        };
+    };
 }
 
 export interface TestSourceEditResponse {
@@ -941,6 +952,7 @@ export interface BINodeTemplateRequest {
     id: CodeData;
     forceAssign?: boolean;
     isLibrary?: boolean;
+    projectPath?: string;
 }
 
 export type BINodeTemplateResponse = {
@@ -962,6 +974,11 @@ export type SearchQueryParams = {
     orgName?: string;
     includeAvailableFunctions?: string;
     filterByCurrentOrg?: boolean;
+    /** ACTIVITY_CALL search: "true" hides the prebuilt (builtin) activities. */
+    excludeBuiltins?: string;
+    /** ACTIVITY_CALL search: node kind stamped on result items (e.g. DURABLE_AGENT_ADD_ACTIVITY). */
+    nodeKind?: string;
+    source?: string;
 }
 
 export type SearchKind =
@@ -970,6 +987,7 @@ export type SearchKind =
     | "TYPE"
     | "WORKFLOW_RUN"
     | "ACTIVITY_CALL"
+    | "EVAL_TEMPLATE"
     | "NP_FUNCTION"
     | "MODEL_PROVIDER"
     | "VECTOR_STORE"
@@ -1016,10 +1034,63 @@ export interface WorkflowDataResponse {
     stacktrace?: string;
 }
 
+export interface GenActivityRequest {
+    filePath: string;
+    flowNode: FlowNode;
+    activityName: string;
+    description: string;
+    connection: string;
+    activityParameters?: ToolParameters;
+    /** When the action returns a stream, its element type T: the activity collects it and returns T[]. */
+    streamElementType?: string;
+    /** When true, the connection is exposed as the activity's first parameter (built-in activity style). */
+    connectionAsParam?: boolean;
+}
+
+export interface GenActivityResponse {
+    artifacts?: ProjectStructureArtifactResponse[];
+    textEdits?: {
+        [key: string]: TextEdit[];
+    };
+    errorMsg?: string;
+    stacktrace?: string;
+}
+
+export interface AnalyzeActivityActionRequest {
+    filePath: string;
+    /** Name of the module-level connection variable the action belongs to. */
+    connection: string;
+    /** Name of the action (method) to analyze. */
+    actionName: string;
+    /** REMOTE_ACTION_CALL or RESOURCE_ACTION_CALL — disambiguates same-named remote/resource methods. */
+    nodeKind: string;
+}
+
+export interface ActivityActionAnalysis {
+    /** Whether an activity can be generated from the action automatically. */
+    supported: boolean;
+    /** When unsupported, the human-readable reasons. */
+    reasons: string[];
+    /** The derived activity parameters. */
+    params: { name: string; type: string; required: boolean; description?: string }[];
+    /** The derived activity return type (success type, without |error). */
+    returnType: string;
+    /** When the action returns a stream, its element type T (the activity returns T[]); else absent. */
+    streamElementType?: string;
+    /** True when the return type is inferred from a typedesc param — the user provides the type T. */
+    dependentReturn?: boolean;
+}
+
+export interface AnalyzeActivityActionResponse {
+    analysis?: ActivityActionAnalysis;
+    errorMsg?: string;
+    stacktrace?: string;
+}
+
 export type BISearchNodesRequest = {
     filePath: string;
     position?: LinePosition;
-    queryMap?: SearchNodesQueryParams;
+    query?: SearchNodesQuery;
 }
 
 export type BISearchNodesResponse = {
@@ -1027,9 +1098,19 @@ export type BISearchNodesResponse = {
     error: string;
 }
 
-export type SearchNodesQueryParams = {
+export type SearchNodesTypeConstraint = {
+    relation?: "exact" | "subtype";
+    org?: string;
+    packageName?: string;
+    module?: string;
+    name: string;
+    version?: string;
+}
+
+export type SearchNodesQuery = {
     kind?: NodeKind;
     exactMatch?: string;
+    targetType?: SearchNodesTypeConstraint;
 }
 
 export type BIGetEnclosedFunctionRequest = {
@@ -1352,10 +1433,12 @@ export interface TriggerModelsRequest {
     packageName?: string;
     query?: string;
     keyWord?: string;
+    includeLocalRepository?: boolean;
 }
 
 export interface TriggerModelsResponse {
     local: ServiceModel[];
+    localRepositoryResults?: ServiceModel[];
 }
 
 // <-------- Trigger Related ------->
@@ -1405,6 +1488,8 @@ export interface ServiceModelRequest {
     orgName?: string;
     pkgName?: string;
     version?: string;
+    projectPath?: string;
+    isLocalRepository?: boolean;
 }
 export interface ServiceModelResponse {
     service: ServiceModel;
@@ -1431,6 +1516,32 @@ export interface AddFieldRequest {
         lineRange: LineRange;
     };
 }
+
+export interface ClassTarget {
+    filePath: string;
+    classLineRange: LineRange;
+}
+
+export interface CreateClassDependencyRequest extends ClassTarget {
+    field: FieldType;
+}
+
+export interface ClassMemberRequest extends ClassTarget {}
+
+export interface SaveClassMemberRequest extends ClassTarget {
+    flowNode: FlowNode;
+}
+
+export interface DeleteClassMemberRequest extends ClassTarget {
+    fieldName: string;
+}
+
+export interface ModifyClassDependencyRequest {
+    filePath: string;
+    field: FieldType;
+}
+
+export type ClassMembersResponse = BIModuleNodesResponse;
 
 export interface ExpressionTokensRequest {
     expression: string;
@@ -1507,6 +1618,29 @@ export interface ServiceModelInitResponse {
 export interface ServiceInitSourceRequest {
     filePath: string;
     serviceInitModel: ServiceInitModel;
+    projectPath?: string;
+}
+
+/**
+ * A live validation request for a single form node. `version` is the caller's per-field revision;
+ * it comes back untouched on the response so an answer about a stale value can be discarded.
+ * `codedata` locates the enclosing service, for rules scoped to one service.
+ */
+export interface ValidatePropertyRequest {
+    filePath: string;
+    propertyPath: string;
+    property: PropertyModel;
+    moduleName?: string;
+    codedata?: CodeData;
+    version: number;
+}
+
+export interface ValidatePropertyResponse {
+    propertyPath: string;
+    version: number;
+    validationErrors: ValidationResult[];
+    errorMsg?: string;
+    stacktrace?: string;
 }
 
 /**
@@ -1946,20 +2080,17 @@ export interface McpToolsResponse {
     errorMsg?: string;
 }
 
-export interface AIGentToolsRequest {
-    filePath: string;
-    flowNode: FlowNode;
-    toolName: string;
-    description: string;
-    connection: string;
-    toolParameters?: ToolParameters;
-}
-
 export interface AIGentToolsResponse {
     artifacts?: ProjectStructureArtifactResponse[];
     textEdits: {
         [key: string]: TextEdit[];
     };
+}
+
+export interface GenAgentDefinitionRequest {
+    filePath: string;
+    name: string;
+    description: string;
 }
 
 export interface AIGetPackageVersionRequest {
@@ -2093,6 +2224,8 @@ export enum ARTIFACT_TYPE {
     Functions = "Functions",
     Workflows = "Workflows",
     Connections = "Connections",
+    Agents = "Agents",
+    AgentDefinitions = "Agent Definitions",
     Listeners = "Listeners",
     EntryPoints = "Entry Points",
     Types = "Types",
@@ -2111,6 +2244,8 @@ export interface Artifacts {
     [ARTIFACT_TYPE.Functions]: Record<string, BaseArtifact>;
     [ARTIFACT_TYPE.Workflows]?: Record<string, BaseArtifact>;
     [ARTIFACT_TYPE.Connections]: Record<string, BaseArtifact>;
+    [ARTIFACT_TYPE.Agents]: Record<string, BaseArtifact>;
+    [ARTIFACT_TYPE.AgentDefinitions]: Record<string, BaseArtifact>;
     [ARTIFACT_TYPE.Listeners]: Record<string, BaseArtifact>;
     [ARTIFACT_TYPE.EntryPoints]: Record<string, BaseArtifact>;
     [ARTIFACT_TYPE.Types]: Record<string, BaseArtifact>;
@@ -2208,6 +2343,8 @@ export interface BIInterface extends BaseLangClientInterface {
     getSimpleTypeOfExpression: (params: GetSimpleTypeOfExpressionRequest) => Promise<GetSimpleTypeOfExpressionResponse>;
     updateType: (params: UpdateTypeRequest) => Promise<UpdateTypeResponse>;
     getAllData: (params: WorkflowDataRequest) => Promise<WorkflowDataResponse>;
+    genActivity: (params: GenActivityRequest) => Promise<GenActivityResponse>;
+    analyzeActivityAction: (params: AnalyzeActivityActionRequest) => Promise<AnalyzeActivityActionResponse>;
     updateImports: (params: UpdateImportsRequest) => Promise<ImportsInfoResponse>;
     addFunction: (params: AddFunctionRequest) => Promise<AddImportItemResponse>;
     convertJsonToRecordType: (params: JsonToRecordParams) => Promise<TypeDataWithReferences>;
@@ -2219,7 +2356,6 @@ export interface BIInterface extends BaseLangClientInterface {
     getModels: (params: AIModelsRequest) => Promise<AIModelsResponse>;
     getTools: (params: AIToolsRequest) => Promise<AIToolsResponse>;
     getMcpTools: (params: McpToolsRequest) => Promise<McpToolsResponse>;
-    genTool: (params: AIGentToolsRequest) => Promise<AIGentToolsResponse>;
     getPackageVersion: (params: AIGetPackageVersionRequest) => Promise<AIGetPackageVersionResponse>;
 }
 

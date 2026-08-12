@@ -33,6 +33,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static io.ballerina.servicemodelgenerator.extension.util.Constants.CD_TYPE_PAYLOAD_TYPE_INCLUDED_RECORD;
+
 /**
  * Included-record payload binding for schema-driven trigger handlers (the {@code
  * PAYLOAD_TYPE_INCLUDED_RECORD} marker on a payload parameter's {@code codedata}). Where a plain
@@ -58,7 +60,6 @@ import java.util.Set;
  */
 public final class IncludedRecordBinder {
 
-    private static final String CD_PAYLOAD_TYPE_INCLUDED_RECORD = "PAYLOAD_TYPE_INCLUDED_RECORD";
     private static final String TYPE_PLACEHOLDER = "{{type}}";
     /** Builtin element types a direct (non-wrapper) binding can use — never wrapper type names. */
     private static final Set<String> BUILTIN_TYPES = Set.of(
@@ -213,7 +214,7 @@ public final class IncludedRecordBinder {
         }
         for (Parameter parameter : function.getParameters()) {
             Codedata codedata = parameter.getType() == null ? null : parameter.getType().getCodedata();
-            if (codedata != null && CD_PAYLOAD_TYPE_INCLUDED_RECORD.equals(codedata.getType())) {
+            if (codedata != null && CD_TYPE_PAYLOAD_TYPE_INCLUDED_RECORD.equals(codedata.getType())) {
                 return parameter;
             }
         }
