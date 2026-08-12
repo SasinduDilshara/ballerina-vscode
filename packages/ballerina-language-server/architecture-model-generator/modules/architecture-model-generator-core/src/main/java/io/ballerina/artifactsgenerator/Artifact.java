@@ -24,7 +24,6 @@ import io.ballerina.compiler.api.symbols.Symbol;
 import io.ballerina.compiler.syntax.tree.Node;
 import io.ballerina.compiler.syntax.tree.ServiceDeclarationNode;
 import io.ballerina.designmodelgenerator.core.CommonUtils;
-import io.ballerina.modelgenerator.commons.IconDescriptor;
 import io.ballerina.modelgenerator.commons.trigger.utils.TriggerArtifactResolver;
 import io.ballerina.runtime.api.utils.IdentifierUtils;
 import io.ballerina.tools.text.LineRange;
@@ -46,14 +45,14 @@ import java.util.Optional;
  * @param accessor   accessor of the artifact
  * @param scope      lexical scope of the artifact (global/local/object)
  * @param visibility visibility of the artifact (public/module/private)
- * @param icon       resolved icon descriptor for the artifact (url/glyph/color/kind/source)
+ * @param icon       icon representing the artifact
  * @param children   map of child artifacts (id -> child)
  * @param module     module name of the artifact
  * @param metadata   metadata about the artifact
  * @since 1.0.0
  */
 public record Artifact(String id, LineRange location, String type, String name, String accessor,
-                       String scope, String visibility, IconDescriptor icon, String module,
+                       String scope, String visibility, String icon, String module,
                        Map<String, Artifact> children, Map<String, Object> metadata) {
 
     private static final String CATEGORY_ENTRY_POINTS = "Entry Points";
@@ -173,7 +172,7 @@ public record Artifact(String id, LineRange location, String type, String name, 
         private String accessor;
         private Scope scope = Scope.GLOBAL;
         private Visibility visibility = null;
-        private IconDescriptor icon;
+        private String icon;
         private String module;
         private ModuleID moduleId;
         private final Map<String, Artifact> children = new HashMap<>();
@@ -228,7 +227,10 @@ public record Artifact(String id, LineRange location, String type, String name, 
             }
             ModuleID moduleId = moduleSymbol.get().id();
             this.moduleId = moduleId;
-            this.icon = TriggerArtifactResolver.resolveIcon(moduleId);
+            // Flattened to the URL, matching the wire shape the IDE already consumes and every other
+            // resolveIcon call site. The descriptor's glyph/kind stay internal: the IDE derives its own
+            // glyph from the module name via its brand-icon registry.
+            this.icon = TriggerArtifactResolver.resolveIcon(moduleId).url();
             this.module = moduleId.moduleName();
             return this;
         }

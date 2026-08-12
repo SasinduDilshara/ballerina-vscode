@@ -21,12 +21,7 @@
         "name": "supportModel",
         "scope": "Global",
         "visibility": "module",
-        "icon": {
-          "url": "https://bcentral-packageicons.azureedge.net/images/ballerina_ai_1.13.0.png",
-          "glyph": "bi-ai-agent",
-          "kind": "ai",
-          "source": "central"
-        },
+        "icon": "https://bcentral-packageicons.azureedge.net/images/ballerina_ai_1.13.0.png",
         "module": "ai",
         "children": {}
       }
