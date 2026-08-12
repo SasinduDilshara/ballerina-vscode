@@ -24,8 +24,8 @@ import org.testng.Assert;
 import org.testng.annotations.Test;
 
 import java.util.Arrays;
-import java.util.Optional;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Conformance tests for <b>Spec §2 {@code listeners[].services}</b> — "{@code serviceTypes[].id} values

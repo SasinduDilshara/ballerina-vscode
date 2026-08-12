@@ -34,7 +34,7 @@ interface OtherArtifactsPanelProps {
 }
 
 export function OtherArtifactsPanel(props: OtherArtifactsPanelProps) {
-    const { isNPSupported, isLibrary = false, searchQuery = "" } = props;
+    const { isNPSupported, isLibrary = false } = props;
     const { rpcClient } = useRpcContext();
     const { setPopupMessage } = useVisualizerContext();
     const [experimentalEnabled, setExperimentalEnabled] = useState(false);

@@ -375,7 +375,7 @@ final class ConstraintResolver {
     /**
      * Which service type a subject belongs to.
      *
-     * @param name          the declared type name, emitted only when it is <b>not</b> the enclosing type —
+     * @param name          the declared type name, emitted only when it differs from the enclosing type —
      *                      restating the enclosing one would break the omission rule and add a clause to
      *                      every note in the corpus
      * @param id            the id the subject named, carried alongside {@code name} for traceability

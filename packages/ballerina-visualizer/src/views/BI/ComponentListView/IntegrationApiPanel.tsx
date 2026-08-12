@@ -35,7 +35,6 @@ const CATEGORY = ARTIFACT_CATEGORY_META["integration-as-api"];
 export function IntegrationAPIPanel(props: IntegrationAPIPanelProps) {
     const { rpcClient } = useRpcContext();
     const isDisabled = props.scope && (props.scope !== SCOPE.INTEGRATION_AS_API && props.scope !== SCOPE.ANY);
-    const searchQuery = props.searchQuery ?? "";
 
     const handleClick = async (card: ArtifactCard) => {
         await rpcClient.getVisualizerRpcClient().openView({

@@ -22,7 +22,7 @@
         "scope": "Global",
         "visibility": "module",
         "icon": {
-          "url": "https://bcentral-packageicons.azureedge.net/images/ballerina_http_2.16.4.png",
+          "url": "https://bcentral-packageicons.azureedge.net/images/ballerina_http_2.16.6.png",
           "kind": "http",
           "source": "central"
         },
@@ -49,7 +49,7 @@
         "scope": "Global",
         "visibility": "module",
         "icon": {
-          "url": "https://bcentral-packageicons.azureedge.net/images/ballerina_http_2.16.4.png",
+          "url": "https://bcentral-packageicons.azureedge.net/images/ballerina_http_2.16.6.png",
           "kind": "http",
           "source": "central"
         },
@@ -74,7 +74,7 @@
         "scope": "Global",
         "visibility": "public",
         "icon": {
-          "url": "https://bcentral-packageicons.azureedge.net/images/ballerina_http_2.16.4.png",
+          "url": "https://bcentral-packageicons.azureedge.net/images/ballerina_http_2.16.6.png",
           "kind": "http",
           "source": "central"
         },
@@ -101,7 +101,7 @@
         "scope": "Global",
         "visibility": "module",
         "icon": {
-          "url": "https://bcentral-packageicons.azureedge.net/images/ballerina_http_2.16.4.png",
+          "url": "https://bcentral-packageicons.azureedge.net/images/ballerina_http_2.16.6.png",
           "kind": "http",
           "source": "central"
         },
@@ -227,7 +227,7 @@
         "scope": "Global",
         "visibility": "module",
         "icon": {
-          "url": "https://bcentral-packageicons.azureedge.net/images/ballerina_http_2.16.4.png",
+          "url": "https://bcentral-packageicons.azureedge.net/images/ballerina_http_2.16.6.png",
           "kind": "http",
           "source": "central"
         },
@@ -292,7 +292,7 @@
         "scope": "Global",
         "visibility": "module",
         "icon": {
-          "url": "https://bcentral-packageicons.azureedge.net/images/ballerina_http_2.16.4.png",
+          "url": "https://bcentral-packageicons.azureedge.net/images/ballerina_http_2.16.6.png",
           "kind": "http",
           "source": "central"
         },

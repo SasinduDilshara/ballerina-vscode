@@ -1643,28 +1643,6 @@ export interface ValidatePropertyResponse {
     stacktrace?: string;
 }
 
-/**
- * A live validation request for a single form node. `version` is the caller's per-field revision;
- * it comes back untouched on the response so an answer about a stale value can be discarded.
- * `codedata` locates the enclosing service, for rules scoped to one service.
- */
-export interface ValidatePropertyRequest {
-    filePath: string;
-    propertyPath: string;
-    property: PropertyModel;
-    moduleName?: string;
-    codedata?: CodeData;
-    version: number;
-}
-
-export interface ValidatePropertyResponse {
-    propertyPath: string;
-    version: number;
-    validationErrors: ValidationResult[];
-    errorMsg?: string;
-    stacktrace?: string;
-}
-
 // <-------- Type Related ------->
 
 export interface Type {

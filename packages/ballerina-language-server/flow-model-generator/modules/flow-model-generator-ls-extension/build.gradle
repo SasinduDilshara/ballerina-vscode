@@ -167,42 +167,6 @@ test {
     }
 }
 
-// Dev harness, not part of the build or the test suite. Dumps the Copilot library wire payload for a fixed
-// corpus so the rendered prompt text can be compared across a change to the trigger-metadata pipeline.
-// Usage: ./gradlew :flow-model-generator:flow-model-generator-ls-extension:dumpCopilotRender \
-//            -PoutputDir=/abs/path [-Plibraries=a/b,c/d] [-PpreviousVersions=/abs/path/_versions.json]
-task dumpCopilotRender(type: JavaExec) {
-    group = "verification"
-    description = "Dumps the Copilot getFilteredLibraries payload for the trigger corpus."
-    dependsOn copyStdlibs, copyServiceIndex, compileTestJava, processTestResources
-    dependsOn rootProject.tasks.named("resolveBallerinaDependencies")
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = "io.ballerina.flowmodelgenerator.extension.CopilotRenderDump"
-    systemProperty "ballerina.home", balDistribution
-    // Resolve the corpus from the build-owned Ballerina home rather than the developer's own ~/.ballerina
-    // cache. This is a JavaExec, not a Test, so the root build's `allprojects { tasks.withType(Test) }` block
-    // does not reach it, and without this the versions float away from Dependencies.toml (observed:
-    // websocket 2.15.0 -> 2.15.5, ai.azure 1.4.1 -> 1.5.0), which makes a render comparison unattributable.
-    environment "BALLERINA_HOME_DIR", rootProject.ballerinaTestHomeDir.absolutePath
-    // Deliberately NOT `ls.test.offline`, which the test tasks do set. That flag flips PackageUtil's
-    // FORCE_OFFLINE, whose balaBuildOptions() then loads dependency balas offline with SOFT locking instead
-    // of production's sticky load. Under that mode an annotation value that has to be recovered from the
-    // dependency's own source is lost: ballerina/grpc's eight `@protobuf:Descriptor {value: REFLECTION_DESC}`
-    // attachments render with no value at all. This harness exists to show what LibraryGetTool actually
-    // hands the model in production, so it must use production's load mode. BALLERINA_HOME_DIR alone still
-    // pins the versions, so reproducibility is not traded away.
-    // Compiles seventeen full Ballerina packages in one JVM; 2g is not enough for ballerina/http.
-    maxHeapSize = "4g"
-    doFirst {
-        args = [
-                project.findProperty("outputDir") ?: "${buildDir}/copilot-render/json",
-                project.findProperty("libraries") ?: "",
-                project.findProperty("previousVersions") ?: "",
-                project.findProperty("pins") ?: ""
-        ].collect { it.toString() }
-    }
-}
-
 ext.moduleName = 'io.ballerina.flowmodelgenerator.extension'
 jar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE

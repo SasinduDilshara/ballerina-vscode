@@ -90,26 +90,24 @@ public class CopilotSchemaServicesTest {
      * [5]} — a message that says nothing at all about the cause.
      *
      * <p><b>The build owns these values, not this class.</b> They arrive through
-     * {@value #PINNED_VERSIONS_PROPERTY}, assembled in
-     * {@code flow-model-generator-ls-extension/build.gradle} from the {@code gradle.properties} entries
-     * that also drive the {@code pullBallerinaModule} pre-fetch — so the version a test <i>requests</i> is
-     * by construction the version the build <i>fetched</i>. Held as literals here, the two drifted: the
-     * build pre-fetched {@code ftp} 2.16.0 and {@code http} 2.16.3 while this map asked for 2.20.1 and
-     * 2.16.6, and the difference was invisible because an unfetched version is simply downloaded from
-     * Central, or skipped.
+     * {@value #PINNED_VERSIONS_PROPERTY}, assembled by {@code copilotCorpusVersions} in
+     * {@code flow-model-generator-ls-extension/build.gradle} straight out of
+     * {@code build-config/ballerina_dependencies/Dependencies.toml} — the lock file the hermetic
+     * Ballerina home is provisioned from, so the version a test <i>requests</i> is by construction the
+     * version the build <i>provisioned</i>. Held as literals here, the two drifted: the build pre-fetched
+     * {@code ftp} 2.16.0 and {@code http} 2.16.3 while this map asked for 2.20.1 and 2.16.6, and the
+     * difference was invisible because an unfetched version is simply downloaded from Central, or skipped.
      *
-     * <p>Nine of these libraries deliberately reuse a property another LS test already pins
-     * ({@code stdlibHttpVersion}, {@code ballerinaxKafkaVersion}, …) so a bump moves both at once; the
-     * rest have no sibling and are declared under the {@code copilot*} prefix. Either way a bump is one
-     * line in {@code gradle.properties}, and it is expected to come with re-verifying the affected
-     * trigger-metadata document against the new release.
+     * <p>A bump is therefore one line in that project's {@code Ballerina.toml} plus a regenerated lock,
+     * and it is expected to come with re-verifying the affected trigger-metadata document against the new
+     * release.
      *
      * <p><b>There is deliberately no hardcoded fallback.</b> One existed, holding the same versions as
      * literals for a run with no build behind it, and it was the very duplication this indirection exists
-     * to remove: bumping {@code stdlibHttpVersion} moved the pre-fetch and the property but left the
-     * literal behind, so the two could disagree again with nothing to catch it. An absent property is now
-     * a hard failure naming what to do, which costs a clear message on a bare {@code java -cp} run and
-     * nothing at all under Gradle — including an IDE that delegates test runs to it.
+     * to remove: bumping the provisioned version left the literal behind, so the two could disagree again
+     * with nothing to catch it. An absent property is now a hard failure naming what to do, which costs a
+     * clear message on a bare {@code java -cp} run and nothing at all under Gradle — including an IDE that
+     * delegates test runs to it.
      */
     private static final Map<String, String> PINNED_VERSIONS = pinnedVersions();
 
@@ -117,8 +115,9 @@ public class CopilotSchemaServicesTest {
         String declared = System.getProperty(PINNED_VERSIONS_PROPERTY);
         if (declared == null || declared.isBlank()) {
             throw new IllegalStateException("-D" + PINNED_VERSIONS_PROPERTY + " is not set. The corpus"
-                    + " versions come from gradle.properties by way of copilotCorpusVersions in"
-                    + " flow-model-generator-ls-extension/build.gradle, so run these tests through Gradle"
+                    + " versions come from build-config/ballerina_dependencies/Dependencies.toml by way of"
+                    + " copilotCorpusVersions in flow-model-generator-ls-extension/build.gradle, so run"
+                    + " these tests through Gradle"
                     + " (or pass -D" + PINNED_VERSIONS_PROPERTY + "=org/pkg=version,... yourself). There is"
                     + " no built-in default on purpose: a second copy of the versions would drift from the"
                     + " ones the build pre-fetches.");
@@ -153,17 +152,17 @@ public class CopilotSchemaServicesTest {
      * still possible in the API and still means "whatever Central serves latest", so the moment someone adds
      * a {@code load("ballerina/somethingNew")} the class would quietly reacquire the exact fragility all of
      * this removes — and it would pass, until a release broke it weeks later. Requiring the pin makes adding
-     * a library a two-line, self-announcing change: the entry in {@code copilotCorpusVersions}, and the
-     * property it reads.
+     * a library a two-line, self-announcing change: the entry in {@code copilotCorpusLibraries}, and the
+     * dependency it reads from the lock.
      */
     private static String requirePin(String libraryName) {
         String pinned = PINNED_VERSIONS.get(libraryName);
         if (pinned == null) {
             throw new AssertionError(libraryName + " is resolved by this test but has no pinned version, so"
-                    + " it would resolve whatever Central serves latest. Add it to copilotCorpusVersions in"
-                    + " flow-model-generator-ls-extension/build.gradle, reusing the gradle.properties"
-                    + " version another language-server test already pins if one exists. Currently pinned: "
-                    + new TreeSet<>(PINNED_VERSIONS.keySet()));
+                    + " it would resolve whatever Central serves latest. Add it to copilotCorpusLibraries in"
+                    + " flow-model-generator-ls-extension/build.gradle, and declare it in"
+                    + " build-config/ballerina_dependencies/Ballerina.toml so the lock provisions it."
+                    + " Currently pinned: " + new TreeSet<>(PINNED_VERSIONS.keySet()));
         }
         return pinned;
     }

@@ -26,9 +26,10 @@ import io.ballerina.modelgenerator.commons.FunctionData;
 import io.ballerina.modelgenerator.commons.ParameterData;
 import org.testng.Assert;
 import org.testng.annotations.Test;
-import java.util.Map;
-import java.util.List;
+
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Tests {@link LibraryModelConverter#simplifyTypeSignature}, which rewrites the fully-qualified type

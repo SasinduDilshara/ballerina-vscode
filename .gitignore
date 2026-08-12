@@ -59,10 +59,3 @@ packages/ballerina-extension/test-results/
 # JVM crash logs
 hs_err_pid*
 .DS_Store
-Module-Rendor-Descs-For-Copilot-AFTER
-Module-Rendor-Descs-For-Copilot-Before
-MODULE_RENDER_AFTER_SPEC_IMPL
-MODULE_RENDER_BEFORE_SPEC_IMPL
-MODULE_RENDER_BEFORE_SPEC_IMPL
-MODULE_RENDER_AFTER_SPEC_IMPL
-MODULE_RENDER_DIFF

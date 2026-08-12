@@ -78,7 +78,7 @@ final class ResourceExtrasResolver {
      *                         from; {@code null} when it enumerates none, which is every corpus document and
      *                         means the path is the author's to compose
      * @param pathValues       every legal path, for the note; empty when the document enumerates none
-     * @param pathRequired     whether a path must be written. There is still no syntactic <i>form</i>: spec
+     * @param pathRequired     whether a path must be written. There is still no syntactic {@code form}: spec
      *                         §5 dropped that vocabulary because "the language already fixes what a resource
      *                         path may look like". A value list is a different claim — it names the specific
      *                         paths this connector accepts, which the language cannot know
