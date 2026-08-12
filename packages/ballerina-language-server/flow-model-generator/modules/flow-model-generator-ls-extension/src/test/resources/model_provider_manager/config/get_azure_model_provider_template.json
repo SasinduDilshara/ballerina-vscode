@@ -14,7 +14,7 @@
       "metadata": {
         "label": "Model Provider",
         "description": "Initializes the Azure OpenAI model with the given connection configuration and model configuration.\n",
-        "icon": "https://bcentral-packageicons.azureedge.net/images/ballerinax_ai.azure_1.4.4.png"
+        "icon": "https://bcentral-packageicons.azureedge.net/images/ballerinax_ai.azure_1.5.0.png"
       },
       "codedata": {
         "node": "MODEL_PROVIDER",
@@ -23,7 +23,7 @@
         "packageName": "ai.azure",
         "object": "OpenAiModelProvider",
         "symbol": "init",
-        "version": "1.4.4",
+        "version": "1.5.0",
         "isNew": true
       },
       "returning": false,
@@ -70,7 +70,7 @@
         "serviceUrl": {
           "metadata": {
             "label": "Service URL",
-            "description": "The base URL of Azure OpenAI API endpoint"
+            "description": "The base URL of the Azure OpenAI API endpoint. Use the new v1 GA URL\n(`https://<resource>.services.ai.azure.com/openai/v1`) or the legacy URL\n(`https://<resource>.openai.azure.com/openai`)."
           },
           "types": [
             {
@@ -124,7 +124,7 @@
         "deploymentId": {
           "metadata": {
             "label": "Deployment ID",
-            "description": "The deployment identifier for the specific model deployment in Azure  "
+            "description": "The deployment identifier for the specific model deployment in Azure"
           },
           "types": [
             {
@@ -151,7 +151,7 @@
         "apiVersion": {
           "metadata": {
             "label": "API Version",
-            "description": "The Azure OpenAI API version (e.g., \"2023-07-01-preview\")"
+            "description": "The Azure OpenAI `api-version`. **Required** for legacy (non-`/v1`) service URLs\n(e.g. `\"2024-10-21\"`). For v1 (`/v1`) service URLs the value is optional and normally\nomitted; pass `\"preview\"` or `\"v1\"` to opt into a specific v1 surface (any other value is\nignored on v1 URLs)."
           },
           "types": [
             {
@@ -161,19 +161,20 @@
             },
             {
               "fieldType": "EXPRESSION",
-              "ballerinaType": "string",
+              "ballerinaType": "string?",
               "selected": false
             }
           ],
-          "placeholder": "\"\"",
-          "optional": false,
+          "placeholder": "()",
+          "optional": true,
           "editable": true,
-          "advanced": false,
+          "advanced": true,
           "hidden": false,
           "codedata": {
-            "kind": "REQUIRED",
+            "kind": "DEFAULTABLE",
             "originalName": "apiVersion"
-          }
+          },
+          "defaultValue": "()"
         },
         "maxTokens": {
           "metadata": {
@@ -201,12 +202,12 @@
             "kind": "DEFAULTABLE",
             "originalName": "maxTokens"
           },
-          "defaultValue": "512"
+          "defaultValue": "4096"
         },
         "temperature": {
           "metadata": {
             "label": "Temperature",
-            "description": "The temperature for controlling randomness in the model's output  "
+            "description": "The temperature for controlling randomness in the model's output. Higher values (e.g., 0.8)\nmake output more random, while lower values (e.g., 0.2) make it more focused and deterministic.\nSet it to `()` for models that do not support this parameter (e.g. GPT-5/o-series reasoning\nmodels)."
           },
           "types": [
             {
@@ -216,11 +217,11 @@
             },
             {
               "fieldType": "EXPRESSION",
-              "ballerinaType": "decimal",
+              "ballerinaType": "decimal?",
               "selected": false
             }
           ],
-          "placeholder": "0.0d",
+          "placeholder": "()",
           "optional": true,
           "editable": true,
           "advanced": true,
@@ -229,7 +230,67 @@
             "kind": "DEFAULTABLE",
             "originalName": "temperature"
           },
-          "defaultValue": "0.7"
+          "defaultValue": "()"
+        },
+        "reasoningEffort": {
+          "metadata": {
+            "label": "Reasoning Effort",
+            "description": "Reasoning effort level for reasoning models."
+          },
+          "types": [
+            {
+              "fieldType": "EXPRESSION",
+              "ballerinaType": "azure:ReasoningEffort?",
+              "selected": false
+            }
+          ],
+          "placeholder": "()",
+          "optional": true,
+          "editable": true,
+          "advanced": true,
+          "hidden": false,
+          "codedata": {
+            "kind": "DEFAULTABLE",
+            "originalName": "reasoningEffort"
+          },
+          "defaultValue": "()"
+        },
+        "apiType": {
+          "metadata": {
+            "label": "API Type",
+            "description": "The Azure OpenAI API surface to use. Defaults to `CHAT_COMPLETIONS`. Set to `RESPONSES` to use the\nResponses API instead."
+          },
+          "types": [
+            {
+              "fieldType": "SINGLE_SELECT",
+              "options": [
+                {
+                  "label": "responses",
+                  "value": "\"responses\""
+                },
+                {
+                  "label": "chat_completions",
+                  "value": "\"chat_completions\""
+                }
+              ],
+              "selected": false
+            },
+            {
+              "fieldType": "EXPRESSION",
+              "ballerinaType": "azure:ApiType",
+              "selected": false
+            }
+          ],
+          "placeholder": "\"responses\"",
+          "optional": true,
+          "editable": true,
+          "advanced": true,
+          "hidden": false,
+          "codedata": {
+            "kind": "DEFAULTABLE",
+            "originalName": "apiType"
+          },
+          "defaultValue": "CHAT_COMPLETIONS"
         },
         "httpVersion": {
           "metadata": {

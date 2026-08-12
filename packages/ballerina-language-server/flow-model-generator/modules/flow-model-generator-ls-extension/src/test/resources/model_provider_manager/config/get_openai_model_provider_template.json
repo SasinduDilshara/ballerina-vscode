@@ -14,7 +14,7 @@
       "metadata": {
         "label": "Model Provider",
         "description": "Initializes the OpenAI model with the given connection configuration and model configuration.\n",
-        "icon": "https://bcentral-packageicons.azureedge.net/images/ballerinax_ai.openai_1.3.5.png"
+        "icon": "https://bcentral-packageicons.azureedge.net/images/ballerinax_ai.openai_1.4.0.png"
       },
       "codedata": {
         "node": "MODEL_PROVIDER",
@@ -23,7 +23,7 @@
         "packageName": "ai.openai",
         "object": "ModelProvider",
         "symbol": "init",
-        "version": "1.3.5",
+        "version": "1.4.0",
         "isNew": true
       },
       "returning": false,
@@ -104,12 +104,124 @@
               "fieldType": "SINGLE_SELECT",
               "options": [
                 {
-                  "label": "gpt-4o-audio-preview",
-                  "value": "\"gpt-4o-audio-preview\""
+                  "label": "codex-mini-latest",
+                  "value": "\"codex-mini-latest\""
+                },
+                {
+                  "label": "computer-use-preview",
+                  "value": "\"computer-use-preview\""
                 },
                 {
                   "label": "chatgpt-4o-latest",
                   "value": "\"chatgpt-4o-latest\""
+                },
+                {
+                  "label": "gpt-5.2-codex",
+                  "value": "\"gpt-5.2-codex\""
+                },
+                {
+                  "label": "gpt-5.2-chat-latest",
+                  "value": "\"gpt-5.2-chat-latest\""
+                },
+                {
+                  "label": "gpt-5.1-codex-max",
+                  "value": "\"gpt-5.1-codex-max\""
+                },
+                {
+                  "label": "gpt-5.1-codex-mini",
+                  "value": "\"gpt-5.1-codex-mini\""
+                },
+                {
+                  "label": "gpt-5.1-codex",
+                  "value": "\"gpt-5.1-codex\""
+                },
+                {
+                  "label": "gpt-5.1-chat-latest",
+                  "value": "\"gpt-5.1-chat-latest\""
+                },
+                {
+                  "label": "gpt-5-codex",
+                  "value": "\"gpt-5-codex\""
+                },
+                {
+                  "label": "gpt-5-chat-latest",
+                  "value": "\"gpt-5-chat-latest\""
+                },
+                {
+                  "label": "gpt-4o-audio-preview",
+                  "value": "\"gpt-4o-audio-preview\""
+                },
+                {
+                  "label": "gpt-5.6-luna",
+                  "value": "\"gpt-5.6-luna\""
+                },
+                {
+                  "label": "gpt-5.6-terra",
+                  "value": "\"gpt-5.6-terra\""
+                },
+                {
+                  "label": "gpt-5.6-sol",
+                  "value": "\"gpt-5.6-sol\""
+                },
+                {
+                  "label": "gpt-5.6",
+                  "value": "\"gpt-5.6\""
+                },
+                {
+                  "label": "gpt-5.5-pro",
+                  "value": "\"gpt-5.5-pro\""
+                },
+                {
+                  "label": "gpt-5.5",
+                  "value": "\"gpt-5.5\""
+                },
+                {
+                  "label": "gpt-5.4-pro",
+                  "value": "\"gpt-5.4-pro\""
+                },
+                {
+                  "label": "gpt-5.4-nano",
+                  "value": "\"gpt-5.4-nano\""
+                },
+                {
+                  "label": "gpt-5.4-mini",
+                  "value": "\"gpt-5.4-mini\""
+                },
+                {
+                  "label": "gpt-5.4",
+                  "value": "\"gpt-5.4\""
+                },
+                {
+                  "label": "gpt-5.3-codex",
+                  "value": "\"gpt-5.3-codex\""
+                },
+                {
+                  "label": "gpt-5.2-pro",
+                  "value": "\"gpt-5.2-pro\""
+                },
+                {
+                  "label": "gpt-5.2",
+                  "value": "\"gpt-5.2\""
+                },
+                {
+                  "label": "gpt-5.1",
+                  "value": "\"gpt-5.1\""
+                },
+                {
+                  "label": "gpt-5-pro",
+                  "value": "\"gpt-5-pro\""
+                },
+                {
+                  "label": "gpt-5-nano",
+                  "value": "\"gpt-5-nano\""
+                },
+                {
+                  "label": "gpt-5-mini",
+                  "value": "\"gpt-5-mini\""
+                },
+                {
+                  "label": "gpt-5",
+                  "value": "\"gpt-5\""
                 },
                 {
                   "label": "gpt-4.1-nano-2025-04-14",
@@ -150,6 +262,26 @@
                 {
                   "label": "gpt-3.5-turbo",
                   "value": "\"gpt-3.5-turbo\""
+                },
+                {
+                  "label": "o4-mini",
+                  "value": "\"o4-mini\""
+                },
+                {
+                  "label": "o3-pro",
+                  "value": "\"o3-pro\""
+                },
+                {
+                  "label": "o3-mini",
+                  "value": "\"o3-mini\""
+                },
+                {
+                  "label": "o3",
+                  "value": "\"o3\""
+                },
+                {
+                  "label": "o1-mini",
+                  "value": "\"o1-mini\""
                 },
                 {
                   "label": "o1-pro",
@@ -224,7 +356,7 @@
               "selected": false
             }
           ],
-          "placeholder": "\"gpt-4o-audio-preview\"",
+          "placeholder": "\"codex-mini-latest\"",
           "optional": false,
           "editable": true,
           "advanced": false,
@@ -288,12 +420,12 @@
             "kind": "DEFAULTABLE",
             "originalName": "maxTokens"
           },
-          "defaultValue": "512"
+          "defaultValue": "4096"
         },
         "temperature": {
           "metadata": {
             "label": "Temperature",
-            "description": "The temperature for controlling randomness in the model's output  "
+            "description": "The temperature for controlling randomness in the model's output. Some models do not\nsupport this parameter, in which case supplying it results in an error"
           },
           "types": [
             {
@@ -303,11 +435,11 @@
             },
             {
               "fieldType": "EXPRESSION",
-              "ballerinaType": "decimal",
+              "ballerinaType": "decimal?",
               "selected": false
             }
           ],
-          "placeholder": "0.0d",
+          "placeholder": "()",
           "optional": true,
           "editable": true,
           "advanced": true,
@@ -316,7 +448,67 @@
             "kind": "DEFAULTABLE",
             "originalName": "temperature"
           },
-          "defaultValue": "0.7"
+          "defaultValue": "()"
+        },
+        "reasoningEffort": {
+          "metadata": {
+            "label": "Reasoning Effort",
+            "description": "Reasoning effort level for reasoning-capable models. Applies to both the Chat Completions\n(`reasoning_effort`) and the Responses (`reasoning.effort`) APIs"
+          },
+          "types": [
+            {
+              "fieldType": "EXPRESSION",
+              "ballerinaType": "openai:ReasoningEffort?",
+              "selected": false
+            }
+          ],
+          "placeholder": "()",
+          "optional": true,
+          "editable": true,
+          "advanced": true,
+          "hidden": false,
+          "codedata": {
+            "kind": "DEFAULTABLE",
+            "originalName": "reasoningEffort"
+          },
+          "defaultValue": "()"
+        },
+        "apiType": {
+          "metadata": {
+            "label": "API Type",
+            "description": "The OpenAI API endpoint to use; either the Chat Completions API (default) or the Responses API"
+          },
+          "types": [
+            {
+              "fieldType": "SINGLE_SELECT",
+              "options": [
+                {
+                  "label": "responses",
+                  "value": "\"responses\""
+                },
+                {
+                  "label": "chat_completions",
+                  "value": "\"chat_completions\""
+                }
+              ],
+              "selected": false
+            },
+            {
+              "fieldType": "EXPRESSION",
+              "ballerinaType": "openai:ApiType",
+              "selected": false
+            }
+          ],
+          "placeholder": "\"responses\"",
+          "optional": true,
+          "editable": true,
+          "advanced": true,
+          "hidden": false,
+          "codedata": {
+            "kind": "DEFAULTABLE",
+            "originalName": "apiType"
+          },
+          "defaultValue": "CHAT_COMPLETIONS"
         },
         "httpVersion": {
           "metadata": {
