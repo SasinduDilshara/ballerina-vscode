@@ -43,16 +43,12 @@ import java.util.Optional;
  */
 final class AnnotationRegistry {
 
-    private static final AnnotationRegistry EMPTY =
-            new AnnotationRegistry(Map.of(), Map.of());
+    private static final AnnotationRegistry EMPTY = new AnnotationRegistry(Map.of());
 
     private final Map<String, TriggerMetadataModel.Annotation> byId;
-    private final Map<String, List<TriggerMetadataModel.Annotation>> byAttachPoint;
 
-    private AnnotationRegistry(Map<String, TriggerMetadataModel.Annotation> byId,
-                               Map<String, List<TriggerMetadataModel.Annotation>> byAttachPoint) {
+    private AnnotationRegistry(Map<String, TriggerMetadataModel.Annotation> byId) {
         this.byId = byId;
-        this.byAttachPoint = byAttachPoint;
     }
 
     /**
@@ -65,28 +61,17 @@ final class AnnotationRegistry {
             return EMPTY;
         }
         Map<String, TriggerMetadataModel.Annotation> ids = new LinkedHashMap<>();
-        Map<String, List<TriggerMetadataModel.Annotation>> points = new LinkedHashMap<>();
         for (TriggerMetadataModel.Annotation annotation : document.annotations()) {
-            if (annotation == null) {
+            if (annotation == null || annotation.id() == null) {
                 continue;
             }
-            if (annotation.id() != null) {
-                ids.putIfAbsent(annotation.id(), annotation);
-            }
-            if (annotation.attachPoint() != null) {
-                points.computeIfAbsent(annotation.attachPoint(), p -> new ArrayList<>()).add(annotation);
-            }
+            ids.putIfAbsent(annotation.id(), annotation);
         }
-        return new AnnotationRegistry(ids, points);
+        return new AnnotationRegistry(ids);
     }
 
     /** The annotation a {@code params[]}/{@code options[]}/{@code rules[]} reference names. */
     Optional<TriggerMetadataModel.Annotation> byId(String id) {
         return id == null ? Optional.empty() : Optional.ofNullable(byId.get(id));
-    }
-
-    /** Every annotation declared at one attach point, in document order. */
-    List<TriggerMetadataModel.Annotation> byAttachPoint(String attachPoint) {
-        return byAttachPoint.getOrDefault(attachPoint, List.of());
     }
 }

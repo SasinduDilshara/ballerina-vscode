@@ -83,8 +83,8 @@ interface AttachmentPoint {
  * here by carrying the flag rather than by dropping them, because the const form is legal with a type
  * constraint (`public const annotation Cfg A1 on source listener;` compiles) and so loses no information.
  *
- * `ATTACHMENT_POINT_SYNTAX_IS_COMPILER_VERIFIED` in the test suite pins every entry to a form that was
- * actually built; that guard is what stops a fourth wrong token being added by inspection.
+ * `COMPILER_VERIFIED_ATTACH_POINTS` in the test suite pins every entry to a form that was actually built;
+ * that guard is what stops a fourth wrong token being added by inspection.
  */
 const ATTACHMENT_POINT_LABELS: Record<string, AttachmentPoint> = {
     // Curated service-index points.
@@ -981,8 +981,8 @@ const RESOURCE_ACCESSOR_PLACEHOLDER = "<accessor>";
  * The last branch is a genuine degradation and stays one: a `resource` handler whose document names no
  * accessor and does not open the slot either has nothing to put in that position, and
  * `resource function  pathSegment(...)` does not parse. Falling back to `remote function` at least yields a
- * copyable line — but it is only correct because the document said nothing, which `ResourceExtrasCheck`
- * reports.
+ * copyable line — but it is only correct because the document said nothing, and nothing currently reports
+ * that omission, so the degradation is silent.
  */
 function resourceAccessor(method: ServiceRemoteFunction): string | undefined {
     if (method.type !== "resource") {
@@ -1090,9 +1090,8 @@ function renderResourceNote(method: ServiceRemoteFunction, indent: string): stri
     }
     // The label follows the handler's actual kind, not the spec section the extras are filed under: a
     // handler labelled "Resource:" above a `remote function` signature states the opposite of the line
-    // below it. Under this spec revision the two agree for every corpus handler — §5 makes both slots
-    // resource-only and `ResourceExtrasCheck` now reports a remote handler carrying either as an ERROR —
-    // but the label is still derived rather than assumed, because the check is a report, not a guarantee.
+    // below it. Under this spec revision §5 makes both slots resource-only, so the two agree for every
+    // corpus handler — but nothing validates that, so the label stays derived rather than assumed.
     const label = method.type === "resource" ? "Resource" : "Handler";
     return parts.length === 0 ? "" : `${indent}# ${label}: ${parts.join("; ")}.\n`;
 }
@@ -2275,7 +2274,7 @@ function renderAnnotationDeclarations(annotations: Annotation[]): string[] {
             // annotation declared at both a declarable and an undeclarable one still renders.
             continue;
         }
-        const key = `${annotation.name} ${annotation.typeConstraint?.name ?? ""}`;
+        const key = `${annotation.name}\u0000${annotation.typeConstraint?.name ?? ""}`;
         const group = groups.get(key);
         if (!group) {
             groups.set(key, { annotation, points: [point] });

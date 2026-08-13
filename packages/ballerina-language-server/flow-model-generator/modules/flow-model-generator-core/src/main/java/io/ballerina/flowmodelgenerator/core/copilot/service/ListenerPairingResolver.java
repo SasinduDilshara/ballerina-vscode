@@ -173,26 +173,12 @@ final class ListenerPairingResolver {
     }
 
     /**
-     * Pairs every service type with its listener and that listener's resolved class.
+     * Pairs every service type with its listener and that listener's resolved class, and reports why every
+     * dropped service type was dropped.
      *
      * <p>A listener class that cannot be resolved means the resolved package no longer matches the
      * document's world view, so pairings depending on it are omitted rather than emitted as a listener the
      * generated code could not instantiate. Each distinct listener is resolved once.
-     *
-     * @param listeners    the document's listeners
-     * @param serviceTypes the document's service types
-     * @param facts        the resolved package's symbols
-     * @return one pairing per service type whose listener resolved, in document order
-     */
-    static List<ListenerPairing> resolve(List<TriggerMetadataModel.Listener> listeners,
-                                         List<TriggerMetadataModel.ServiceType> serviceTypes,
-                                         TriggerSemanticFacts facts) {
-        return resolveWithDiagnostics(listeners, serviceTypes, facts).pairings();
-    }
-
-    /**
-     * {@link #resolve} plus the reason every dropped service type was dropped. Same work; this overload
-     * simply does not discard the diagnostics.
      *
      * @param listeners    the document's listeners
      * @param serviceTypes the document's service types

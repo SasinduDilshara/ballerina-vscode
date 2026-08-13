@@ -483,7 +483,7 @@ public record TriggerMetadataModel(
      *                    required in a top-level rule
      * @param role        this subject's name within its rule. Asymmetric constraints fix the names
      *                    ({@link Rule#ROLE_WHEN}/{@link Rule#ROLE_THEN}); symmetric ones use free labels,
-     *                    referenced by {@link Rule#prefer()} and {@link Rule#reportOn()}
+     *                    referenced by {@link Rule#prefer()}
      */
     public record Subject(String kind,
                           String name,

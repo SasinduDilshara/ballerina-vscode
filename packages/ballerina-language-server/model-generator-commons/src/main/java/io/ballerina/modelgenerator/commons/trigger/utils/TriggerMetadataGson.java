@@ -83,9 +83,9 @@ public final class TriggerMetadataGson {
     /**
      * Reads one {@link TypeRef} node, whichever of spec §1's variants it is.
      *
-     * <p>An unknown {@code shape} is carried through rather than rejected here: the parse stays total, and
-     * {@code TypeRefCheck} reports it against the exact document path — which is a far more useful
-     * diagnostic than a parse failure, and is where spec §1.1's "fail loudly" belongs.
+     * <p>An unknown {@code shape} is carried through rather than rejected here, so that one unrecognised
+     * node does not cost the whole document. Note that nothing currently reports it: the shape reaches
+     * {@code TypeRefResolver}, which renders an unknown composite as the empty string.
      */
     static TypeRef readNode(JsonElement element) {
         if (element == null || !element.isJsonObject()) {

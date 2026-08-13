@@ -85,18 +85,6 @@ final class ShapeResolver {
                          List<String> bindableFields,
                          List<String> fixedFields,
                          String completionType) {
-
-        /** Whether this shape embeds an envelope, whether directly or per element. */
-        boolean embedsEnvelope() {
-            return TriggerMetadataModel.Shape.FORM_INCLUDED.equals(form)
-                    || TriggerMetadataModel.Shape.FORM_INCLUDED.equals(element);
-        }
-
-        /** Whether the declared type is a batch of this shape's bound type. */
-        boolean isBatched() {
-            return TriggerMetadataModel.Shape.FORM_ARRAY.equals(form)
-                    || TriggerMetadataModel.Shape.FORM_STREAM.equals(form);
-        }
     }
 
     /**

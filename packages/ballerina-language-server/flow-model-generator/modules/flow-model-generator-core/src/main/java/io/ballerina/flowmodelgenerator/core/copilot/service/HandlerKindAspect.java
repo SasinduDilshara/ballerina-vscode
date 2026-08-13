@@ -49,14 +49,8 @@ final class HandlerKindAspect implements HandlerAspect {
         HandlerKindResolver.Kind kind = scope.isConcrete()
                 ? HandlerKindResolver.resolveDeclared(scope.declared().kind())
                 : HandlerKindResolver.resolve(scope.option().kind());
+        // The accessor and path that go with a resource kind are ResourceExtrasAspect's: spec §5 gave the
+        // construct a single `accessor` slot, so there is no precedence question left for this component.
         draft.setKind(kind.wireValue());
-
-        if (!kind.isResource() || scope.isConcrete()) {
-            // A concrete type's resource method already carries its real accessor and path inside the name
-            // TriggerSemanticFacts derived from its resource path, so there is nothing to resolve for it.
-            return;
-        }
-        // The accessor itself is ResourceExtrasAspect's: spec §5 gave the construct a single `accessor`
-        // slot, so there is no longer a precedence question for this component to answer.
     }
 }

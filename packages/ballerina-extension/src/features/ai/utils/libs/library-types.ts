@@ -109,11 +109,10 @@ export interface BindingShape {
     // The record a user type includes with `*Envelope;`. Present for `included`, and for an
     // `array`/`stream` whose `element` is `included`.
     envelope?: Type;
-    // The envelope's fields this variant may retype; every other field stays pinned.
+    // The envelope's fields this variant may retype; every other field stays pinned. The pipeline also
+    // emits the complement as `fixedFields`; it is not declared here because the renderer states the
+    // prohibition from `bindableFields` instead and never reads it.
     bindableFields?: string[];
-    // The complement, derived by the pipeline (spec §9: "they are the envelope's fields minus
-    // bindableFields"). Carried for completeness; the renderer states the prohibition instead.
-    fixedFields?: string[];
     // For `stream`, the stream's completion type — `stream<T>` and `stream<T, error?>` are different types.
     completionType?: Type;
 }
@@ -336,9 +335,6 @@ export interface ConstraintSubject {
     // The annotation's actual name (`ServiceConfig`), already resolved from the document's registry id by
     // the Java side — a reader has to write this, not the id. Set for `annotation`/`annotationField`.
     annotation?: string;
-    // The `annotations[].id` the subject referenced (`$serviceConfig`). Carried for traceability; never
-    // rendered, because it names nothing that exists in Ballerina source.
-    annotationId?: string;
     // For `annotationField`, the field path inside the annotation record. An array, so a nested field such
     // as `["retryConfig", "maxCount"]` is addressable — truncating it would name the wrong field.
     path?: string[];
@@ -355,9 +351,6 @@ export interface ConstraintSubject {
     // did. Without it a spanning rule would present every alternative as belonging to the service type the
     // reader happens to be looking at.
     serviceType?: string;
-    // The `serviceTypes[].id` the subject named. Carried for traceability; never rendered, for the same
-    // reason `annotationId` is not — an id names nothing that exists in Ballerina source.
-    serviceTypeId?: string;
 }
 
 // Spec §6 `rules[]`: a named constraint from an open registry.
@@ -366,7 +359,6 @@ export interface ConstraintSubject {
 // the registry defines today: spec §6 requires an unrecognised id be skipped rather than rejected, and a
 // closed type here would make a newer manifest a compile error rather than a skipped rule.
 export interface ServiceConstraint {
-    id?: string;
     rule: string;
     subjects: ConstraintSubject[];
     // The document's own diagnostic sentence. Preferred over anything the renderer can synthesize: it says

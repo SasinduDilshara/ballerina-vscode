@@ -51,27 +51,6 @@ import java.util.Optional;
  */
 final class IdentifierResolver {
 
-    /** The shapes spec §10 admits for this slot, plus a degradation target for anything else. */
-    enum IdentifierForm {
-        /** A path, written {@code service Type /base/path on new …}. */
-        BASE_PATH,
-        /** A quoted literal, written {@code service Type "name" on new …}. */
-        STRING_LITERAL,
-        /** A form outside spec §10's vocabulary; describable but not renderable as a placeholder. */
-        UNKNOWN;
-
-        /** Resolves a document token to a form, degrading to {@link #UNKNOWN} rather than failing. */
-        static IdentifierForm of(String form) {
-            if (PresenceForm.FORM_BASE_PATH.equals(form)) {
-                return BASE_PATH;
-            }
-            if (PresenceForm.FORM_STRING_LITERAL.equals(form)) {
-                return STRING_LITERAL;
-            }
-            return UNKNOWN;
-        }
-    }
-
     private IdentifierResolver() {
         // Prevent instantiation
     }
@@ -79,20 +58,14 @@ final class IdentifierResolver {
     /**
      * A service type's resolved identifier slot.
      *
-     * <p>{@code forms} holds the document's own tokens rather than resolved {@link IdentifierForm} values, so
-     * that an unrecognised token survives to the wire and the renderer can name it in the note it emits.
-     * Mapping a token to a form is {@link IdentifierForm#of(String)}, applied by whoever needs the typed
-     * answer.
+     * <p>{@code forms} holds the document's own tokens rather than a resolved enum, so that an unrecognised
+     * token survives to the wire and the renderer can name it in the note it emits. Spec §1's "first element
+     * is the codegen default" makes {@code forms.get(0)} the form the rendered placeholder follows.
      *
      * @param required whether the slot must be filled (spec §10 {@code presence: "required"})
      * @param forms    every legal form as declared, in document order; never empty
      */
     record IdentifierSlot(boolean required, List<String> forms) {
-
-        /** The form the rendered placeholder follows: spec §1's "first element is the codegen default". */
-        IdentifierForm form() {
-            return IdentifierForm.of(forms.get(0));
-        }
     }
 
     /**

@@ -266,44 +266,6 @@ final class ConstraintResolver {
     }
 
     /**
-     * {@link #resolve(String, List, String, ServiceTypeIndex, AnnotationRegistry)} for a rule set scoped to
-     * a single service type, where no subject can name another one.
-     *
-     * <p>Kept so a caller holding just one handler-name set — every caller before spec §6 gained a
-     * top-level {@code rules[]}, and every unit test of this resolver — does not have to build an index.
-     *
-     * @param libraryName          the library, for log attribution only
-     * @param rules                the rules to resolve; may be {@code null}
-     * @param declaredHandlerNames the handler names this service type declares; {@code null} suppresses the
-     *                             cross-check
-     * @param annotations          spec §8's registry; may be {@code null}
-     * @return the resolved rules, in document order
-     */
-    static List<Constraint> resolve(String libraryName,
-                                    List<TriggerMetadataModel.Rule> rules,
-                                    Set<String> declaredHandlerNames,
-                                    AnnotationRegistry annotations) {
-        // Every id resolves to the same set, and attribution is off, so a subject naming a service type is
-        // read as the enclosing one — which is the only service type there is.
-        return resolve(libraryName, rules, null, new ServiceTypeIndex() {
-            @Override
-            public String typeName(String serviceTypeId) {
-                return null;
-            }
-
-            @Override
-            public Set<String> handlerNames(String serviceTypeId) {
-                return declaredHandlerNames;
-            }
-
-            @Override
-            public boolean attributes() {
-                return false;
-            }
-        }, annotations);
-    }
-
-    /**
      * Resolves a rule set.
      *
      * <p>A rule is dropped whole, with a warning, when it names an unimplemented registry id or when fewer
