@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.BiConsumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.logging.Logger;
@@ -49,9 +50,11 @@ import java.util.logging.Logger;
  *
  * <p><b>Structure.</b> This class is only an orchestrator. It resolves the document, builds the facts
  * once, pairs service types with listeners, and then runs an ordered list of components over each pair.
- * Every spec construct is owned by exactly one pure resolver, plugged in by a thin aspect — so a spec
- * change edits one resolver and touches nothing else, and no component can grow a dependency on another
- * without going through {@link TriggerScope}. See {@link AspectRegistry} for the ordered list.
+ * A component is a function from a read-only scope to a mutable draft, and each owns exactly one spec
+ * construct — so a spec change edits one component and touches nothing else, and no component can grow a
+ * dependency on another without going through {@link TriggerScope}. Substantial logic lives in a pure
+ * resolver the component delegates to, which is what makes it testable without a semantic model. See
+ * {@link AspectRegistry} for the ordered list.
  *
  * <p><b>Failure model.</b> Three distinct outcomes, deliberately not merged:
  * <ul>
@@ -190,7 +193,7 @@ final class TriggerSchemaServiceLoader {
                 return new LoadResult(new JsonArray(), paired.vetoes(), true);
             }
 
-            AspectRegistry registry = AspectRegistry.forVersion(AspectRegistry.VERSION_V1);
+            AspectRegistry registry = new AspectRegistry();
             // Spec §8's registry is built once per library: it is shared by every service type, and by
             // every attach point once the later phases land.
             AnnotationRegistry annotations = AnnotationRegistry.of(metadata);
@@ -239,8 +242,8 @@ final class TriggerSchemaServiceLoader {
                 facts::declaresType);
 
         ServiceDraft draft = new ServiceDraft();
-        for (ServiceAspect aspect : registry.serviceAspects()) {
-            aspect.contribute(scope, draft);
+        for (BiConsumer<TriggerScope, ServiceDraft> aspect : registry.serviceAspects()) {
+            aspect.accept(scope, draft);
             if (draft.isVetoed()) {
                 // A vetoed entry is dropped whole; running the remaining components would build output
                 // nothing will read.

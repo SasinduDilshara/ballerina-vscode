@@ -264,8 +264,21 @@ final class AnnotationScopeResolver {
                 return;
             }
         }
-        refs.add(new AnnotationRef(name, module, ServiceAnnotationResolver.isRequired(annotation),
+        refs.add(new AnnotationRef(name, module, isRequired(annotation),
                 scope.attachPoint(), facts == null ? null : facts.constraint(name, module)));
+    }
+
+    /**
+     * Spec §8 {@code presence}: {@code "required"} or {@code "optional"}. Anything else — including an
+     * absent value — reads as optional, so an unrecognised vocabulary term cannot silently assert that
+     * generated code is obliged to carry an annotation.
+     *
+     * @param annotation the registry entry
+     * @return whether the annotation must be attached
+     */
+    private static boolean isRequired(TriggerMetadataModel.Annotation annotation) {
+        return annotation != null
+                && TriggerMetadataModel.Annotation.PRESENCE_REQUIRED.equals(annotation.presence());
     }
 
     private static String nameOf(TriggerMetadataModel.Annotation annotation, String fallback) {

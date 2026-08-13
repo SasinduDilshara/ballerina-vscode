@@ -23,6 +23,7 @@ import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.BiConsumer;
 
 /**
  * Spec §4/§5 — builds every handler of a service type, and through them every parameter.
@@ -33,26 +34,18 @@ import java.util.Set;
  *
  * @since 1.7.0
  */
-final class HandlerCatalogAspect implements ServiceAspect {
+final class HandlerCatalogAspect {
 
-    private final AspectRegistry registry;
+    private final List<BiConsumer<HandlerScope, HandlerDraft>> handlerAspects;
+    private final List<BiConsumer<ParamScope, ParamDraft>> paramAspects;
 
-    HandlerCatalogAspect(AspectRegistry registry) {
-        this.registry = registry;
+    HandlerCatalogAspect(List<BiConsumer<HandlerScope, HandlerDraft>> handlerAspects,
+                         List<BiConsumer<ParamScope, ParamDraft>> paramAspects) {
+        this.handlerAspects = handlerAspects;
+        this.paramAspects = paramAspects;
     }
 
-    @Override
-    public String id() {
-        return "handlerCatalog";
-    }
-
-    @Override
-    public String specSection() {
-        return "§4";
-    }
-
-    @Override
-    public void contribute(TriggerScope scope, ServiceDraft draft) {
+    void contribute(TriggerScope scope, ServiceDraft draft) {
         String typeName = scope.serviceTypeName();
         HandlerCatalogResolver.CatalogResolution resolution =
                 HandlerCatalogResolver.resolve(scope.serviceType(), typeName, scope.facts());
@@ -62,12 +55,12 @@ final class HandlerCatalogAspect implements ServiceAspect {
         // but the reason now reaches the veto report, so a test can assert it and a document author can
         // find it without reading the language server's log.
         for (String degradation : resolution.degradations()) {
-            draft.drop(id(), specSection(), typeName, degradation);
+            draft.drop("handlerCatalog", "§4", typeName, degradation);
         }
 
         switch (resolution.catalog()) {
             case HandlerCatalogResolver.HandlerCatalog.None none ->
-                    draft.veto(id(), specSection(), typeName, none.reason());
+                    draft.veto("handlerCatalog", "§4", typeName, none.reason());
             case HandlerCatalogResolver.HandlerCatalog.Concrete concrete ->
                     buildDeclared(scope, draft, concrete.methods());
             case HandlerCatalogResolver.HandlerCatalog.Documented documented -> {
@@ -99,14 +92,14 @@ final class HandlerCatalogAspect implements ServiceAspect {
         if (ParamTypeResolver.signatureReferencesUndeclaredType(template, scope.declaresType())) {
             // Same guard a named option gets: a template naming a type the resolved package does not
             // declare would describe a handler nobody can write.
-            handlerDraft.veto(id(), specSection(), scope.serviceTypeName(),
+            handlerDraft.veto("handlerCatalog", "§4", scope.serviceTypeName(),
                     "its handler template references a type the resolved package does not declare");
             draft.addHandlerTemplate(handlerDraft);
             return;
         }
 
-        for (HandlerAspect aspect : registry.handlerAspects()) {
-            aspect.contribute(handlerScope, handlerDraft);
+        for (BiConsumer<HandlerScope, HandlerDraft> aspect : handlerAspects) {
+            aspect.accept(handlerScope, handlerDraft);
         }
         buildOptionParams(handlerScope, handlerDraft, template.params());
         draft.addHandlerTemplate(handlerDraft);
@@ -143,7 +136,7 @@ final class HandlerCatalogAspect implements ServiceAspect {
             // routes any wildcard to `Many` — but that routing is one branch away from this one, and the
             // failure it prevents is silent and uncompilable rather than loud.
             if (TriggerMetadataModel.ServiceType.HandlerOption.WILDCARD_NAME.equals(option.name())) {
-                draft.drop(id(), specSection(), option.name(),
+                draft.drop("handlerCatalog", "§4", option.name(),
                         "a \"*\" option reached the fixed-vocabulary path, where it has no writable name");
                 continue;
             }
@@ -152,14 +145,14 @@ final class HandlerCatalogAspect implements ServiceAspect {
             HandlerDraft handlerDraft = new HandlerDraft();
 
             if (ParamTypeResolver.signatureReferencesUndeclaredType(option, scope.declaresType())) {
-                handlerDraft.veto(id(), specSection(), option.name(),
+                handlerDraft.veto("handlerCatalog", "§4", option.name(),
                         "its signature references a type the resolved package does not declare");
                 draft.addHandler(handlerDraft);
                 continue;
             }
 
-            for (HandlerAspect aspect : registry.handlerAspects()) {
-                aspect.contribute(handlerScope, handlerDraft);
+            for (BiConsumer<HandlerScope, HandlerDraft> aspect : handlerAspects) {
+                aspect.accept(handlerScope, handlerDraft);
             }
             buildOptionParams(handlerScope, handlerDraft, option.params());
             draft.addHandler(handlerDraft);
@@ -199,16 +192,16 @@ final class HandlerCatalogAspect implements ServiceAspect {
 
     private HandlerDraft runHandlerAspects(HandlerScope scope) {
         HandlerDraft draft = new HandlerDraft();
-        for (HandlerAspect aspect : registry.handlerAspects()) {
-            aspect.contribute(scope, draft);
+        for (BiConsumer<HandlerScope, HandlerDraft> aspect : handlerAspects) {
+            aspect.accept(scope, draft);
         }
         return draft;
     }
 
     private ParamDraft runParamAspects(ParamScope scope) {
         ParamDraft draft = new ParamDraft();
-        for (ParamAspect aspect : registry.paramAspects()) {
-            aspect.contribute(scope, draft);
+        for (BiConsumer<ParamScope, ParamDraft> aspect : paramAspects) {
+            aspect.accept(scope, draft);
         }
         return draft;
     }

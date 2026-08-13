@@ -19,95 +19,90 @@
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
 import java.util.List;
+import java.util.function.BiConsumer;
 
 /**
- * The single ordered list of components, and the one place a future spec version diverges: registering a
- * replacement resolver here is the whole change, because nothing else names a component.
+ * The single ordered list of components, and the one place the pipeline's shape is declared.
+ *
+ * <p>A component is a function from a read-only scope to a mutable draft, so it is registered as a method
+ * reference rather than as a class implementing an interface. There was an interface per tier once, each
+ * declaring {@code id()} and {@code specSection()} alongside {@code contribute}; nothing ever dispatched
+ * those two through an interface reference, so the only member that was actually a contract is the one
+ * kept here.
  *
  * <p><b>Ordering.</b> Within a tier the order is declared once, here. Only three entries have a reason to
  * sit where they do, and each is noted at its line; the rest are order-independent. Handler-tier order in
  * particular carries no meaning at all: {@link HandlerDraft} holds each slot as a field and emits the wire
  * contract's key order itself, so a component can be inserted anywhere without changing the JSON.
  *
- * <p><b>Lifetime.</b> A registry is built per library load, never shared: {@link ListenerAspect} memoizes
+ * <p><b>Lifetime.</b> A registry is built per library load, never shared: {@link ServiceAspects} memoizes
  * the listener object it builds, and that cache is only valid within one library's resolved package.
  *
  * @since 1.7.0
  */
 final class AspectRegistry {
 
-    /** The spec version the corpus is authored against. */
-    static final String VERSION_V1 = "v1";
+    private final List<BiConsumer<TriggerScope, ServiceDraft>> serviceAspects;
+    private final List<BiConsumer<HandlerScope, HandlerDraft>> handlerAspects;
+    private final List<BiConsumer<ParamScope, ParamDraft>> paramAspects;
 
-    private final List<ServiceAspect> serviceAspects;
-    private final List<HandlerAspect> handlerAspects;
-    private final List<ParamAspect> paramAspects;
-
-    private AspectRegistry() {
+    AspectRegistry() {
         this.handlerAspects = List.of(
-                new HandlerIdentityAspect(),
-                new HandlerKindAspect(),
-                new HandlerQualifierAspect(),
-                new HandlerPresenceAspect(),
+                HandlerAspects::identity,
+                HandlerAspects::kind,
+                HandlerAspects::qualifier,
+                HandlerAspects::presence,
                 // Spec §5 made the accessor/path pair library-neutral, so the two
                 // protocol-specific aspects collapsed into one.
-                new ResourceExtrasAspect(),
-                new ReturnAspect(),
-                new HandlerAnnotationAspect(),
+                HandlerAspects::resourceExtras,
+                HandlerAspects::returnType,
+                AnnotationAspects::handler,
                 // Order-independent despite writing into the return object: HandlerDraft holds the refs in
-                // their own slot and merges them at emit time, so this does not have to follow ReturnAspect.
-                new ReturnAnnotationAspect());
+                // their own slot and merges them at emit time, so this does not have to follow returnType.
+                AnnotationAspects::returnValue);
         this.paramAspects = List.of(
-                new ParamTypeAspect(),
-                new ParamPresenceAspect(),
-                new ParamRepeatAspect(),
-                new ParamAnnotationAspect(),
-                new DataBindingAspect());
+                ParamAspects::type,
+                ParamAspects::presence,
+                ParamAspects::repeat,
+                AnnotationAspects::param,
+                ParamAspects::dataBinding);
+
+        // Instance state, not static: the listener object is memoized for the lifetime of one library load.
+        ServiceAspects services = new ServiceAspects();
+        // Built before the service list so the catalog aspect can be handed the two inner tiers directly.
+        // It used to be handed this registry from inside the constructor, which published `this` while the
+        // service field was still null and worked only because the other two were assigned first.
+        HandlerCatalogAspect catalog = new HandlerCatalogAspect(handlerAspects, paramAspects);
         this.serviceAspects = List.of(
                 // Must run first: it resolves the service-type id every later component is scoped to,
                 // and it is the component that can veto the entry outright.
-                new ServiceIdentityAspect(),
-                new CardinalityAspect(),
-                new RequiredImportAspect(),
-                new PlatformDependencyAspect(),
+                services::identity,
+                services::cardinality,
+                services::requiredImports,
+                services::platformDependencies,
                 // Must run after identity: identity is what can veto the entry, and an annotation
                 // obligation resolved for a service type that is about to be dropped is output nothing
                 // will read. It does NOT depend on identity's result — spec §8's `appliesTo` matches
                 // `serviceTypes[].id`, which the scope already carries — so this is an ordering of
                 // effect, not of data.
-                new ServiceAnnotationAspect(),
-                new IdentifierAspect(),
-                new ConstraintAspect(),
-                new ListenerAspect(),
+                AnnotationAspects::service,
+                services::identifier,
+                ConstraintAspect::contribute,
+                services::listener,
                 // Must run last: it drives the handler and parameter tiers, so every service-level
                 // contribution has to be in place before it starts.
-                new HandlerCatalogAspect(this));
+                catalog::contribute);
     }
 
-    /**
-     * The component set for a spec version.
-     *
-     * <p>Every document in the corpus predates the spec's {@code version} key, so an absent version is
-     * read as v1 rather than rejected — rejecting would disable every trigger library. Enforcing the key
-     * is a later phase, and it belongs at the reader, not here.
-     *
-     * @param specVersion the document's declared version; {@code null} when it declares none
-     * @return a fresh registry; never shared between libraries
-     */
-    static AspectRegistry forVersion(String specVersion) {
-        // v1 is the only version that exists; the parameter is the seam a v2 set plugs into.
-        return new AspectRegistry();
-    }
-
-    List<ServiceAspect> serviceAspects() {
+    List<BiConsumer<TriggerScope, ServiceDraft>> serviceAspects() {
         return serviceAspects;
     }
 
-    List<HandlerAspect> handlerAspects() {
+    List<BiConsumer<HandlerScope, HandlerDraft>> handlerAspects() {
         return handlerAspects;
     }
 
-    List<ParamAspect> paramAspects() {
+    List<BiConsumer<ParamScope, ParamDraft>> paramAspects() {
         return paramAspects;
     }
 }

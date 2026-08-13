@@ -56,22 +56,15 @@ import java.util.logging.Logger;
  *
  * @since 1.7.0
  */
-final class ConstraintAspect implements ServiceAspect {
+final class ConstraintAspect {
 
     private static final Logger LOGGER = Logger.getLogger(ConstraintAspect.class.getName());
 
-    @Override
-    public String id() {
-        return "constraints";
+    private ConstraintAspect() {
+        // Prevent instantiation
     }
 
-    @Override
-    public String specSection() {
-        return "§6";
-    }
-
-    @Override
-    public void contribute(TriggerScope scope, ServiceDraft draft) {
+    static void contribute(TriggerScope scope, ServiceDraft draft) {
         TriggerMetadataModel.ServiceType serviceType = scope.serviceType();
         if (serviceType == null) {
             return;
