@@ -18,6 +18,8 @@
 
 package io.ballerina.flowmodelgenerator.core.copilot.model;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -28,6 +30,13 @@ import java.util.List;
  */
 public class Listener {
     private String name;
+    /**
+     * Spec's {@code deprecated} — why this construct is superseded, as the document's own prose. Text
+     * rather than a flag: the sentence names the replacement, which is the only part a reader can act on.
+     */
+    @SerializedName("deprecated")
+    private String deprecationNote;
+
     private List<Parameter> parameters;
 
     public Listener() {
@@ -40,6 +49,14 @@ public class Listener {
 
     public void setName(String name) {
         this.name = name;
+    }
+
+    public String getDeprecationNote() {
+        return deprecationNote;
+    }
+
+    public void setDeprecationNote(String deprecationNote) {
+        this.deprecationNote = deprecationNote;
     }
 
     public List<Parameter> getParameters() {

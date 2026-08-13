@@ -22,6 +22,9 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import io.ballerina.compiler.api.SemanticModel;
+import io.ballerina.flowmodelgenerator.core.InstructionLoader;
+import io.ballerina.projects.Package;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -43,6 +46,12 @@ public class ServiceLoader {
 
     private static final Logger LOGGER = Logger.getLogger(ServiceLoader.class.getName());
     private static final String GENERIC_SERVICES_JSON_PATH = "/copilot/generic-services.json";
+    /**
+     * System property that forces the trigger-service source: {@code "index"} pins every library to
+     * the SQLite service-index path; anything else (including unset) lets schema-driven libraries be
+     * served from trigger metadata + the semantic model.
+     */
+    static final String TRIGGER_SOURCE_PROPERTY = "ballerina.copilot.triggerSource";
 
     // Lazily cached generic services keyed by library name
     private static volatile Map<String, JsonArray> genericServicesCache;
@@ -67,6 +76,100 @@ public class ServiceLoader {
      * @return JsonArray containing all services for this library
      */
     public static JsonArray loadAllServices(String libraryName) {
+        return mergeWithGenericServices(libraryName, ServiceIndexLoader.loadFromServiceIndex(libraryName),
+                false);
+    }
+
+    /**
+     * Loads all services for a library, preferring the schema-driven path (trigger metadata +
+     * semantic model) whenever a metadata document resolves for the library. Setting the system
+     * property {@value #TRIGGER_SOURCE_PROPERTY} to {@code "index"} pins everything to the SQLite path.
+     *
+     * <p>The schema path is attempted for every library, not a fixed set: it returns empty for
+     * anything with no metadata document, which is the overwhelming majority and costs one
+     * {@code stat} against the already-resolved package. Falling through is therefore the normal case
+     * and is not logged.
+     *
+     * <h2>Empty is two different outcomes, and only one of them falls back</h2>
+     *
+     * <p><b>No document</b> — the library is not schema-driven. The service index is its only source,
+     * so it is used, silently, exactly as before. This is the path all thirteen index-only libraries
+     * take, and nothing about it changed.
+     *
+     * <p><b>Document resolved, produced nothing</b> — the index is <i>not</i> consulted. Everything the
+     * index holds for a schema-driven library is a strict subset of what its document describes, with
+     * one exception (handler and parameter descriptions, which the schema path cannot produce and which
+     * it therefore already does not emit today). So the index cannot repair this outcome; it can only
+     * disguise it, substituting a thinner catalog for a real defect and leaving no trace that the
+     * document failed. Preferring an obvious absence over a confident-looking downgrade is what makes
+     * that class of failure findable — {@code ballerina/smb} 2.0.1 removing a type the document still
+     * referenced is exactly the shape of release that lands here.
+     *
+     * @param libraryName   the library name (e.g., "ballerinax/kafka")
+     * @param pkg           the resolved package the caller already compiled (may be null)
+     * @param semanticModel the package's semantic model (may be null)
+     * @return JsonArray containing all services for this library
+     */
+    public static JsonArray loadAllServices(String libraryName, Package pkg, SemanticModel semanticModel) {
+        if (!"index".equals(System.getProperty(TRIGGER_SOURCE_PROPERTY))) {
+            TriggerSchemaServiceLoader.LoadResult result =
+                    TriggerSchemaServiceLoader.load(libraryName, pkg, semanticModel);
+            if (!result.services().isEmpty()) {
+                return mergeWithGenericServices(libraryName, result.services(), true);
+            }
+            if (result.documentResolved()) {
+                LOGGER.warning("Trigger metadata resolved for " + libraryName + " but produced no"
+                        + " services. Not falling back to the service index: the index catalog is a"
+                        + " strict subset of what this document describes, so substituting it would"
+                        + " hide the failure behind a poorer answer. Check the veto report — the usual"
+                        + " cause is a package release the document no longer matches.");
+                // The curated overlay is still emitted. It is not a fallback for the document: it
+                // states project conventions the document never carried, so it stands whether or not
+                // the metadata path produced anything, and dropping it here would lose ballerina/http
+                // and ballerina/graphql their hand-written guidance over an unrelated failure.
+                return mergeWithGenericServices(libraryName, new JsonArray(), false);
+            }
+        }
+        return loadAllServices(libraryName);
+    }
+
+    /**
+     * Applies the generic-services overlay, and what a {@code name} collision means depends on where the
+     * fixed entry came from.
+     *
+     * <p><b>Index-derived ({@code schemaDerived == false}) — replace.</b> The curated entry wins and the
+     * index entry is dropped, exactly as before. An index row carries a listener and a method list and
+     * nothing else; the curated prose was written precisely because that is too thin to generate against,
+     * so there is nothing in it worth preserving alongside.
+     *
+     * <p><b>Schema-derived ({@code schemaDerived == true}) — <i>merge</i>.</b> The metadata-derived entry
+     * survives and absorbs the curated guidance. This is the case that was silently destroying work:
+     * {@code ballerina/http} and {@code ballerina/graphql} both declare {@code type.name = "Service"} and
+     * both have a curated entry named {@code Service}, so their <b>entire trigger-metadata documents
+     * rendered nothing at all</b> — for http, 8 method values, 3 path forms, 6 parameter slots, 7
+     * annotation references (including the corpus's only {@code attachPoint: "return"} entry) and a
+     * {@code dataBindingRules} rule; for graphql, three handler shapes including subscriptions, which the
+     * curated prose never mentions.
+     *
+     * <p>The two sources are not substitutes and neither subsumes the other: the document states the
+     * <i>facts</i> (types, presence, annotations, binding), while the curated file states the
+     * <i>conventions</i> a document deliberately cannot carry — that an http listener belongs at module
+     * level, that {@code @http:Payload} is optional for a lone record parameter, that a graphql service
+     * defaults to {@code /graphql}. Merging keeps both; the old behaviour kept only the second.
+     *
+     * <p>The instruction text is loaded here rather than left to
+     * {@code CopilotLibraryManager.augmentServicesWithInstructions}, which applies it only to entries typed
+     * {@code generic}. Doing it at the point of absorption keeps the change surgical: no service that did
+     * not previously carry curated guidance starts carrying it, so {@code ballerina/ai}'s never-yet-rendered
+     * {@code service.md} stays exactly as unrendered as it is today.
+     *
+     * @param libraryName   the library being loaded
+     * @param fixedServices the non-generic entries
+     * @param schemaDerived whether {@code fixedServices} came from the trigger-metadata pipeline
+     * @return the merged service list
+     */
+    private static JsonArray mergeWithGenericServices(String libraryName, JsonArray fixedServices,
+                                                      boolean schemaDerived) {
         JsonArray genericServices = getGenericServices(libraryName);
 
         Set<String> genericNames = new HashSet<>();
@@ -77,15 +180,30 @@ public class ServiceLoader {
             }
         }
 
+        Set<String> absorbed = new HashSet<>();
         JsonArray services = new JsonArray();
-        for (JsonElement element : ServiceIndexLoader.loadFromServiceIndex(libraryName)) {
+        for (JsonElement element : fixedServices) {
             JsonObject svc = element.getAsJsonObject();
-            if (svc.has("name") && genericNames.contains(svc.get("name").getAsString())) {
+            String name = svc.has("name") ? svc.get("name").getAsString() : null;
+            if (name != null && genericNames.contains(name)) {
+                if (!schemaDerived) {
+                    continue;
+                }
+                absorbed.add(name);
+                InstructionLoader.loadServiceInstruction(libraryName)
+                        .ifPresent(text -> svc.addProperty("instructions", text));
+            }
+            services.add(svc);
+        }
+        // Document order is preserved for whatever was not absorbed, so the index path emits exactly the
+        // array it emitted before.
+        for (JsonElement element : genericServices) {
+            JsonObject svc = element.getAsJsonObject();
+            if (svc.has("name") && absorbed.contains(svc.get("name").getAsString())) {
                 continue;
             }
             services.add(svc);
         }
-        genericServices.forEach(services::add);
         return services;
     }
 
