@@ -35,43 +35,38 @@ import java.util.function.Supplier;
 import java.util.logging.Logger;
 
 /**
- * Schema-driven Copilot service loader: builds a library's {@code services} JSON from exactly two
- * read-only sources instead of the SQLite service-index —
+ * Schema-driven Copilot service loader: builds a library's {@code services} JSON from two read-only
+ * sources instead of the SQLite service-index —
  * <ol>
  *   <li><b>{@code trigger-metadata.json}</b>, the authoring metadata: which service types exist, the
  *       handler vocabulary of marker types, parameter types/optionality, and return types;</li>
  *   <li><b>the semantic model</b> of the same resolved package the manager already compiles: listener
  *       class and init parameters, the declared methods and doc comments of concrete service types, and
- *       validation that every metadata claim actually exists in the resolved package version.</li>
+ *       validation that every metadata claim exists in the resolved package version.</li>
  * </ol>
  *
- * <p><b>Structure.</b> This class is only an orchestrator. It resolves the document, builds the facts
- * once, pairs service types with listeners, and then runs an ordered list of components over each pair.
- * A component is a function from a read-only scope to a mutable draft, and each owns exactly one spec
- * construct — so a spec change edits one component and touches nothing else, and no component can grow a
- * dependency on another without going through {@link TriggerScope}. Substantial logic lives in a pure
- * resolver the component delegates to, which is what makes it testable without a semantic model. See
+ * <p><b>Structure.</b> This class only orchestrates: it resolves the document, builds the facts once,
+ * pairs service types with listeners, then runs an ordered list of components over each pair. A component
+ * maps a read-only scope to a mutable draft and owns exactly one spec construct, so a spec change edits one
+ * component, and no component can depend on another except through {@link TriggerScope}. See
  * {@link AspectRegistry} for the ordered list.
  *
  * <p><b>Failure model.</b> Three distinct outcomes, deliberately not merged:
  * <ul>
  *   <li><b>Not a trigger library</b> — no document resolves at either tier, so an empty array is returned
- *       and the caller uses the SQLite service index. This is the overwhelming majority of libraries and is
- *       not logged.</li>
- *   <li><b>Library-level abort</b> — a document <i>was</i> found but nothing could be built from it: it
- *       declares an unimplemented spec major, it is malformed, or no listener resolves. An empty array is
- *       returned with {@code documentResolved == true}, which tells the caller <b>not</b> to substitute the
- *       index: a poorer catalog presented as authoritative hides the defect, whereas a visible absence does
- *       not. Always logged.</li>
+ *       and the caller uses the SQLite service index. The majority of libraries; not logged.</li>
+ *   <li><b>Library-level abort</b> — a document was found but nothing could be built from it: it declares
+ *       an unimplemented spec major, it is malformed, or no listener resolves. An empty array is returned
+ *       with {@code documentResolved == true}, which tells the caller <b>not</b> to substitute the index,
+ *       since a poorer catalog presented as authoritative hides the defect. Always logged.</li>
  *   <li><b>Entry-level veto</b> — one service type or one handler is dropped with an attributable
  *       {@link Veto} while the rest of the library is served normally.</li>
  * </ul>
  *
- * <p><b>Documentation gaps this leaves.</b> A marker service type declares no methods in the library
- * source — its handler contract is enforced by a compiler plugin at user-code compile time — so no symbol
- * carries a doc comment for a handler or its parameters, and the metadata document does not model
- * descriptions. Handler and handler-parameter descriptions are therefore unavailable for marker service
- * types and are omitted, never fabricated. Concrete service types are unaffected.
+ * <p>A marker service type declares no methods in the library source — its handler contract is enforced by
+ * a compiler plugin at user-code compile time — so no symbol carries a doc comment for a handler or its
+ * parameters, and the metadata document does not model descriptions. Handler and handler-parameter
+ * descriptions are therefore omitted for marker service types, never fabricated.
  *
  * @since 1.7.0
  */
@@ -83,12 +78,11 @@ final class TriggerSchemaServiceLoader {
 
     /**
      * Module keys for the LS-bundled {@code trigger-metadata-models/<key>/trigger-metadata.json}
-     * documents, keyed by library name. This is <em>not</em> an allowlist — any library whose package
-     * ships its own {@code resources/trigger-metadata.json} is served without appearing here, and a
-     * library absent from this map still resolves a bundled document filed under its bare package name.
-     * It maps only the libraries whose bundled document is filed under a name the library itself does not
-     * carry: {@code ballerinax/mssql} maps to the {@code mssql.cdc} document — the same CDC trigger
-     * published under the new module layout; its listener ({@code CdcListener}) and handler set are
+     * documents, keyed by library name. <em>Not</em> an allowlist: a library whose package ships its own
+     * {@code resources/trigger-metadata.json} is served without appearing here, and one absent from this
+     * map still resolves a bundled document filed under its bare package name. It maps only the libraries
+     * whose bundled document is filed under a name the library does not carry — {@code ballerinax/mssql}
+     * maps to the {@code mssql.cdc} document, whose listener ({@code CdcListener}) and handler set are
      * validated against the actually resolved {@code mssql} package before use.
      */
     static final Map<String, String> BUNDLED_METADATA_KEYS = Map.of(
@@ -110,17 +104,15 @@ final class TriggerSchemaServiceLoader {
     /**
      * The outcome of one library load: the emitted services, and every reason an entry was dropped.
      *
-     * <p>Vetoes never reach the emitted JSON — they are diagnostics about the document. They are returned
-     * rather than only logged so a caller (or a test) can assert exactly what a library dropped and why,
-     * which is what makes a silently missing handler impossible to reintroduce unnoticed.
+     * <p>Vetoes never reach the emitted JSON — they are diagnostics about the document, returned rather
+     * than only logged so a caller or a test can assert exactly what a library dropped and why.
      *
      * @param services         the emitted service entries, in document order
      * @param vetoes           every reason an entry was dropped, whether a service type or a single
      *                         handler
-     * @param documentResolved whether a metadata document was found for this library at all, which is a
-     *                         different fact from whether it produced anything. Empty-with-no-document is
-     *                         the ordinary case for the overwhelming majority of libraries and means "not
-     *                         a trigger library"; empty-with-a-document means the document is there and
+     * @param documentResolved whether a metadata document was found for this library at all, which differs
+     *                         from whether it produced anything. Empty-with-no-document means "not a
+     *                         trigger library"; empty-with-a-document means the document is there and
      *                         yielded nothing, which is a defect. Only the caller can act on the
      *                         distinction, so it is reported rather than collapsed into an empty array
      */
@@ -158,14 +150,13 @@ final class TriggerSchemaServiceLoader {
                 : DEFAULT_ORG;
 
         // Flipped the moment a document is in hand, and read by the catch below: an exception thrown
-        // after that point is a failure to *process* a document that exists, which the caller must not
-        // mistake for "this library ships no metadata".
+        // after that point is a failure to *process* a document that exists, not an absence of metadata.
         boolean documentResolved = false;
         try {
             MetadataResolution resolution = resolveMetadata(libraryName, org, packageName, pkg);
-            // Set from whether a document was FOUND, not from whether one was usable: a package shipping a
-            // document this build refuses must not be reported as shipping none, or the caller substitutes
-            // the service index for it and the refusal disappears.
+            // Set from whether a document was FOUND, not from whether one was usable: otherwise a package
+            // shipping a document this build refuses is reported as shipping none, the caller substitutes
+            // the service index, and the refusal disappears.
             documentResolved = resolution.documentPresent();
             if (resolution.document().isEmpty()) {
                 return empty(documentResolved);
@@ -195,9 +186,8 @@ final class TriggerSchemaServiceLoader {
             // every attach point once the later phases land.
             AnnotationRegistry annotations = AnnotationRegistry.of(metadata);
             JsonArray services = new JsonArray();
-            // Seeded with the pairing tier's own drops. A service type whose listener did not resolve never
-            // reaches `buildService`, so its reason has nowhere else to come from — and a PARTIAL pairing
-            // failure used to be entirely silent, since the log line above fires only when every one fails.
+            // Seeded with the pairing tier's own drops: a service type whose listener did not resolve never
+            // reaches `buildService`, and the log line above fires only when every pairing fails.
             List<Veto> vetoes = new ArrayList<>(paired.vetoes());
 
             for (ListenerPairingResolver.ListenerPairing pairing : pairings) {
@@ -259,13 +249,11 @@ final class TriggerSchemaServiceLoader {
      * over the LS-bundled copy.
      *
      * <p>The connector's own document is versioned with the connector, so it can never describe a release
-     * the resolved package predates — the bundled mcp document declaring {@code StreamableHttpListener}
-     * before mcp 1.2.0 shipped it is exactly that failure mode. It also means a connector published after
-     * this LS is served without an LS release. The bundled tier then covers the libraries that do not ship
-     * a document yet.
+     * the resolved package predates, and a connector published after this LS is served without an LS
+     * release. The bundled tier covers the libraries that do not ship a document yet.
      *
      * <p>Reading the shipped document costs a single {@code stat} against the already-resolved package, so
-     * consulting it for every library (rather than a curated few) is cheap.
+     * consulting it for every library is cheap.
      */
     private static MetadataResolution resolveMetadata(String libraryName, String org,
                                                       String packageName, Package pkg) {
@@ -279,9 +267,8 @@ final class TriggerSchemaServiceLoader {
     /**
      * The two-tier precedence rule, as a pure function of what the connector shipped.
      *
-     * <p>Split out from {@link #resolveMetadata} so it can be tested: reaching it through a {@link Package}
-     * would need a published connector that ships a document, and none exists yet — which is exactly how the
-     * rule below came to be wrong without any test noticing.
+     * <p>Split out from {@link #resolveMetadata} so it can be tested: reaching it through a
+     * {@link Package} would need a published connector that ships a document, and none exists yet.
      *
      * @param libraryName the library, for the log line
      * @param shipped     what reading the connector's own document produced
@@ -297,11 +284,9 @@ final class TriggerSchemaServiceLoader {
         }
         if (shipped.present()) {
             // The connector ships a document this build cannot read — an unimplemented major version, or a
-            // malformed file. The LS's bundled copy is NOT a substitute for it: it is an OLDER description of
-            // the same connector, so serving it would answer a v2 package with a v1 contract and present the
-            // result as authoritative. That is precisely the "confident-looking downgrade" this loader's own
-            // fallback policy refuses to prefer over a visible absence, and the shipped-first precedence in
-            // this method exists to prevent it.
+            // malformed file. The LS's bundled copy is NOT a substitute for it: it is an OLDER description
+            // of the same connector, so serving it would answer a v2 package with a v1 contract and present
+            // the result as authoritative.
             //
             // `documentResolved` stays true, so the caller does not silently substitute the SQLite index
             // either: the library renders its curated overlay and logs why, which is findable.
@@ -318,7 +303,7 @@ final class TriggerSchemaServiceLoader {
     /**
      * A resolved document, and whether one was there at all.
      *
-     * <p>{@code documentPresent} is not {@code document.isPresent()}: a connector that ships a document this
+     * <p>{@code documentPresent} is not {@code document.isPresent()}: a connector shipping a document this
      * build refuses is a library <i>with</i> metadata that yielded nothing, which the caller must not treat
      * as a library without any.
      *

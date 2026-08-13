@@ -26,51 +26,37 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Generates a parameter name for a <b>service handler</b> (remote/resource method of a trigger's
- * service type) whose name {@code trigger-metadata.json} deliberately does not state.
+ * Generates a parameter name for a <b>service handler</b> (remote/resource method of a trigger's service
+ * type) whose name {@code trigger-metadata.json} deliberately does not state.
  *
- * <p><b>Why generation is needed at all.</b> A handler parameter's name is chosen by whoever writes
- * the service — it is not part of the connector's contract, so the authoring schema intentionally
- * omits {@code params[].name} for such slots (only the <i>type</i> and <i>presence</i> are fixed).
- * The Copilot, however, emits a full method signature, which cannot be written without a name. So a
- * name must be synthesized, and it must be deterministic, idiomatic, and valid Ballerina.
+ * <p>A handler parameter's name is chosen by whoever writes the service, so it is not part of the
+ * connector's contract and the authoring schema omits {@code params[].name} for such slots. The Copilot
+ * still emits a full method signature, so a name must be synthesized — deterministically, idiomatically,
+ * and as valid Ballerina.
  *
- * <p><b>SCOPE — handler parameters only.</b> This generator is called from exactly one place:
- * {@link ParamTypeResolver}, for a slot whose metadata {@code name} is absent. It is deliberately
- * <b>not</b> used for anything whose name is already fixed and available:
- * <ul>
- *   <li><b>listener init parameters</b> — real names come from the listener class's {@code init}
- *       signature via the semantic model;</li>
- *   <li><b>concrete service-type methods</b> (e.g. {@code trigger.github}'s {@code IssuesService},
- *       {@code trigger.google.calendar}'s {@code CalendarService}) — the methods are declared, so
- *       their parameter names come from the declaration;</li>
- *   <li><b>client methods, module functions, record fields and type definitions</b> — an entirely
- *       separate Copilot code path (symbol processing) that reads declared names directly.</li>
- * </ul>
- * Adding a call site outside the handler path would be a bug: it would invent a name for something
- * that already has one.
+ * <p><b>Scope: handler parameters only.</b> Called from exactly one place, {@link ParamTypeResolver}, for
+ * a slot whose metadata {@code name} is absent. Listener init parameters, concrete service-type methods
+ * and client/module/record symbols all carry declared names already, so a call site outside the handler
+ * path would invent a name for something that already has one.
  *
- * <p><b>Rules</b>, applied in order (all deterministic — the same input always yields the same name):
+ * <p><b>Rules</b>, applied in order, all deterministic:
  * <ol>
- *   <li>The type is taken from the slot's <b>first</b> type member: per the authoring schema, "the
- *       first element is the codegen default" for a union.</li>
- *   <li>A slot typed exactly {@code Error} becomes {@code <moduleAlias>Error}
- *       ({@code kafka:Error} → {@code kafkaError}) — the convention used throughout the Ballerina
- *       trigger ecosystem, and unambiguous when a handler also takes a message parameter.</li>
+ *   <li>The type is the slot's <b>first</b> type member — per the authoring schema, the codegen default
+ *       for a union.</li>
+ *   <li>A slot typed exactly {@code Error} becomes {@code <moduleAlias>Error} ({@code kafka:Error} →
+ *       {@code kafkaError}), the convention used throughout the trigger ecosystem.</li>
  *   <li>Otherwise the declared type name drives the name: a payload-shape prefix is dropped
- *       ({@code AnydataMessage} → {@code Message}, {@code BytesConsumerRecord} →
- *       {@code ConsumerRecord}) so that unions differing only by that prefix — the common
- *       {@code AnydataX|BytesX} shape — yield one stable name; the result is lower-camel-cased; and
- *       an array type is pluralized ({@code AnydataConsumerRecord[]} → {@code consumerRecords}).</li>
- *   <li>If the type yields no usable identifier (a built-in such as {@code json}/{@code string}, an
- *       anonymous shape such as {@code record {}}, or a name that would collide with a Ballerina
- *       keyword) and the slot declares a {@code dataBinding} rule, it becomes {@code payload} — the
- *       idiomatic name for a bound message body.</li>
- *   <li>Any remaining case, or a name already used by a sibling parameter of the same handler, falls
- *       back to the positional {@code paramN} (1-based), which is always valid and never collides.</li>
+ *       ({@code AnydataMessage} → {@code Message}) so an {@code AnydataX|BytesX} union yields one stable
+ *       name; the result is lower-camel-cased; and an array type is pluralized
+ *       ({@code AnydataConsumerRecord[]} → {@code consumerRecords}).</li>
+ *   <li>If the type yields no usable identifier (a built-in such as {@code json}, an anonymous shape such
+ *       as {@code record {}}, or a keyword) and the slot declares a {@code dataBinding} rule, it becomes
+ *       {@code payload}.</li>
+ *   <li>Anything remaining, or a name a sibling parameter of the same handler already holds, falls back to
+ *       the positional {@code paramN} (1-based), which is always valid and never collides.</li>
  * </ol>
  *
- * <p>Worked examples of the rules above, as illustrations rather than as observed output:
+ * <p>Illustrative examples, not observed output:
  * <pre>
  *   AnydataConsumerRecord[]|BytesConsumerRecord[]  → consumerRecords
  *   Caller                                        → caller
@@ -79,14 +65,10 @@ import java.util.Set;
  *   ContentDistributionMessage                     → contentDistributionMessage
  * </pre>
  *
- * <p><b>No document in the shipped corpus currently reaches this generator</b>, and the examples above are
- * therefore not drawn from one. Two conditions must both hold for it to be called — the slot states no
- * {@code name}, and it is not {@code addMode: "many"} — and every nameless slot in all fourteen documents is
- * {@code many}, which {@link ParamTypeAspect} routes to the authored name (absent) instead of here. The
- * earlier version of this list named real handlers ({@code kafka onConsumerRecord}, {@code ftp onFileChange})
- * and claimed each was "verified by unit test"; under spec v2 those slots carry authored names, so the
- * generator never sees them, and the test that had covered this class is gone. The rules are kept because the
- * first document to declare a fixed nameless slot needs them; the claim of coverage is not.
+ * <p><b>No document in the shipped corpus reaches this generator.</b> Two conditions must both hold for it
+ * to be called — the slot states no {@code name}, and it is not {@code addMode: "many"} — and every
+ * nameless slot in all fourteen documents is {@code many}. The rules are kept because the first document to
+ * declare a fixed nameless slot needs them.
  *
  * @since 1.7.0
  */
@@ -126,14 +108,14 @@ final class HandlerParamNameGenerator {
             candidate = PAYLOAD_NAME;
         }
         // `SyntaxInfo.isKeyword` is the compiler's own answer, and it replaces a hand-listed set of ~100
-        // words this class used to carry. That list was wrong in both directions: it included names that are
-        // not keywords at all (`string`, `int`, `json`, `anydata`, `field`, `key`, `order`, `limit`, `group`),
-        // so a perfectly legal identifier was rejected into the positional fallback, and it could only ever
-        // drift from the language. `TypeDefDataBuilder` in this same package already reads the compiler for
-        // the same question.
+        // words this class used to carry. That list was wrong in both directions: it included names that
+        // are not keywords at all (`string`, `int`, `json`, `anydata`, `field`, `key`, `order`, `limit`,
+        // `group`), so a legal identifier was rejected into the positional fallback, and it could only ever
+        // drift from the language.
         //
         // A keyword IS still refused rather than quoted: Ballerina admits `'string` as an identifier, but a
-        // quoted parameter name is not what generated code should read like, so the positional fallback wins.
+        // quoted parameter name is not what generated code should read like, so the positional fallback
+        // wins.
         if (candidate == null || SyntaxInfo.isKeyword(candidate) || usedNames.contains(candidate)) {
             return positionalName(index, usedNames);
         }

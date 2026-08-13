@@ -33,29 +33,25 @@ import java.util.Set;
  *
  * <h2>The attach-point guard</h2>
  *
- * <p>Spec §8's {@code attachPoint} states the document's <b>intent</b>. What actually compiles is decided by
- * the annotation's declaration in the resolved package, and the two can disagree — a document authored
- * against a different release, or simply mis-filed. Verified with the compiler:
+ * <p>Spec §8's {@code attachPoint} states the document's <b>intent</b>; what actually compiles is decided
+ * by the annotation's declaration in the resolved package, and the two can disagree. The compiler's own
+ * rejections are what define the admissible sets in {@link Scope}:
  * <pre>
  *   annotation declared `on service`, attached to a remote method:
  *     ERROR: annotation 'X' is not allowed on service_remote, object_method, function
  *   annotation declared `on service remote function`, attached to a resource method:
  *     ERROR: annotation 'X' is not allowed on object_method, function
- *   annotation declared `on function`  -> attaches to a remote method: compiles
- *   annotation declared `on parameter` -> attaches inline to a parameter: compiles
  * </pre>
- * Those two error messages <i>are</i> the admissible sets in {@link Scope}: a remote handler admits
- * {@code RESOURCE} (the compiler's constant for Ballerina's {@code service remote function}),
- * {@code OBJECT_METHOD} and {@code FUNCTION}; a resource handler admits only the latter two.
+ * A remote handler therefore admits {@code RESOURCE} (the compiler's constant for Ballerina's
+ * {@code service remote function}), {@code OBJECT_METHOD} and {@code FUNCTION}; a resource handler admits
+ * only the latter two.
  *
  * <p><b>An unknown declaration is trusted, not rejected.</b> When the resolved package reports no attach
  * points for a name — a cross-module annotation whose module is unreachable — the guard cannot answer, and
- * refusing on ignorance would drop a real obligation. This mirrors how the constraint lookup already
- * degrades.
+ * refusing on ignorance would drop a real obligation.
  *
- * <p><b>Service scope is deliberately not guarded.</b> Which points a {@code service} declaration admits was
- * not established by probe, and P3 ships without the check; adding an unprobed rule there could silently
- * drop a required annotation. Recorded as a follow-up rather than guessed at.
+ * <p><b>Service scope is deliberately not guarded</b>: which points a {@code service} declaration admits
+ * was not established by probe, so an unprobed rule there could silently drop a required annotation.
  *
  * @since 1.7.0
  */
@@ -68,8 +64,7 @@ final class AnnotationScopeResolver {
     enum Scope {
         /**
          * A {@code service} declaration. <b>Unguarded</b>: which declared points a service declaration
-         * admits was not established by probe, and P3 ships without the check, so guessing here could
-         * silently drop a required annotation. Recorded as a follow-up.
+         * admits was not established by probe, so guessing here could silently drop a required annotation.
          */
         SERVICE(TriggerMetadataModel.Annotation.ATTACH_POINT_SERVICE, null),
         /** A handler declared {@code remote function}. */
@@ -111,9 +106,9 @@ final class AnnotationScopeResolver {
      * The three compiler-backed facts §8 needs about an annotation, as a narrow seam rather than the whole
      * {@link TriggerSemanticFacts}.
      *
-     * <p>Same reasoning {@link TriggerScope} already applies to its {@code declaresType} predicate: a
-     * component that only asks these three questions should not depend on a compiled package, which is what
-     * lets the attach-point guard be exercised in a unit test rather than only through a real library.
+     * <p>Same reasoning {@link TriggerScope} applies to its {@code declaresType} predicate: depending on
+     * these three questions rather than on a compiled package is what lets the attach-point guard be
+     * exercised in a unit test.
      */
     interface AnnotationFacts {
 

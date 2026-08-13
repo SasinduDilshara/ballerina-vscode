@@ -32,12 +32,10 @@ import java.util.function.Function;
  * Owns <b>spec §2 {@code listeners[].type} and {@code .services}</b>: which listener hosts which service
  * type.
  *
- * <p>Spec §2 defines {@code services} as "{@code serviceTypes[].id} values this listener can host", so a
+ * <p>Spec §2 defines {@code services} as the {@code serviceTypes[].id} values a listener can host, so a
  * service type is paired with the listener that names its id. When no listener names it — or the document
- * omits {@code services} — the first listener is used, which is the only behaviour the corpus exercises:
- * all 13 documents declare exactly one listener, so every pairing resolves to it either way.
- *
- * <p>The multi-listener path is therefore <b>latent</b>: implemented and unit-testable against a synthetic
+ * omits {@code services} — the first listener is used. All 13 corpus documents declare exactly one
+ * listener, so the multi-listener path is <b>latent</b>: implemented and unit-testable against a synthetic
  * document, but not reachable from any shipped connector today.
  *
  * @since 1.7.0
@@ -82,20 +80,18 @@ final class ListenerPairingResolver {
 
     /**
      * Whether <b>any</b> listener in the document declares it can host this service type — spec §2's
-     * {@code services}: "{@code serviceTypes[].id} values this listener can host".
+     * {@code services}.
      *
-     * <p>Distinct from {@link #hostOf}, which must always return <i>some</i> listener so the entry can still
-     * be built. This answers the different question of whether that pairing is real, and there is one corpus
-     * case where it is not: {@code websocket} declares two service types but lists only
-     * {@code upgradeService} under its listener. Its {@code Service} is reached as the <i>return</i> of the
-     * upgrade resource, never attached — verified with the compiler, which rejects
-     * {@code service websocket:Service on new websocket:Listener(...)} with "service type is not supported
-     * by the listener".
+     * <p>Distinct from {@link #hostOf}, which must always return <i>some</i> listener so the entry can
+     * still be built. This answers whether that pairing is real, and there is one corpus case where it is
+     * not: {@code websocket} declares two service types but lists only {@code upgradeService} under its
+     * listener. Its {@code Service} is reached as the <i>return</i> of the upgrade resource, never attached
+     * — the compiler rejects {@code service websocket:Service on new websocket:Listener(...)} with "service
+     * type is not supported by the listener".
      *
      * <p><b>A listener that declares no {@code services} list constrains nothing</b>, so it is read as
-     * hosting everything — the same fallback {@link #hostOf} applies, and for the same reason: the absence
-     * of a constraint is not the presence of a prohibition. Without this the fallback would invert, and a
-     * document that simply omits the key would have every one of its service types declared unattachable.
+     * hosting everything: the absence of a constraint is not the presence of a prohibition, and reading it
+     * the other way would declare every service type of such a document unattachable.
      *
      * @param listeners   the document's listeners; may be {@code null} or empty
      * @param serviceType the service type; may be {@code null}
@@ -125,18 +121,15 @@ final class ListenerPairingResolver {
 
     /**
      * How many of a document's service types <b>one listener can actually host</b> — spec §2's
-     * {@code services}: "{@code serviceTypes[].id} values this listener can host".
+     * {@code services}.
      *
      * <p>This is the count spec §3's optionality rule has to be read against, and it is <b>not</b> the
-     * size of {@code serviceTypes[]}. {@code websocket} is the case that separates them: it declares two
-     * service types, but its listener lists only {@code upgradeService}. Its {@code Service} is reached
-     * as the <i>return</i> of the upgrade resource, never attached to a listener — verified with the
-     * compiler, which rejects {@code service websocket:Service on new websocket:Listener(...)} with
-     * "service type is not supported by the listener". Counting declarations rather than hostable types
-     * would call those two alternatives and invite exactly that program.
+     * size of {@code serviceTypes[]}. {@code websocket} separates the two: it declares two service types,
+     * but its listener lists only {@code upgradeService} (see {@link #anyListenerHosts}). Counting
+     * declarations rather than hostable types would call those two alternatives.
      *
      * <p>A listener that declares no {@code services} list constrains nothing, so the document's own
-     * count stands — the same fallback {@link #hostOf} applies for the same reason.
+     * count stands.
      *
      * @param listener     the hosting listener; may be {@code null}
      * @param serviceTypes the document's service types; may be {@code null}
@@ -162,9 +155,8 @@ final class ListenerPairingResolver {
      * The pairings that resolved, and an attributable reason for every service type that did not.
      *
      * <p>The vetoes exist because the alternative was a bare {@code continue}: when <i>some</i> listeners
-     * resolved and others did not, the affected service types vanished from the catalog with no veto, no log
-     * line and nothing a test could assert — the exact failure mode {@link Veto} was introduced to end, left
-     * in place at the one tier that predates it. A whole-library failure was logged; a partial one was not.
+     * resolved and others did not, the affected service types vanished from the catalog with no veto, no
+     * log line and nothing a test could assert.
      *
      * @param pairings one pairing per service type whose listener resolved, in document order
      * @param vetoes   one veto per service type dropped because its listener did not resolve
@@ -200,9 +192,8 @@ final class ListenerPairingResolver {
      *
      * <p>The same narrow seam {@link TriggerScope}'s {@code declaresType} predicate and
      * {@link AnnotationScopeResolver.AnnotationFacts} already are: resolving a listener class is the only
-     * capability this component needs from the semantic model, so depending on the predicate rather than the
-     * package is what lets the <i>drop</i> path be exercised in a unit test. It could not be before, which is
-     * part of why the missing veto went unnoticed.
+     * capability this component needs from the semantic model, so depending on the lookup rather than the
+     * package is what lets the <i>drop</i> path be exercised in a unit test.
      *
      * @param listeners       the document's listeners
      * @param serviceTypes    the document's service types

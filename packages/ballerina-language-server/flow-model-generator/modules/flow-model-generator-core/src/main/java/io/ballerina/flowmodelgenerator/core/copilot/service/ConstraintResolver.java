@@ -27,32 +27,11 @@ import java.util.Set;
 import java.util.logging.Logger;
 
 /**
- * Owns <b>spec §6 {@code rules[]}</b>: the cross-construct constraints a service type declares.
+ * Resolves <b>spec §6 {@code rules[]}</b>: the cross-construct constraints a service type declares.
  *
- * <h2>From a closed enum to an open registry</h2>
- *
- * <p>Spec v1.0 replaced {@code type: "oneOf" | "atMostOne"} with {@code rule: "<namespace>.<id>"} drawn from
- * an open registry, and replaced the three fixed member shapes with a tagged union of five subject kinds.
- * The consequence for this component is that <b>the registry, not the schema, is the unit of extension</b>:
- * a new constraint is one entry in {@link Kind}, and nothing else in the pipeline changes.
- *
- * <p>All six registry entries §6.2 defines are implemented, though only three appear in the corpus. They
- * cost one enum constant each, and implementing them now is what keeps the first document to use
- * {@code structure.requires} from silently rendering nothing.
- *
- * <h2>Skip, do not fail</h2>
- *
- * <p>Spec §6 is explicit: "A consumer that does not recognise a {@code rule} id or a subject {@code kind}
- * skips that rule with a logged warning and never fails. This is what lets an older consumer read a newer
- * manifest." That policy is load-bearing for §11's versioning story — it is precisely what makes a new
- * constraint kind a <i>minor</i> bump — so an unknown id is skipped here rather than vetoed, and the
- * validator reports it against this repo's own corpus instead.
- *
- * <h2>Preference moved from the member to the rule</h2>
- *
- * <p>{@code preferred: true} on a member became a rule-level {@code prefer: "<role>"}. The distinction is
- * real: a role is named once and can be referred to from {@code prefer} and {@code reportOn} both, whereas a
- * per-member flag could not express "report against this one but default to that one".
+ * <p>A rule is a {@code rule: "<namespace>.<id>"} drawn from an open registry (see {@link Kind}) over a
+ * tagged union of subject kinds. Per §6, an unrecognised rule id or subject kind is skipped with a logged
+ * warning rather than failing, so an older consumer can still read a newer manifest.
  *
  * @since 1.7.0
  */
@@ -106,20 +85,12 @@ final class ConstraintResolver {
     }
 
     /**
-     * One resolved subject. Spec §6.1's tagged union, flattened to the fields a consumer renders.
+     * One resolved subject: spec §6.1's tagged union, flattened to the fields a consumer renders.
      *
-     * <p>Sealed so a new subject kind cannot be added without every consumer being forced to handle it: the
-     * renderer switches over these, and a silently unhandled kind would drop an alternative from a
-     * constraint that is only correct when all of its alternatives are stated.
+     * <p>Sealed so the renderer's switch cannot silently drop a newly added subject kind.
      *
-     * <h2>Why every variant carries a service type</h2>
-     *
-     * <p>Spec §6 puts a rule spanning more than one service type in the document's <b>top-level</b>
-     * {@code rules[]}, where "every subject must name its {@code serviceType}". Without that name on the
-     * resolved subject, such a rule reads as though all of its alternatives belonged to whichever service
-     * type happened to be rendering — which for a cross-service-type constraint states something the
-     * document did not. It is {@code null} for a subject that belongs to the enclosing service type, which
-     * is every subject in the corpus today.
+     * <p>Every variant carries a service type because a top-level rule may span service types, and each of
+     * its subjects names its own. It is {@code null} for a subject in the enclosing service type.
      */
     sealed interface Subject {
 
@@ -128,11 +99,7 @@ final class ConstraintResolver {
 
         /**
          * The service type this subject belongs to, as its declared <i>type name</i> — {@code null} when it
-         * is the enclosing one.
-         *
-         * <p>The type name, not the {@code $id}: an id names nothing that exists in Ballerina source, the
-         * same reason {@link Annotation} resolves its id to a name. The id travels alongside as
-         * {@link #serviceTypeId()} for traceability.
+         * is the enclosing one. The {@code $id} travels alongside as {@link #serviceTypeId()}.
          */
         String serviceType();
 
@@ -153,8 +120,7 @@ final class ConstraintResolver {
          * An annotation as a whole — its presence, rather than a field inside it.
          *
          * @param annotationId   the {@code annotations[].id} referenced
-         * @param annotationName the annotation's actual name, resolved through the §8 registry, because the
-         *                       id is not what a reader writes
+         * @param annotationName the annotation's name, resolved through the §8 registry
          * @param role           the subject's role label
          * @param serviceType    the owning service type's declared name, or {@code null}
          * @param serviceTypeId  the owning service type's id, or {@code null}
@@ -167,8 +133,8 @@ final class ConstraintResolver {
          * A field inside an annotation's record, e.g. {@code @rabbitmq:ServiceConfig}'s {@code queueName}.
          *
          * @param annotationId   the {@code annotations[].id} referenced
-         * @param annotationName the annotation's actual name, resolved through the §8 registry
-         * @param path           the field path, which spec v1.0 made an array so a nested field is reachable
+         * @param annotationName the annotation's name, resolved through the §8 registry
+         * @param path           the field path; an array so a nested field is reachable
          * @param role           the subject's role label
          * @param serviceType    the owning service type's declared name, or {@code null}
          * @param serviceTypeId  the owning service type's id, or {@code null}
@@ -206,12 +172,11 @@ final class ConstraintResolver {
     /**
      * One resolved rule.
      *
-     * @param id       the document's local rule id, carried for diagnostics and for the rendered note
+     * @param id       the document's local rule id, used for diagnostics and for the rendered note
      * @param kind     the constraint's semantics
      * @param subjects the subjects it ranges over, in document order; never fewer than two
-     * @param message  the document's authored diagnostic text, or {@code null}. Preferred over a
-     *                 synthesized sentence when present: it is written by whoever knows the connector, and
-     *                 says <i>why</i>, which no amount of structure can reconstruct
+     * @param message  the document's authored diagnostic text, preferred over a synthesized sentence when
+     *                 present; {@code null} otherwise
      * @param severity {@code "warning"} when the document downgrades the rule; {@code null} for the default
      *                 {@code error}
      * @param prefer   the {@code role} a generator should default to, or {@code null}
@@ -223,9 +188,7 @@ final class ConstraintResolver {
     /**
      * What a rule's subjects may be attributed to: the document's service types, by id.
      *
-     * <p>A narrow seam rather than the whole document, for the reason {@link TriggerScope}'s
-     * {@code declaresType} predicate exists: a resolver that only asks these two questions should not
-     * depend on a parsed document, which is what keeps it unit-testable.
+     * <p>A narrow seam rather than the whole document, which keeps the resolver unit-testable.
      */
     interface ServiceTypeIndex {
 
@@ -243,20 +206,17 @@ final class ConstraintResolver {
          * handler that does not exist.
          *
          * @param serviceTypeId the {@code serviceTypes[].id}; may be {@code null} for the enclosing type
-         * @return the names, or {@code null} when the catalog is not knowable — which suppresses the
-         *         cross-check rather than dropping every handler subject. An <b>empty</b> set means "this
-         *         service type declares no handlers" and does drop them
+         * @return the names; {@code null} when the catalog is not knowable, which suppresses the
+         *         cross-check, whereas an <b>empty</b> set means the type declares no handlers and does
+         *         drop them
          */
         Set<String> handlerNames(String serviceTypeId);
 
         /**
          * Whether a subject naming a service type should be attributed to it.
          *
-         * <p>{@code false} for a rule set scoped to a single service type, where the only service type a
-         * subject <i>can</i> name is the enclosing one — so a name there is redundant rather than
-         * cross-service-type, and reading it as a reference this index cannot resolve would drop a subject
-         * that is perfectly valid. Distinguishing the two explicitly is why this is a capability flag and
-         * not an inference from {@link #typeName(String)} returning {@code null}.
+         * <p>{@code false} for a rule set scoped to a single service type, where a named service type is
+         * redundant rather than a cross-service-type reference.
          *
          * @return whether {@link #typeName(String)} can be trusted to answer for a real id
          */
@@ -269,18 +229,15 @@ final class ConstraintResolver {
      * Resolves a rule set.
      *
      * <p>A rule is dropped whole, with a warning, when it names an unimplemented registry id or when fewer
-     * than two usable subjects survive — a one-alternative "choose exactly one of" is not a constraint a
-     * reader can act on, and stating it would be noise at best and misleading at worst.
+     * than two usable subjects survive.
      *
      * @param libraryName            the library, for log attribution only
      * @param rules                  the rules to resolve; may be {@code null}
      * @param enclosingServiceTypeId the id of the service type being built, which a subject naming none
-     *                               belongs to (spec §6: a subject's {@code serviceType} "defaults to the
-     *                               enclosing one"); {@code null} when there is no enclosing type
+     *                               belongs to (spec §6); {@code null} when there is no enclosing type
      * @param index                  the document's service types, for attributing a subject that names one
-     * @param annotations            spec §8's registry, the single lookup from a subject's annotation id to
-     *                               the annotation it names; may be {@code null}, which suppresses the
-     *                               resolution and keeps the id as the name
+     * @param annotations            spec §8's registry, mapping a subject's annotation id to the annotation
+     *                               it names; {@code null} keeps the id as the name
      * @return the resolved rules, in document order
      */
     static List<Constraint> resolve(String libraryName,
@@ -311,7 +268,7 @@ final class ConstraintResolver {
             }
             if (kind.isAsymmetric() && !hasBothRoles(subjects)) {
                 // Without the roles there is no way to tell the antecedent from the consequent, and
-                // guessing inverts the constraint — which is worse than saying nothing.
+                // guessing inverts the constraint.
                 LOGGER.warning("Skipped rule '" + rule.id() + "' for " + libraryName + ": '"
                         + kind.registryId() + "' is asymmetric but its subjects carry no `"
                         + TriggerMetadataModel.Rule.ROLE_WHEN + "`/`"
@@ -337,22 +294,16 @@ final class ConstraintResolver {
     /**
      * Which service type a subject belongs to.
      *
-     * @param name          the declared type name, emitted only when it differs from the enclosing type —
-     *                      restating the enclosing one would break the omission rule and add a clause to
-     *                      every note in the corpus
-     * @param id            the id the subject named, carried alongside {@code name} for traceability
-     * @param effectiveId   the id whose handler catalog governs this subject: the one it named, or the
-     *                      enclosing one when it named none
+     * @param name        the declared type name, emitted only when it differs from the enclosing type
+     * @param id          the id the subject named, carried alongside {@code name} for traceability
+     * @param effectiveId the id whose handler catalog governs this subject: the one it named, or the
+     *                    enclosing one when it named none
      */
     private record Attribution(String name, String id, String effectiveId) {
     }
 
     /**
      * Attributes one subject, or {@code null} when it names a service type the document does not declare.
-     *
-     * <p>Dropping an unresolvable id follows the policy an unresolvable annotation id already follows: a
-     * subject pointing at a service type that does not exist is an alternative no reader can take, and
-     * offering it would be worse than stating the constraint with one fewer branch.
      */
     private static Attribution attribute(String libraryName, TriggerMetadataModel.Rule rule,
                                          TriggerMetadataModel.Subject subject, String enclosingServiceTypeId,
@@ -387,9 +338,7 @@ final class ConstraintResolver {
                 continue;
             }
             // The catalog that governs this subject is its OWN service type's, not the enclosing entry's.
-            // Cross-checking a top-level rule's handler subjects against the rendering service type's
-            // handlers would drop every one of them as a phantom, which is the opposite of what the
-            // cross-check is for.
+            // Otherwise a top-level rule's handler subjects would all be dropped as phantoms.
             Set<String> handlerNames = index.handlerNames(owner.effectiveId());
             Subject resolved = switch (subject.kind()) {
                 case TriggerMetadataModel.Subject.KIND_IDENTIFIER ->
@@ -445,9 +394,8 @@ final class ConstraintResolver {
                     + ": it names no handler");
             return null;
         }
-        // A rule referencing a handler this service type does not declare is a document defect: the
-        // constraint could never be satisfied through that alternative. Drop it and say so, rather than
-        // telling the model to choose between a real handler and a phantom.
+        // A rule referencing a handler this service type does not declare could never be satisfied
+        // through that alternative. Drop it and say so.
         if (declaredHandlerNames != null && !declaredHandlerNames.contains(name)) {
             LOGGER.warning("Dropped subject of rule '" + rule.id() + "' for " + libraryName
                     + ": handler '" + name + "' is not declared by "
@@ -477,10 +425,8 @@ final class ConstraintResolver {
     }
 
     /**
-     * The name of the annotation a subject references, via spec §8's registry.
-     *
-     * <p>With no registry the id is returned unchanged, so a caller exercising rule semantics without a
-     * document still gets a usable name.
+     * The name of the annotation a subject references, via spec §8's registry. With no registry the id is
+     * returned unchanged.
      */
     private static String annotationName(String annotationId, AnnotationRegistry annotations) {
         if (annotations == null) {

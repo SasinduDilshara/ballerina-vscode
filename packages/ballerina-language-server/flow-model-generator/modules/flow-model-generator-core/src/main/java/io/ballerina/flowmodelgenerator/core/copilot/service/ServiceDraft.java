@@ -65,10 +65,9 @@ final class ServiceDraft {
     /**
      * Spec §3 {@code deprecated} — why this service type is superseded, as the document's own prose.
      *
-     * <p>Text rather than a flag: the sentence names what replaces it, which is the only part a reader can
-     * act on. Distinct from the {@code isDeprecated} a compiled symbol carries — that one says <i>that</i>
-     * the type is deprecated and this one says <i>why</i>, and a document may state the latter for a type
-     * whose symbol carries no annotation at all.
+     * <p>Text rather than a flag: the sentence names what replaces it. Distinct from the
+     * {@code isDeprecated} a compiled symbol carries — that says <i>that</i> the type is deprecated, this
+     * says <i>why</i>, and a document may state the latter for a type whose symbol carries no annotation.
      */
     void setDeprecated(String deprecated) {
         if (deprecated != null && !deprecated.isBlank()) {
@@ -95,8 +94,7 @@ final class ServiceDraft {
      *
      * <p>Named for the <b>prohibition</b> rather than mirroring the document's key, so that presence means
      * "there is a restriction to state" and the omission rule applies unchanged. A wire key
-     * {@code multipleListeners: false} would instead force every consumer to tell {@code false} from
-     * absent — the tri-state trap §5's {@code presence} already fell into once.
+     * {@code multipleListeners: false} would instead force every consumer to tell {@code false} from absent.
      */
     void setSingleListenerOnly() {
         json.addProperty("singleListenerOnly", true);
@@ -192,8 +190,7 @@ final class ServiceDraft {
      * service type, so it must never be written as {@code service … on new …}.
      *
      * <p>Named for the prohibition and emitted only when true, the same rule
-     * {@link #setSingleListenerOnly()} follows: presence means "there is a restriction to state", so a
-     * consumer never has to tell {@code false} from absent.
+     * {@link #setSingleListenerOnly()} follows.
      *
      * <p>The restriction is real, not editorial. {@code websocket} declares two service types and lists
      * only {@code upgradeService} under its listener; the compiler rejects
@@ -209,19 +206,16 @@ final class ServiceDraft {
      * Spec §4 {@code addMode: "many"} — the shape every handler of this service type takes, for a catalog
      * whose handler <i>names</i> are the author's to choose.
      *
-     * <p><b>Deliberately not a {@code methods} entry.</b> A template is not a handler: it has no name, so
-     * emitting it alongside real methods would put an unwritable signature in a list whose every other
-     * member is copyable. Two existing tests pin exactly that separation
-     * ({@code CopilotSchemaServicesTest}: "Wildcard (addMode: many) handlers must not surface as literal
-     * methods"), and keeping the template in its own slot is what lets a consumer render it as guidance
-     * rather than as syntax.
+     * <p><b>Deliberately not a {@code methods} entry.</b> A template has no name, so emitting it alongside
+     * real methods would put an unwritable signature in a list whose every other member is copyable;
+     * {@code CopilotSchemaServicesTest} pins that separation. Its own slot is what lets a consumer render
+     * it as guidance rather than as syntax.
      *
      * <p>A vetoed template is dropped with its reason and the service still renders — the same policy a
      * dropped handler follows.
      *
-     * <p><b>Additive, and the key is plural.</b> A catalog may declare more than one legal shape:
-     * {@code graphql}'s query, mutation and subscription are three {@code "*"} options that differ in kind,
-     * accessor and return. Order is preserved, because it is the document's.
+     * <p><b>Additive, and the key is plural</b>: a catalog may declare more than one legal shape, as
+     * {@code graphql}'s query, mutation and subscription do. Document order is preserved.
      */
     void addHandlerTemplate(HandlerDraft template) {
         if (template == null) {
@@ -268,10 +262,8 @@ final class ServiceDraft {
      *
      * <p>Introduced because the fatal channel was being used for a non-fatal case: an annotation the
      * resolved package does not declare went through {@link #veto}, which made
-     * {@link TriggerSchemaServiceLoader} skip the <i>entire service</i> — the exact opposite of what
-     * {@link ServiceAnnotationResolver}'s own contract states ("A dropped annotation never drops its
-     * service"). Latent, because every corpus service annotation resolves; real, because the first one that
-     * does not would silently delete a whole service from the prompt.
+     * {@link TriggerSchemaServiceLoader} skip the <i>entire service</i>, contradicting
+     * {@link ServiceAnnotationResolver}'s own contract that a dropped annotation never drops its service.
      */
     void drop(String aspectId, String specSection, String subject, String reason) {
         nonFatal.add(new Veto(aspectId, specSection, subject, reason));
@@ -296,9 +288,8 @@ final class ServiceDraft {
      */
     JsonObject toJson() {
         // Templates precede methods, mirroring the order a consumer renders them: the rule for writing a
-        // handler comes before any fixed vocabulary. Spec §5.1 made the two coexist -- `websocket`
-        // declares nine named handlers beside two open-ended shapes -- so this is an ordering, not a
-        // choice between branches.
+        // handler comes before any fixed vocabulary. Spec §5.1 made the two coexist -- `websocket` declares
+        // nine named handlers beside two open-ended shapes -- so this is an ordering, not a choice.
         if (!handlerTemplates.isEmpty()) {
             json.add("handlerTemplates", handlerTemplates);
         }

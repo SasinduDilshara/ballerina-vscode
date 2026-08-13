@@ -141,8 +141,8 @@ public record TriggerMetadataModel(
      * <p>Modeled because it is the one dependency class nothing else records: {@code requiredImports}
      * covers Ballerina packages, but a jar whose licence forbids publishing it — SAP JCo's
      * {@code sapjco3.jar} — appears in no repository a build can reach. There is deliberately no
-     * {@code path}: that is the user's own download location. There is no {@code javaVersion} either;
-     * the generator knows the Java version of the distribution it targets.
+     * {@code path} (that is the user's own download location) and no {@code javaVersion} (the generator
+     * knows the Java version of the distribution it targets).
      *
      * @param groupId         Maven group id
      * @param artifactId      Maven artifact id
@@ -151,9 +151,8 @@ public record TriggerMetadataModel(
      *                        licence forbids bundling it. Absent means bundled
      * @param acquisition     how to obtain an artifact no public repository serves
      * @param nativeLibraries OS-specific libraries the JVM must load at run time. Modeled separately
-     *                        because a missing native library is not a build failure: the package
-     *                        compiles and the service then fails at run time, so nothing in the build
-     *                        graph records the requirement
+     *                        because a missing native library is not a build failure: the package compiles
+     *                        and the service then fails at run time
      */
     public record PlatformDependency(String groupId,
                                      String artifactId,
@@ -190,11 +189,10 @@ public record TriggerMetadataModel(
         public static final String OS_MACOS = "macos";
     }
 
-    // Spec §5.3 made `deprecated` a plain string: "Presence of the field is the deprecation; the value is
-    // the explanation." The record that used to model {reason, since, replacement} is gone -- a reason can
-    // name a version or a successor in the sentence itself where either matters, and a generator puts the
-    // text in the construct's `# # Deprecated` doc section beside `@deprecated`, which is where the
-    // language expects the explanation to live.
+    // Spec §5.3 made `deprecated` a plain string: presence of the field is the deprecation, and the value
+    // is the explanation. The record that used to model {reason, since, replacement} is gone -- a reason can
+    // name a version or a successor in the sentence itself, and a generator puts the text in the construct's
+    // `# # Deprecated` doc section beside `@deprecated`.
 
     /**
      * One service-type alternative a connector exposes. See {@link TriggerMetadataModel#serviceTypes()}
@@ -463,8 +461,7 @@ public record TriggerMetadataModel(
      * <table><caption>fields populated per kind</caption>
      *   <tr><th>{@code kind}</th><th>fields</th><th>addresses</th></tr>
      *   <tr><td>{@code identifier}</td><td>none</td><td>the identifier or base-path slot</td></tr>
-     *   <tr><td>{@code annotation}</td><td>{@code name}</td><td>an annotation as a whole, its presence
-     *       rather than a field inside it</td></tr>
+     *   <tr><td>{@code annotation}</td><td>{@code name}</td><td>an annotation as a whole</td></tr>
      *   <tr><td>{@code annotationField}</td><td>{@code annotation}, {@code path}</td><td>one field inside
      *       an annotation</td></tr>
      *   <tr><td>{@code handler}</td><td>{@code name}</td><td>a handler function</td></tr>
@@ -474,7 +471,7 @@ public record TriggerMetadataModel(
      * @param kind        the discriminator
      * @param name        for {@code annotation} an annotation id ({@code $}-prefixed); for
      *                    {@code handler} a handler name and for {@code param} a parameter name, neither of
-     *                    which is an id and neither of which is prefixed
+     *                    which is prefixed
      * @param annotation  for {@code annotationField}, the annotation id the field lives in
      * @param path        for {@code annotationField}, the field path inside the annotation record. An
      *                    array, so a nested field such as {@code ["retryConfig", "maxCount"]} is reachable
@@ -508,10 +505,8 @@ public record TriggerMetadataModel(
     /**
      * Spec §9 — how a handler parameter's raw value may be projected into a different, user-defined type.
      *
-     * <p>Written <b>inline on the parameter</b> it describes rather than in a top-level registry: a
-     * binding describes one slot, so it carries no id and nothing references it. Two parameters that bind
-     * the same way each state it, which costs a little repetition and keeps every parameter readable on
-     * its own.
+     * <p>Written <b>inline on the parameter</b> it describes rather than in a top-level registry: a binding
+     * describes one slot, so it carries no id and nothing references it.
      *
      * <p>Modeled on Ballerina's {@code typedesc<T>}: a user-suppliable type, bound by an upper constraint,
      * embedded into the declared type in one or more ways.
@@ -528,8 +523,7 @@ public record TriggerMetadataModel(
      *                   bounds sharing identical shapes are two variants, not one variant with two bounds
      * @param excludes   instantiations another variant already owns. Without it an envelope record such as
      *                   {@code AnydataConsumerRecord}, being itself valid {@code anydata}, would satisfy
-     *                   both the {@code bare} variant and the unoverridden instantiation of the
-     *                   {@code included} variant, leaving a generator no way to tell which was meant
+     *                   both the {@code bare} variant and the unoverridden {@code included} variant
      * @param shapes     the legal embeddings of this variant's bound
      */
     public record TypedescVariant(TypeRef constraint, List<TypeRef> excludes, List<Shape> shapes) {

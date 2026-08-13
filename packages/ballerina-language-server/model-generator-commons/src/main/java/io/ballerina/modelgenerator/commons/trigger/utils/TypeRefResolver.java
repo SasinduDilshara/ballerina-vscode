@@ -31,23 +31,21 @@ import java.util.function.Predicate;
  *
  * <p>Spec §1 states the two rules this class encodes:
  * <ul>
- *   <li>"Cross-module (only when the type isn't from this file's own 'home' module)" — a {@link TypeRef}
- *       carrying {@code packageInfo} for a <i>different</i> module is written with that module's own
- *       alias; a bare {@code {"name": ...}} "always means same module as this connector's own types."</li>
- *   <li>"<b>Unions</b> are an array of {@code TypeRef}, first element = codegen default" — hence
- *       {@link #first(List)}, which every caller needing a single representative type must use rather
- *       than indexing the list itself.</li>
+ *   <li>{@code packageInfo} is present only for a type outside this file's home module, and such a
+ *       reference is written with that module's own alias; a bare {@code {"name": ...}} means the
+ *       connector's own module.</li>
+ *   <li>A union is an array of {@link TypeRef} whose first element is the codegen default — hence
+ *       {@link #first(List)}, which callers needing a single representative type must use rather than
+ *       indexing the list themselves.</li>
  * </ul>
  *
  * <p>Ballerina binds a module's <i>last dot-segment</i> as its default import prefix, so
  * {@code mssql.cdc.driver} aliases to {@code driver} and {@code trigger.github} to {@code github} —
  * see {@link #moduleAlias(String)}.
  *
- * <p><b>Why this lives in commons.</b> Spec §1 was implemented twice and divergently — once for the
- * Copilot catalog and once for the service-model trigger synthesizer. This is the extraction point for
- * that duplication; the Copilot consumer routes through it today, and the synthesizer can adopt it as a
- * separate, separately-tested change (the two implementations differ, so switching both at once could
- * not be behaviour-preserving for either).
+ * <p>Lives in commons because spec §1 was implemented twice and divergently, once for the Copilot catalog
+ * and once for the service-model trigger synthesizer. The Copilot consumer routes through it today; the
+ * synthesizer can adopt it as a separate, separately-tested change.
  *
  * @since 1.10.0
  */
@@ -133,18 +131,14 @@ public final class TypeRefResolver {
      * The {@code org/module} coordinate a <b>cross-module</b> {@link TypeRef} belongs to, e.g.
      * {@code "ballerinax/cdc"}; empty for a reference that does not leave the home module.
      *
-     * <p>Spec §1: {@code packageInfo} is present "only when the type isn't from this file's own 'home'
-     * module", so a reference carrying coordinates for a <i>different</i> module is the definition of
-     * cross-module. Judged at <b>module</b> granularity rather than package, because a submodule such as
+     * <p>Judged at <b>module</b> granularity rather than package, because a submodule such as
      * {@code mssql.cdc} shares its parent's package name while being a distinct module — and it is the
      * module that determines both the import path and the alias.
      *
-     * <p>The <i>module</i> coordinate is returned rather than the alias it renders with: the coordinate is
-     * the fact the document states, and deriving a prefix from it is a rendering decision. Emitting the
-     * full {@code org/module} also lets a consumer name the owning package in a provenance note.
-     *
-     * <p>An entry whose coordinates yield no usable prefix is reported as not-foreign rather than as a
-     * foreign type with a blank alias, which would erase the type name at the point of use.
+     * <p>The coordinate is returned rather than the alias it renders with: deriving a prefix is a rendering
+     * decision, and the full {@code org/module} also lets a consumer name the owning package in a
+     * provenance note. A reference whose coordinates yield no usable prefix is reported as not-foreign
+     * rather than as a foreign type with a blank alias, which would erase the type name at the point of use.
      *
      * @param ref        the reference; may be {@code null}
      * @param homeModule the home module every cross-module judgement in the document is relative to
@@ -167,20 +161,18 @@ public final class TypeRefResolver {
      * Renders a {@link TypeRef} tree as module-prefixed signature text.
      *
      * <p>A cross-module reference gets its own module's alias ({@code cdc:Error}); a reference to a type
-     * the home module declares gets the home alias ({@code kafka:Caller}), which a downstream link
-     * resolver strips back off while recording the link; language types and anonymous shapes
-     * ({@code json}, {@code record {}}, {@code ()}) stay bare.
+     * the home module declares gets the home alias ({@code kafka:Caller}), which a downstream link resolver
+     * strips back off while recording the link; language types and anonymous shapes ({@code json},
+     * {@code record {}}, {@code ()}) stay bare.
      *
-     * <p><b>Qualification is per leaf</b>, which is the whole point of spec §1 making this a tree. A
-     * composite is rendered by rendering its parts and re-assembling the syntax around them, so
-     * {@code stream<anydata, Error?>} qualifies its {@code Error} and leaves {@code anydata} alone —
-     * producing {@code stream<anydata, grpc:Error?>}. The previous string form could do neither: the
-     * leading identifier was {@code stream}, so the whole expression either gained a prefix it must not
-     * have or kept an inner name that does not resolve.
+     * <p><b>Qualification is per leaf</b>, which is why spec §1 makes this a tree: a composite is rendered
+     * by rendering its parts and re-assembling the syntax around them, so {@code stream<anydata, Error?>}
+     * qualifies its {@code Error} and leaves {@code anydata} alone. A flat string form could not — its
+     * leading identifier is {@code stream}, so the whole expression either gains a prefix it must not have
+     * or keeps an inner name that does not resolve.
      *
      * <p>A nilable part is a union containing {@code ()}, so {@code [Error, ()]} renders as {@code Error?}
-     * rather than {@code Error|()} — both compile, but only the first is what a reader writes, and this is
-     * the position (a stream's completion type) where the verbose form is most jarring.
+     * rather than {@code Error|()} — both compile, but only the first is what a reader writes.
      *
      * @param ref                  the reference; may be {@code null}
      * @param homePackageName      the resolved library's package name, whose alias prefixes home types
@@ -293,10 +285,9 @@ public final class TypeRefResolver {
      * Joins a union's members with {@code |} into one signature.
      *
      * <p>Correct for a slot whose value genuinely <i>is</i> the union — notably a handler's
-     * {@code returns}, where spec §1's nilable rule ({@code T?} written as an explicit {@code ()}
-     * member) makes {@code error|()} the intended text. It is <b>not</b> correct for a
-     * {@code params[].type} union, which enumerates alternatives legal for the slot rather than a
-     * union-typed parameter.
+     * {@code returns}, where spec §1's nilable rule ({@code T?} written as an explicit {@code ()} member)
+     * makes {@code error|()} the intended text. It is <b>not</b> correct for a {@code params[].type} union,
+     * which enumerates alternatives legal for the slot rather than a union-typed parameter.
      *
      * @param refs                 the union members; may be {@code null} or empty
      * @param homePackageName      the resolved library's package name
@@ -322,9 +313,8 @@ public final class TypeRefResolver {
      * A union written the way source does: a trailing {@code ()} member becomes {@code ?}.
      *
      * <p>Distinct from {@link #renderUnion}, which joins every member with {@code |}. Both are correct
-     * Ballerina for the same set, but a stream's completion type reads as {@code error?} in every real
-     * program and as {@code error|()} in none, and this is the position where the difference is most
-     * visible.
+     * Ballerina for the same set, but a stream's completion type reads as {@code error?} in real programs
+     * and as {@code error|()} in none.
      *
      * @param refs                 the union members; may be {@code null} or empty
      * @param homePackageName      the resolved library's package name

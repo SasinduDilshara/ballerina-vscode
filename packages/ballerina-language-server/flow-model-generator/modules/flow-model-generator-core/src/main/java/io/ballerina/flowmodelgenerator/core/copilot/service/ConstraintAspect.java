@@ -33,26 +33,20 @@ import java.util.logging.Logger;
 /**
  * Spec §6 {@code rules[]} — the exclusivity constraints a service type declares.
  *
- * <h2>Why this runs before the handler catalog</h2>
- *
- * <p>{@link ConstraintResolver} needs the set of handler names this service type declares, so that a
- * {@code {handler}} member naming something absent can be dropped rather than offered to the model as a
- * choice. Those names could come from two places: the built {@link ServiceDraft} (which would force this to
- * run <i>after</i> {@link HandlerCatalogAspect}) or the document and semantic model directly.
- *
- * <p>This component takes the second route, so it stays a pure function of its inputs and the registry keeps
- * a single meaningful ordering rule ("the catalog runs last") instead of two. The names are sourced the same
- * way the catalog itself decides them — by asking {@link HandlerCatalogResolver} which kind of catalog this
- * service type has — so the two can never disagree about what a handler is:
+ * <p><b>Runs before the handler catalog.</b> {@link ConstraintResolver} needs this service type's handler
+ * names, so that a {@code {handler}} member naming something absent can be dropped rather than offered to
+ * the model as a choice. Those names are read from the document and semantic model directly rather than
+ * from the built {@link ServiceDraft}, which keeps this a pure function of its inputs and leaves the
+ * registry with a single ordering rule ("the catalog runs last"). They are sourced the same way the catalog
+ * itself decides them, by asking {@link HandlerCatalogResolver} which kind of catalog this type has:
  * <ul>
  *   <li>a <b>marker</b> type's names are its non-wildcard {@code options[].name} values;</li>
  *   <li>a <b>concrete</b> type's names come from the semantic model, the same source the catalog reads.</li>
  * </ul>
  *
- * <p>When neither is available — no facts, or a concrete type whose object type does not resolve — the set is
- * passed as {@code null}, which suppresses the cross-check rather than dropping every handler member. An
- * unresolvable type is already vetoed by {@link ServiceIdentityAspect} or the catalog; it must not
- * additionally cause a rule to be silently emptied.
+ * <p>When neither is available — no facts, or a concrete type whose object type does not resolve — the set
+ * is passed as {@code null}, which suppresses the cross-check rather than dropping every handler member. An
+ * unresolvable type is already vetoed elsewhere and must not additionally cause a rule to be emptied.
  *
  * @since 1.7.0
  */
@@ -88,21 +82,18 @@ final class ConstraintAspect {
     }
 
     /**
-     * Spec §6's <b>top-level</b> {@code rules[]} — "Constraints spanning more than one service type. Every
-     * subject must name its {@code serviceType}" — narrowed to the ones this service type participates in.
+     * Spec §6's <b>top-level</b> {@code rules[]} — constraints spanning more than one service type, where
+     * every subject must name its {@code serviceType} — narrowed to the ones this service type
+     * participates in.
      *
-     * <h2>Why a spanning rule is stated on every participant</h2>
+     * <p>A spanning rule is stated on every participant because entries render independently: a reader
+     * looking at one service never sees the other's notes, so stating it once would leave whichever entry
+     * they happen to be writing with no mention of the constraint. Restricting it to <i>participants</i>
+     * keeps it off the service types it does not govern.
      *
-     * <p>A rule whose subjects live in two service types is a fact about writing <i>either</i> of them, and
-     * the entries render independently: a reader looking at one service never sees the other's notes. Stating
-     * it only once would therefore leave whichever entry the reader happens to be writing with no mention of
-     * the constraint at all. Restricting it to <i>participants</i> is what stops it from becoming noise on
-     * the service types it does not govern.
-     *
-     * <p><b>Latent, and verified so.</b> No document in the corpus declares a top-level rule, so this
-     * contributes nothing today — which is exactly why it needed wiring: the key was parsed, validated by
-     * {@code RuleRefCheck} (including its "every subject must name its serviceType" check), and then read by
-     * nothing on the render path, so the first document to use one would have lost it silently.
+     * <p><b>Latent</b>: no corpus document declares a top-level rule. The key was parsed and validated by
+     * {@code RuleRefCheck} but read by nothing on the render path, so the first document to use one would
+     * have lost it silently.
      */
     private static List<TriggerMetadataModel.Rule> spanningRules(TriggerScope scope,
                                                                 TriggerMetadataModel.ServiceType serviceType) {
@@ -118,14 +109,12 @@ final class ConstraintAspect {
                 participating.add(rule);
                 continue;
             }
-            // A rule that names NO service type at all reaches no entry, so it would otherwise disappear from
-            // the catalog with no veto and no log line — the same silent drop this change set added a Veto to
-            // ListenerPairingResolver to end, reintroduced at the entry point of the construct being wired up.
-            // Reported once per service type rather than globally because this aspect has no library-wide
-            // hook, and a repeated warning is still far better than none.
+            // A rule that names NO service type at all reaches no entry, so it would otherwise disappear
+            // from the catalog with no veto and no log line. Reported once per service type rather than
+            // globally because this aspect has no library-wide hook.
             //
-            // Not a veto: the rule is the document's defect, not this service type's, and dropping a service
-            // over another construct's error is exactly what `drop` exists to avoid.
+            // Not a veto: the rule is the document's defect, not this service type's, and dropping a
+            // service over another construct's error is exactly what `drop` exists to avoid.
             if (namesNoServiceType(rule)) {
                 LOGGER.warning("Skipped top-level rule '" + rule.id() + "' for " + scope.libraryName()
                         + ": spec §6 requires every subject of a top-level rule to name its `serviceType`,"
@@ -194,9 +183,8 @@ final class ConstraintAspect {
             public Set<String> handlerNames(String serviceTypeId) {
                 // The ENCLOSING service type is answered from the scope, never through the map. `byId` is
                 // built with `putIfAbsent`, so two entries sharing an id would resolve the second one's
-                // subjects against the first one's handlers and drop them as phantoms. Nothing validates id
-                // uniqueness, and the entry being rendered is the one case where the right answer is already
-                // in hand — so it is taken directly, exactly as it was before spanning rules existed.
+                // subjects against the first one's handlers and drop them as phantoms. Nothing validates
+                // id uniqueness, and here the right answer is already in hand.
                 String enclosingId = scope.serviceType() == null ? null : scope.serviceType().id();
                 if (serviceTypeId == null || serviceTypeId.equals(enclosingId)) {
                     return scope.serviceType() == null
@@ -255,8 +243,7 @@ final class ConstraintAspect {
      *
      * <p>The registry id is emitted verbatim rather than a normalized enum name, so a consumer states what
      * the document states. {@code message} is carried because the document's own sentence says <i>why</i> a
-     * constraint exists, which no amount of structure reconstructs — a renderer should prefer it over
-     * anything it can synthesize from the subjects.
+     * constraint exists, which a renderer should prefer over anything it can synthesize from the subjects.
      */
     private static JsonObject toJson(ConstraintResolver.Constraint constraint) {
         JsonObject json = new JsonObject();
@@ -318,8 +305,7 @@ final class ConstraintAspect {
         }
         // Spec §6: emitted only for a subject belonging to a DIFFERENT service type than the entry being
         // rendered, so a service-type-scoped rule — every rule in the corpus — is byte-identical to before.
-        // The resolved type name is what a reader recognises; the id follows it for traceability, the same
-        // pairing an annotation subject already uses.
+        // The resolved type name is what a reader recognises; the id follows it for traceability.
         if (subject.serviceType() != null) {
             json.addProperty("serviceType", subject.serviceType());
             if (subject.serviceTypeId() != null) {

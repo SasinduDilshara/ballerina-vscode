@@ -51,11 +51,9 @@ import {
 /**
  * One `AnnotationAttachPoint` constant, as it must be written in a Ballerina annotation declaration.
  *
- * Two facts are needed per point, not one, because Ballerina spells the two families differently and a
- * consumer cannot derive the second from the first: a *source-only* point takes the `source` qualifier in
- * the `on` clause **and** obliges the declaration itself to be `const`. Emitting the non-const form for one
- * is not a cosmetic slip — the compiler rejects it outright ("annotation declaration with 'source' attach
- * point(s) should be a 'const' declaration").
+ * Two facts are needed per point, not one: a *source-only* point takes the `source` qualifier in the `on`
+ * clause **and** obliges the declaration itself to be `const`. The compiler rejects the non-const form
+ * outright ("annotation declaration with 'source' attach point(s) should be a 'const' declaration").
  */
 interface AttachmentPoint {
     /** The token written after `on` (after `on source` for a source-only point). */
@@ -67,24 +65,20 @@ interface AttachmentPoint {
 /**
  * The compiler's `AnnotationAttachPoint` constants mapped to the syntax that actually compiles.
  *
- * **Every entry here was verified by compiling it** (Ballerina 2201.13.4), and the map exists in this shape
- * because guessing produced three wrong tokens that shipped:
+ * **Every entry here was verified by compiling it** (Ballerina 2201.13.4). Three tokens are easy to get
+ * wrong, and did ship wrong:
  *
- *  - `OBJECT_METHOD` was `service_function` — `ERROR invalid token 'service_function'`. The compiler's
- *    `OBJECT_METHOD` is Ballerina's `object function`.
- *  - `RESOURCE` was `resource function` — `ERROR invalid token 'resource'`. The compiler's `RESOURCE` is
- *    Ballerina's `service remote function`; there is no `resource function` attach point.
- *  - `OBJECT` was `object` — `ERROR missing function keyword`. Ballerina has no bare `object` attach point,
- *    so the constant is **deliberately absent** from this map: `renderAnnotation` then returns null and the
- *    caller drops the entry. Omitting a declaration beats emitting one a model may copy and cannot compile.
+ *  - `OBJECT_METHOD` is Ballerina's `object function`, not `service_function`.
+ *  - `RESOURCE` is Ballerina's `service remote function`; there is no `resource function` attach point.
+ *  - `OBJECT` has no bare `object` attach point, so the constant is **deliberately absent** from this map:
+ *    `renderAnnotation` then returns null and the caller drops the entry. Omitting a declaration beats
+ *    emitting one a model may copy and cannot compile.
  *
- * The six source-only points were equally broken — declared without `const`/`source` they fail with
- * "annotation declaration with 'source' attach point(s) should be a 'const' declaration" — and are fixed
- * here by carrying the flag rather than by dropping them, because the const form is legal with a type
- * constraint (`public const annotation Cfg A1 on source listener;` compiles) and so loses no information.
+ * The six source-only points carry the `sourceOnly` flag rather than being dropped, because the const form
+ * is legal with a type constraint (`public const annotation Cfg A1 on source listener;` compiles) and so
+ * loses no information.
  *
- * `COMPILER_VERIFIED_ATTACH_POINTS` in the test suite pins every entry to a form that was actually built;
- * that guard is what stops a fourth wrong token being added by inspection.
+ * `COMPILER_VERIFIED_ATTACH_POINTS` in the test suite pins every entry to a form that was actually built.
  */
 const ATTACHMENT_POINT_LABELS: Record<string, AttachmentPoint> = {
     // Curated service-index points.
@@ -191,8 +185,7 @@ function qualifyDeclaredType(type: Type | undefined, listenerAlias: string | nul
         // Lookarounds rather than `\b…\b`. A record name can end in `]` — `AnydataConsumerRecord[]` is what
         // the pipeline strips the alias off for kafka's payload slot — and `\b` after `]` demands a word
         // character that is not there at end of string, so the name silently stayed bare and uncompilable.
-        // The leading `(?<![\w:])` additionally refuses to match inside an already-qualified name, so a
-        // prefix can never be applied twice.
+        // The leading `(?<![\w:])` additionally refuses to match inside an already-qualified name.
         const regex = new RegExp(`(?<![\\w:])${escapeRegExp(recordName)}(?!\\w)`, "g");
         result = result.replace(regex, `${listenerAlias}:${recordName}`);
     }
@@ -648,9 +641,7 @@ function renderAlternativeNotes(method: ServiceRemoteFunction, listenerAlias: st
             continue;
         }
         // Qualified, exactly as the signature one line below is. This note offers a type the reader may
-        // WRITE IN PLACE OF the declared one, so it has to be written the way the reader must write it —
-        // `kafka`'s note offered `BytesConsumerRecord[]` directly above a signature saying
-        // `kafka:AnydataConsumerRecord[]`, and a reader taking the alternative got `unknown type`.
+        // WRITE IN PLACE OF the declared one, so it has to be written the way the reader must write it.
         const rendered = alternatives.map((type) => qualifyDeclaredType(type, listenerAlias));
         lines.push(`${indent}# ${paramLabel(param)} may also be: ${rendered.join(", ")}`);
     }
@@ -660,18 +651,15 @@ function renderAlternativeNotes(method: ServiceRemoteFunction, listenerAlias: st
 /**
  * Spec §7 `addMode: "many"` — the `#` lines describing a slot that repeats.
  *
- * The slot is deliberately absent from the signature (the document names no parameter, so writing one
- * would invent API), which makes this note the *only* place its type surface appears. It therefore states
- * the full surface — the codegen-default type plus every alternative — rather than deferring to
- * `renderAlternativeNotes` the way a fixed slot does.
- *
- * Types are written as the reader must write them, module-qualified, because this describes code the
- * reader is about to author rather than a signature already spelled out above.
+ * The slot is deliberately absent from the signature (the document names no parameter, so writing one would
+ * invent API), which makes this note the *only* place its type surface appears. It therefore states the
+ * full surface — the codegen-default type plus every alternative — rather than deferring to
+ * `renderAlternativeNotes` the way a fixed slot does. Types are module-qualified, as the reader must write
+ * them.
  *
  * A slot the document leaves unnamed is identified by its annotation instead. `ballerina/http` declares two
- * repeatable slots with an identical type union — one for query parameters, one for headers — and neither
- * carries a name, so without that discriminator this emitted the SAME sentence twice in a row, which reads
- * as a rendering bug and tells the reader nothing about why there are two.
+ * repeatable slots with an identical type union and no names, so without that discriminator the same
+ * sentence is emitted twice in a row.
  */
 function renderRepeatNotes(method: ServiceRemoteFunction, listenerAlias: string | null,
                            indent: string): string[] {
@@ -688,11 +676,8 @@ function renderRepeatNotes(method: ServiceRemoteFunction, listenerAlias: string 
         // a header slot with an identical type union and no names, and `@http:Query`/`@http:Header` are
         // the only things telling them apart.
         //
-        // Phrased as identification, never as obligation. "annotated `@graphql:ID`" asserted that every
-        // such parameter carries the annotation, one line above a note correctly saying it only *may* be
-        // carried — and the same overstatement applied to http, whose two annotations are `optional` too.
-        // Naming the slot instead disambiguates without inventing a requirement, so the discriminator
-        // survives for the case that needs it.
+        // Phrased as identification, never as obligation: "annotated `@graphql:ID`" would assert that every
+        // such parameter carries the annotation, one line above a note saying it only *may* be.
         const annotation = (param.annotationRefs ?? [])
             .map((ref) => qualifyRequirement(ref, listenerAlias).qualifiedName)[0];
         const discriminator = param.name
@@ -765,12 +750,9 @@ function renderBindingNotes(method: ServiceRemoteFunction, listenerAlias: string
 /**
  * One §9 variant, as zero or more `#` lines — one per shape it admits, plus at most one prohibition.
  *
- * **`excludes` belongs to the variant, so it is stated once.** Spec §9 puts it on the `typedescs[]` entry, not
- * on a shape: it names the instantiations a *sibling variant* owns, which is a fact about the variant as a
- * whole. Appending it to every shape line repeated one prohibition as many times as the variant has
- * embeddings — five lines all ending "— but never `probe:Envelope`" for a variant admitting bare, array,
- * stream, included and array-of-included. Invisible in the corpus, where every `excludes`-carrying variant
- * (kafka's, rabbitmq's ×2) declares exactly one shape, and pure noise for the first that does not.
+ * **`excludes` belongs to the variant, so it is stated once.** Spec §9 puts it on the `typedescs[]` entry,
+ * not on a shape: it names the instantiations a *sibling variant* owns, which is a fact about the variant as
+ * a whole. Appending it to every shape line would repeat one prohibition once per embedding.
  */
 function renderBindingVariant(variant: TypedescVariant, paramName: string, visible: Set<string>,
                               listenerAlias: string | null, indent: string): string[] {
@@ -850,9 +832,7 @@ function renderBindingShape(shape: BindingShape, bound: string, paramName: strin
     // The type the reader would actually WRITE for this shape — which is what has to be compared against
     // what is already on the page. Comparing the bare bound instead suppressed nothing for `array` and
     // `stream`: ftp's csv slot is declared `string[][]` while its bound is `string[]`, so the two never
-    // matched and all four of its shapes restated types the signature and the `may also be` line had
-    // already given. Spec §7 makes the document restate a slot's full static surface even where the
-    // binding implies it, so that overlap is deliberate in the document and pure noise in the prompt.
+    // matched and all four of its shapes restated types the signature had already given.
     const completion = shape.completionType
         ? qualifyDeclaredType(shape.completionType, listenerAlias)
         : "";
@@ -902,11 +882,9 @@ function renderParamDef(param: ParameterDef, listenerAlias: string | null = null
  * default, and the omission rule says a default is never restated.
  *
  * **Two-sided once anything is optional.** Naming only the omittable slots leaves the reader to infer the
- * obligation from absence — and inference across a comma-separated list beside a four-parameter signature is
- * exactly where a generator guesses wrong. Where there is nothing required, that is said outright rather
- * than left as an empty category: `ballerina/http`'s handler has four parameters and *no* mandatory one, so
- * "may be omitted: caller, request, headers, payload" reads as a list of caveats when it in fact means the
- * whole parameter list is optional.
+ * obligation from absence. Where there is nothing required, that is said outright rather than left as an
+ * empty category: `ballerina/http`'s handler has four parameters and *no* mandatory one, so listing only
+ * the omittable ones reads as a list of caveats.
  */
 function renderParamPresenceNotes(method: ServiceRemoteFunction, indent: string): string[] {
     // A repeatable slot is excluded from both lists: it is not in the signature, so neither "required" nor
@@ -953,9 +931,8 @@ function renderPresenceMarker(method: ServiceRemoteFunction): string {
 const RESOURCE_PATH_PLACEHOLDER = "pathSegment";
 // Spec §5 `accessor: {values: ["*"]}` — the document admits any accessor, so there is no value to write and
 // the reader supplies one. A placeholder rather than a guess: picking `get` would be inventing API, and
-// falling back to `remote function` (which is what happened before this existed) prints a signature that
-// contradicts the very note above it saying an accessor is required. `ballerina/http`'s wildcard handler is
-// the corpus instance.
+// falling back to `remote function` prints a signature that contradicts the note above it saying an
+// accessor is required. `ballerina/http`'s wildcard handler is the corpus instance.
 const RESOURCE_ACCESSOR_PLACEHOLDER = "<accessor>";
 
 /**
@@ -974,15 +951,14 @@ const RESOURCE_ACCESSOR_PLACEHOLDER = "<accessor>";
 /**
  * The accessor to print for a resource handler, or `undefined` when it is not one.
  *
- * Three states, and each needs a different token. A document that names the accessor supplies it directly;
- * one that leaves the slot open (§5's `values: ["*"]`) gets a placeholder, because the reader chooses;
- * and a handler that is not a resource has no accessor position at all.
+ * Three states, each needing a different token: a document that names the accessor supplies it directly;
+ * one that leaves the slot open (§5's `values: ["*"]`) gets a placeholder, because the reader chooses; and a
+ * handler that is not a resource has no accessor position at all.
  *
- * The last branch is a genuine degradation and stays one: a `resource` handler whose document names no
- * accessor and does not open the slot either has nothing to put in that position, and
- * `resource function  pathSegment(...)` does not parse. Falling back to `remote function` at least yields a
- * copyable line — but it is only correct because the document said nothing, and nothing currently reports
- * that omission, so the degradation is silent.
+ * The last branch is a genuine degradation. A `resource` handler whose document names no accessor and does
+ * not open the slot either has nothing to put in that position, and `resource function  pathSegment(...)`
+ * does not parse, so it falls back to `remote function` — correct only because the document said nothing,
+ * and nothing currently reports that omission.
  */
 function resourceAccessor(method: ServiceRemoteFunction): string | undefined {
     if (method.type !== "resource") {
@@ -1024,20 +1000,18 @@ function renderMethodSignature(method: ServiceRemoteFunction): string {
 /**
  * The spec's `deprecated`, as Ballerina's own `# # Deprecated` doc section.
  *
- * The spec words the obligation directly — "A generator emitting Ballerina puts it in the `# # Deprecated`
- * doc section" — and that form is chosen over a `//` note for a reason the `@deprecated` annotation makes
- * plain: the annotation says *that* the construct is superseded and the language already warns on it, so
- * repeating that in prose adds nothing. What only the document can supply is *what to use instead*, and
- * Ballerina has a section for exactly that. `ftp`'s `onFileChange` is the corpus instance: its sentence
- * names the five typed handlers that replace it.
+ * The spec words the obligation directly, and that form is chosen over a `//` note because the
+ * `@deprecated` annotation already says *that* the construct is superseded and the language warns on it.
+ * What only the document can supply is *what to use instead*, and Ballerina has a section for exactly that
+ * — `ftp`'s `onFileChange` is the corpus instance.
  *
  * Two placement rules, both enforced by the compiler rather than by taste:
  *
  * - The separator is a `#` line, never a blank one. A blank line TERMINATES a Ballerina doc comment, which
  *   would detach the section — and everything above it — from the construct it documents.
- * - The caller must emit this LAST among the `#` lines. `# # Deprecated` opens a markdown section, so every
- *   `#` line after it is read as that section's body; a `# + name - text` line placed below it stops being
- *   parameter documentation and `bal build` reports the parameter as undocumented.
+ * - The caller must emit this LAST among the `#` lines. `# # Deprecated` opens a markdown section, so a
+ *   `# + name - text` line placed below it stops being parameter documentation and `bal build` reports the
+ *   parameter as undocumented.
  */
 function renderDeprecationSection(deprecated: string | undefined, indent: string): string[] {
     if (!deprecated) {
@@ -1066,15 +1040,14 @@ function renderResourceNote(method: ServiceRemoteFunction, indent: string): stri
             ? `the accessor may be one of ${verbs}`
             : `the accessor must be one of ${verbs}`);
     }
-    // Spec §5 dropped the `identifierSegments` / `pathParamSegments` vocabulary because "the language
-    // already fixes what a resource path may look like" — the old note was restating the grammar back at
-    // a reader who already had it. What remains is the one fact the language does NOT fix: that this
-    // particular handler needs a path at all, and that its content is the author's to choose (§11.2).
+    // Spec §5 dropped the `identifierSegments` / `pathParamSegments` vocabulary because the language
+    // already fixes what a resource path may look like — the old note restated the grammar back at a reader
+    // who already had it. What remains is the one fact the language does NOT fix: that this handler needs a
+    // path at all, and that its content is the author's to choose (§11.2).
     //
     // Unless the document says otherwise. `path` is the same `valueSpec` as `accessor`, so it may enumerate
-    // the paths this connector accepts, and then the path is emphatically NOT author-chosen: telling a reader
-    // to invent one would contradict the constraint. The three cases are worded exactly as the accessor's
-    // are, because they are the same three.
+    // the paths this connector accepts, and then the path is emphatically NOT author-chosen. The three cases
+    // are worded exactly as the accessor's are, because they are the same three.
     const pathValues = method.pathValues ?? [];
     if (method.pathOpen) {
         parts.push(method.pathRequired === false
@@ -1194,8 +1167,7 @@ function splitAnnotationRequirementLines(
     // metadata requires every `#` documentation line to precede every annotation, so emitting
     // note-then-attachment per annotation would put a `#` line *after* an `@` as soon as one construct
     // carries two annotations at the same attach point — a hard syntax error ("missing close bracket
-    // token"). No corpus document does that today; P5 doubles the surface by adding a second scope to
-    // this loop, which is reason enough not to leave the hazard in place.
+    // token").
     const notes: string[] = [];
     const attachments: string[] = [];
     for (const annotation of annotations) {
@@ -1203,9 +1175,8 @@ function splitAnnotationRequirementLines(
             continue;
         }
         // Delegated rather than recomputed. This block and the in-signature form below state the same
-        // requirement in two places, so a qualification rule implemented twice is a rule that will
-        // eventually disagree with itself — and it already had: this copy resolved the constraint with
-        // `applyPrefixToTypeName` while the shared helper is where the fix belongs.
+        // requirement in two places, so a qualification rule implemented twice is one that will eventually
+        // disagree with itself — and it already had.
         const { qualifiedName, constraint, provenanceNote } =
             qualifyRequirement(annotation, listenerAlias);
         const required = annotation.presence === "required";
@@ -1228,11 +1199,9 @@ function splitAnnotationRequirementLines(
         // The presence marker is repeated on the attachment line because that line is what gets copied.
         // Without it a required and an optional annotation are visually identical, and attaching an
         // optional one whose record has mandatory fields turns a harmless omission into a compile error.
-        // `// optional` is the same marker this renderer already uses for an optional service method.
-        // The note names everything the model has to go and find in that package: the annotation itself
-        // and, when known, the record constraining it. Grouped in the one comment the file's convention
-        // uses, so the line carries a single `//` rather than two competing ones — hence the `; `, which
-        // is why `qualifyRequirement` hands the note back unpunctuated.
+        // The note names what the model has to go and find in that package: the annotation itself and, when
+        // known, the record constraining it. Grouped into the one comment the file's convention uses —
+        // hence the `; `, which is why `qualifyRequirement` hands the note back unpunctuated.
         const provenance = provenanceNote ? `; ${provenanceNote}` : "";
         attachments.push(
             `${indent}@${qualifiedName} {...} // ${required ? "required" : "optional"}${provenance}`);
@@ -1271,13 +1240,10 @@ function qualifyRequirement(
         ? collectExternalLinks(annotation.typeConstraint)
         : [];
     // Qualified the same way a handler parameter's type is, and for the same reason: this names a record
-    // the READER has to write in their own module. `applyPrefixToTypeName` was used here, and it only ever
-    // consults EXTERNAL links — so a cross-module constraint came out right (`cdc:CdcServiceConfig`) while
-    // a home-module one came out bare. That bare form is not a type the reader can name: `ftp`, `smb`,
-    // `mcp`, `kafka`, `rabbitmq`, `grpc`, `websocket` and `websub` were all told to fill `{...}` with the
-    // fields of something like `ServiceConfiguration`, which resolves to nothing outside the library.
-    // `qualifyDeclaredType` dispatches on the link category the pipeline already attaches, so both cases
-    // are right and a future library needs no special-casing.
+    // the READER has to write in their own module. `applyPrefixToTypeName` only ever consults EXTERNAL
+    // links, so a cross-module constraint came out right (`cdc:CdcServiceConfig`) while a home-module one
+    // came out bare — a form that resolves to nothing outside the library. `qualifyDeclaredType` dispatches
+    // on the link category the pipeline already attaches, so both cases are right.
     const constraint = annotation.typeConstraint
         ? qualifyDeclaredType(annotation.typeConstraint, listenerAlias)
         : undefined;
@@ -1300,18 +1266,17 @@ function qualifyRequirement(
  * Both positions are legal Ballerina: `remote function onMessage(@rabbitmq:Payload {} AnydataMessage msg)`
  * and `returns @http:Cache {} T` both compile. Two rules keep what is emitted there copyable:
  *
- * **1. `{}`, never `{...}`.** The `{...}` placeholder the declaration-level block uses is not an
- * expression — the compiler rejects it with "incompatible types: expected a map or a record, found
- * 'other'" plus "missing expression". On its own line, above a `// required` marker, that reads as a
- * template a reader fills in. Inside a signature it does not: the signature is copied as one unit, so a
- * placeholder there turns a previously-correct line into a guaranteed compile error. `{}` compiles
- * wherever the constraining record has no required fields, which is every such record in the corpus.
+ * **1. `{}`, never `{...}`.** The `{...}` placeholder the declaration-level block uses is not an expression
+ * — the compiler rejects it with "incompatible types: expected a map or a record, found 'other'". On its own
+ * line it reads as a template a reader fills in; inside a signature it does not, because the signature is
+ * copied as one unit. `{}` compiles wherever the constraining record has no required fields, which is every
+ * such record in the corpus.
  *
- * **2. An optional annotation is described, not applied.** Same policy {@link renderIdentifierSlot}
- * already applies to an optional identifier: state that the slot may be filled, but do not fill it. An
- * inline attachment cannot carry a `// optional` marker — a comment inside a signature would comment out
- * everything after it — so an optional one written into the signature would read as mandatory. Its
- * presence and its constraint are stated instead by {@link renderParamAnnotationNotes}.
+ * **2. An optional annotation is described, not applied.** Same policy {@link renderIdentifierSlot} already
+ * applies to an optional identifier. An inline attachment cannot carry a `// optional` marker — a comment
+ * inside a signature would comment out everything after it — so an optional one written into the signature
+ * would read as mandatory. Its presence and its constraint are stated by
+ * {@link renderParamAnnotationNotes} instead.
  */
 function renderRequirementAttachments(
     annotations: AnnotationRequirement[] | undefined,
@@ -1341,12 +1306,9 @@ function renderParamAnnotationNotes(
             // A repeatable slot has no signature entry, so `param.name` would be undefined and the
             // "already written, fill the {}" branch would point at a `{}` that is nowhere on the page.
             // Both are corrected by naming the slot differently and always describing how to write it.
-            // A handler may declare more than one repeatable slot — mcp's streamable template has two,
-            // and only the `string`-union one carries @http:Header. A bare "Each repeated parameter"
-            // reads as applying to both, and taken at its word on the `anydata` slot the compiler
-            // rejects it: "Invalid type of header param … expected one of the string, int, float,
-            // decimal, boolean types". The slot is named by the type it accepts, which is the only
-            // discriminator a slot without a name has.
+            // A handler may declare more than one repeatable slot — mcp's streamable template has two, and
+            // only the `string`-union one carries @http:Header — so the slot is named by the type it
+            // accepts, which is the only discriminator a slot without a name has.
             const subject = param.repeatable
                 ? (param.name
                     ? `Each repeated \`${param.name}\` parameter`
@@ -1419,11 +1381,10 @@ function renderIdentifierSlot(identifier: ServiceIdentifier | undefined): {
     const form = identifier.form[0];
     const required = identifier.presence === "required";
     const requirement = required ? "requires" : "accepts";
-    // Spec §3 types `form` as an array with `minItems: 1` and no upper bound, so a connector may declare that
-    // its identifier slot accepts EITHER shape. Only the first was described, and the rest were discarded
-    // without trace — which contradicts the pipeline's own contract: `IdentifierResolver` keeps the whole list
-    // precisely "so the renderer can say which are legal". Every corpus document declares exactly one form, so
-    // this states nothing new for them; it is the second entry that had nowhere to go.
+    // Spec §3 types `form` as an array with `minItems: 1` and no upper bound, so a connector may declare
+    // that its identifier slot accepts EITHER shape. Only the first was described and the rest discarded
+    // without trace, which contradicts `IdentifierResolver`'s own contract of keeping the whole list "so the
+    // renderer can say which are legal". Every corpus document declares exactly one form.
     const alternatives = identifier.form.slice(1)
         .filter((other) => other && other !== form)
         .map(describeIdentifierForm);
@@ -1431,10 +1392,9 @@ function renderIdentifierSlot(identifier: ServiceIdentifier | undefined): {
         ? ` It may instead be ${alternatives.join(", or ")}.`
         : "";
 
-    // The prose for each form comes from `describeIdentifierForm`, which the `alsoLegal` clause above already
-    // uses. The two were separate copies of the same basePath/stringLiteral wording and example values, so a
-    // reworded example landed in one branch and not the other — and the primary form and the "may instead be"
-    // list would then describe the same shape in two different ways, one line apart.
+    // The prose for each form comes from `describeIdentifierForm`, which the `alsoLegal` clause above also
+    // uses. Two separate copies of the same wording would let a reworded example land in one branch only,
+    // leaving the primary form and the "may instead be" list describing the same shape differently.
     const note = `# The service identifier ${requirement} ${describeIdentifierForm(form)}`;
     // The placeholder is the one thing that does not follow from the description: only a form whose syntax
     // spec §10 fixes has one to write.
@@ -1478,8 +1438,7 @@ function describeIdentifierForm(form: string): string {
  * The six registry entries are worded differently on purpose: only `exactlyOne` and `atLeastOne` oblige the
  * service to pick anything, and stating an obligation for `atMostOne` would invent one `websocket` does not
  * impose. An unrecognised rule id renders nothing — spec §6 requires it be skipped, and a note that cannot
- * say what the constraint *is* would be worse than silence. Per plan §11.4 these can only ever be *stated*;
- * whether the model honours them is prompt adherence, not something the renderer can enforce.
+ * say what the constraint *is* would be worse than silence.
  */
 function renderConstraintLines(
     constraints: ServiceConstraint[] | undefined,
@@ -1598,10 +1557,9 @@ function renderConstraintSubject(
         return null;
     }
     // Spec §6's top-level `rules[]`. The pipeline sets `serviceType` only for a subject belonging to a
-    // DIFFERENT service type than the one being rendered, so there is no permissive case to filter here and
-    // a service-type-scoped rule reads exactly as before. Naming the owner is not decoration: "exactly one
-    // of `onMessage` | `onRequest`" is a different constraint from "exactly one of `onMessage` on Service |
-    // `onRequest` on UpgradeService", and a reader given the first would look for both handlers in one body.
+    // DIFFERENT service type than the one being rendered, so a service-type-scoped rule reads exactly as
+    // before. Naming the owner is not decoration: "exactly one of `onMessage` | `onRequest`" is a different
+    // constraint from the same pair spread across two service types.
     const owner = subject.serviceType
         ? ` on the ${listenerAlias ? `\`${listenerAlias}:${subject.serviceType}\`` : `\`${subject.serviceType}\``} service`
         : "";

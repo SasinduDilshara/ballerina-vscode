@@ -65,17 +65,14 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Semantic-model facts the schema-driven Copilot service loader needs from a trigger library:
- * the listener class and its init parameters (names, types, documentation via the init method's
- * {@code parameterMap()}, defaults recovered the same way the service-index generator did), the
- * module's service object types with their declared methods, and simple existence checks used to
- * validate {@code trigger-metadata.json} claims against the actually-resolved package.
+ * Semantic-model facts the schema-driven Copilot service loader needs from a trigger library: the listener
+ * class and its init parameters, the module's service object types with their declared methods, and the
+ * existence checks used to validate {@code trigger-metadata.json} claims against the resolved package.
  *
- * <p>Everything here reads the same compiled package {@code CopilotLibraryManager} already resolves
- * for clients/typeDefs, so no extra package resolution happens. Type signatures use the 3-arg
- * {@link CommonUtils#getTypeSignature(SemanticModel, TypeSymbol, boolean)} overload — the exact
- * function the service-index generator used — so the strings fed to {@link TypeResolver} match the
- * historical SQLite forms (module-prefixed, unions exploded member-wise).
+ * <p>Reads the same compiled package {@code CopilotLibraryManager} already resolves, so no extra package
+ * resolution happens. Type signatures use the 3-arg
+ * {@link CommonUtils#getTypeSignature(SemanticModel, TypeSymbol, boolean)} overload so the strings fed to
+ * {@link TypeResolver} match the historical SQLite forms (module-prefixed, unions exploded member-wise).
  *
  * @since 1.7.0
  */
@@ -118,16 +115,13 @@ final class TriggerSemanticFacts {
                 annotationAttachPointsByName.putIfAbsent(name, attachPointNames(annotationSymbol));
             }
             if (symbol instanceof ClassSymbol classSymbol) {
-                // PUBLIC only, matching SymbolProcessor's filter at every tier. This index feeds exactly one
-                // consumer — resolveListenerClass — and a non-public class cannot be instantiated from a
-                // user's module, so selecting one would emit `on new x:Listener(...)` against a symbol the
-                // generated code cannot see. The asymmetry was latent (no corpus package declares a
-                // non-public listener), but the failure it invites is an uncompilable service declaration.
+                // PUBLIC only, matching SymbolProcessor's filter at every tier: a non-public class cannot
+                // be instantiated from a user's module, so selecting one would emit
+                // `on new x:Listener(...)` against a symbol the generated code cannot see.
                 //
                 // Deliberately NOT applied to declaredTypeNames or serviceObjectTypesByName below: those
-                // answer "does this package declare a type of this name", which is a question about the
-                // package's own contents rather than about what a user's module can reference, and narrowing
-                // them would newly veto handlers over types that do exist.
+                // ask what the package declares, not what a user's module can reference, and narrowing them
+                // would newly veto handlers over types that do exist.
                 if (classSymbol.qualifiers().contains(Qualifier.PUBLIC)) {
                     classesByName.putIfAbsent(name, classSymbol);
                 }
@@ -143,10 +137,9 @@ final class TriggerSemanticFacts {
     }
 
     /**
-     * Whether the module declares a named type-ish symbol (class, type definition, enum, constant)
-     * with this exact name — the criterion for alias-prefixing a metadata type name so
-     * {@link TypeResolver} strips it back off and links it, matching the historical index behavior
-     * where any module-declared referenced type arrived prefixed.
+     * Whether the module declares a named type-ish symbol (class, type definition, enum, constant) with
+     * this exact name — the criterion for alias-prefixing a metadata type name so {@link TypeResolver}
+     * strips it back off and links it.
      */
     boolean declaresType(String name) {
         return declaredTypeNames.contains(name);
@@ -157,23 +150,21 @@ final class TriggerSemanticFacts {
      * {@code @}, which is what a metadata document's {@code annotations[].type.name} names.
      *
      * <p>Kept separate from {@link #declaresType(String)} because the two namespaces are separate: an
-     * annotation tag and a type of the same name can coexist, and in this corpus they systematically
-     * differ ({@code ballerina/ftp} declares the tag {@code ServiceConfig} constrained by the record
-     * {@code ServiceConfiguration}). Answering one question with the other would report every
-     * annotation as undeclared.
+     * annotation tag and a type of the same name can coexist, and in this corpus they systematically differ
+     * ({@code ballerina/ftp} declares the tag {@code ServiceConfig} constrained by the record
+     * {@code ServiceConfiguration}).
      */
     boolean declaresAnnotation(String name) {
         return declaredAnnotationNames.contains(name);
     }
 
     /**
-     * The type constraining a declared annotation — the record whose fields an attachment supplies,
-     * as a module-prefixed signature ({@code "ftp:ServiceConfiguration"}).
+     * The type constraining a declared annotation — the record whose fields an attachment supplies, as a
+     * module-prefixed signature ({@code "ftp:ServiceConfiguration"}).
      *
-     * <p>Read from the compiler rather than the document on purpose: spec §8's {@code type} names the
-     * annotation, not its constraint, and the constraint is introspectable — so restating it in the
-     * document would violate the governing DRY principle. Empty for a marker annotation that declares
-     * no type, and for any annotation this module does not declare.
+     * <p>Read from the compiler rather than the document, since spec §8's {@code type} names the annotation
+     * and not its constraint. Empty for a marker annotation that declares no type, and for any annotation
+     * this module does not declare.
      */
     Optional<String> annotationConstraint(String name) {
         return Optional.ofNullable(annotationConstraintsByName.get(name));
@@ -183,12 +174,9 @@ final class TriggerSemanticFacts {
      * The attach points the resolved package <b>declares</b> for an annotation, as
      * {@link AnnotationAttachPoint} constant names.
      *
-     * <p>This is the fact that decides whether an attachment compiles, and it is deliberately read from the
-     * compiler rather than from the metadata document's {@code attachPoint}. The two can disagree — a
-     * document authored against a different release, or simply mis-filed — and the compiler is the one that
-     * rejects the result: attaching a {@code service}-pointed annotation to a remote method fails with
-     * "annotation … is not allowed on service_remote, object_method, function". Spec §8's {@code attachPoint}
-     * states intent; this states what the package will accept.
+     * <p>Read from the compiler rather than from the document's {@code attachPoint}: the two can disagree,
+     * and the compiler is the one that rejects the result. Spec §8's {@code attachPoint} states intent;
+     * this states what the package will accept.
      *
      * @param name the annotation's name, e.g. {@code "FunctionConfig"}
      * @return the declared points, or empty when this module declares no such annotation
@@ -234,11 +222,9 @@ final class TriggerSemanticFacts {
      * The field names a declared record type has, in declaration order — the input spec §9's derived
      * {@code fixedFields} is computed from ("the envelope's fields minus {@code bindableFields}").
      *
-     * <p>Read here rather than through {@code TriggerLibraryIntrospector}: that class exposes expanded
-     * fields only for annotations, listener init parameters and service-type function parameters, and a
-     * data-binding envelope is none of those — {@code kafka}'s {@code AnydataConsumerRecord} belongs to a
-     * marker service type that declares no methods at all. Answering "the fields of the type named X"
-     * needs the type-definition index this class already builds while walking the module once.
+     * <p>Read here rather than through {@code TriggerLibraryIntrospector}, which exposes expanded fields
+     * only for annotations, listener init parameters and service-type function parameters — a data-binding
+     * envelope is none of those.
      *
      * @param typeName the record type's bare name, e.g. {@code "AnydataConsumerRecord"}
      * @return its field names in declaration order, or empty when the name is not a declared record
@@ -263,14 +249,10 @@ final class TriggerSemanticFacts {
      * The type constraining an annotation declared by a <b>different</b> module that this one depends on,
      * e.g. {@code ballerinax/cdc}'s {@code ServiceConfig} seen from {@code ballerinax/mssql}.
      *
-     * <p>No second package resolution happens: a module whose annotation the generated code must attach
-     * is necessarily a dependency, so its symbols are already inside the compilation this class was handed.
-     * They are reached through the module's own {@link ModuleSymbol}, harvested from the type references
-     * this module makes into it.
-     *
-     * <p>The module is addressed by the {@code org/module} coordinate the metadata document states, so
-     * nothing here is specific to any connector — the document supplies the key, the compiler supplies the
-     * answer.
+     * <p>No second package resolution happens: such a module is necessarily a dependency, so its symbols
+     * are already inside this compilation and are reached through its {@link ModuleSymbol}. The module is
+     * addressed by the {@code org/module} coordinate the metadata document states, so nothing here is
+     * specific to any connector.
      *
      * @param orgModule      the foreign coordinate, e.g. {@code "ballerinax/cdc"}
      * @param annotationName the annotation's name, e.g. {@code "ServiceConfig"}
@@ -298,11 +280,10 @@ final class TriggerSemanticFacts {
     /**
      * Every module reachable from this one's own symbols, keyed by {@code org/module}.
      *
-     * <p>Built lazily and once: only a document declaring a cross-module annotation ever asks, so the
-     * overwhelming majority of libraries never pay for the walk. Dependencies are discovered through the
-     * type references this module makes — a type inclusion, a method parameter, a return type — rather
-     * than by enumerating the dependency graph, because a reference is what proves the symbols are
-     * genuinely loaded in this compilation.
+     * <p>Built lazily and once, since only a document declaring a cross-module annotation ever asks.
+     * Dependencies are discovered through the type references this module makes — a type inclusion, a
+     * method parameter, a return type — because a reference proves the symbols are genuinely loaded in this
+     * compilation.
      */
     private Map<String, ModuleSymbol> reachableModules() {
         if (reachableModules != null) {
@@ -340,17 +321,14 @@ final class TriggerSemanticFacts {
     }
 
     /**
-     * Resolves the listener class: the metadata-declared name when the package actually declares it,
-     * else the canonical {@code Listener} class, else the first class that type-includes a
-     * {@code Listener} (the {@code CdcListener} pattern).
+     * Resolves the listener class: the metadata-declared name when the package actually declares it, else
+     * the canonical {@code Listener} class, else the first class that type-includes a {@code Listener} (the
+     * {@code CdcListener} pattern).
      *
-     * <p><b>Bounded to the package's default module</b>, because that is the one semantic model
-     * {@code CopilotLibraryManager} compiles. A connector declaring its listener in a submodule would
-     * therefore not resolve here, and its service types are dropped with a {@link Veto} by
-     * {@link ListenerPairingResolver} rather than silently. No corpus connector does this — every one of the
-     * fourteen declares its listener in the default module, {@code mssql}'s {@code CdcListener} included —
-     * and lifting the bound means widening {@link #declaresType} to every module's symbols too, which
-     * changes the veto surface for every library. That belongs in its own change, not this one.
+     * <p><b>Bounded to the package's default module</b>, the one semantic model
+     * {@code CopilotLibraryManager} compiles. A connector declaring its listener in a submodule does not
+     * resolve here, and its service types are dropped with a {@link Veto} by
+     * {@link ListenerPairingResolver} rather than silently. No corpus connector does this.
      */
     Optional<ClassSymbol> resolveListenerClass(String metadataDeclaredName) {
         if (metadataDeclaredName != null && classesByName.containsKey(metadataDeclaredName)) {
@@ -436,8 +414,8 @@ final class TriggerSemanticFacts {
         if (location.isEmpty() || modulePackage == null) {
             return null;
         }
-        // CommonUtils owns the package-relative document lookup, including the `modules/<pkg>/<file>` layout
-        // and the guard for a path the project does not know. It was reimplemented here line-for-line.
+        // CommonUtils owns the package-relative document lookup, including the `modules/<pkg>/<file>`
+        // layout and the guard for a path the project does not know.
         Document document = CommonUtils.findDocument(modulePackage,
                 location.get().lineRange().fileName());
         if (document == null) {
@@ -473,12 +451,10 @@ final class TriggerSemanticFacts {
      * @param description         the method's doc-comment description
      * @param params              the method's parameters, in declaration order
      * @param returnTypeSignature the module-prefixed return type signature
-     * @param isolatedQualifier   whether the declaration carries {@code isolated}. A service that
-     *                            implements the method without it does not compile: the compiler reports
-     *                            "mismatched function signatures" with an <i>identical</i>-looking expected
-     *                            and found pair, because it prints neither qualifier — which makes this the
-     *                            hardest kind of omission for a reader to diagnose. Verified against
-     *                            {@code mcp:AdvancedService}, the corpus's one instance
+     * @param isolatedQualifier   whether the declaration carries {@code isolated}. An implementation that
+     *                            omits it does not compile: the compiler reports "mismatched function
+     *                            signatures" with an <i>identical</i>-looking expected and found pair,
+     *                            because it prints neither qualifier
      */
     record DeclaredMethod(String name, String kind, String description, List<DeclaredParam> params,
                           String returnTypeSignature, boolean isolatedQualifier) {
