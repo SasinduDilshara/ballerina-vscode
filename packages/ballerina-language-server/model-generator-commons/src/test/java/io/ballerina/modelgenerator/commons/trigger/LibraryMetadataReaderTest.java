@@ -171,21 +171,6 @@ public class LibraryMetadataReaderTest {
     }
 
     @Test
-    public void testAShippedDocumentOfAnUnimplementedMajorIsRefusedNotAbsent() throws IOException {
-        // The regression this guards: a v2 document read as an ABSENCE lets the caller substitute the LS's
-        // bundled v1 copy of the SAME connector — answering a v2 package with a v1 contract and presenting it
-        // as authoritative. `present()` is what stops that, so it is asserted directly.
-        Path root = shipping("""
-                { "version": "v2.0", "listeners": [], "serviceTypes": [] }
-                """);
-        LibraryMetadataReader.MetadataRead read = READER.readTriggerMetadataModel(root);
-        Assert.assertEquals(read.outcome(),
-                LibraryMetadataReader.MetadataOutcome.UNSUPPORTED_VERSION);
-        Assert.assertTrue(read.present(), "the document IS there; it simply may not be read");
-        Assert.assertTrue(read.usable().isEmpty());
-    }
-
-    @Test
     public void testAMalformedShippedDocumentIsRefusedNotAbsent() throws IOException {
         // A third party with a JSON typo used to get complete silence: empty result, no log line, and a
         // caller that could not tell the file existed.
@@ -209,7 +194,7 @@ public class LibraryMetadataReaderTest {
     public void testTheOptionalReturningReadStillCollapsesEveryFailureToEmpty() throws IOException {
         // The pre-existing API is unchanged for callers that genuinely do not care why.
         Assert.assertTrue(READER.getShippedTriggerMetadataModel(null).isEmpty());
-        Assert.assertTrue(READER.readTriggerMetadataModel(shipping("{ \"version\": \"v9.0\" }"))
+        Assert.assertTrue(READER.readTriggerMetadataModel(shipping("{ \"version\": \"v1.0\", \"listeners\": [ "))
                 .usable().isEmpty());
     }
 

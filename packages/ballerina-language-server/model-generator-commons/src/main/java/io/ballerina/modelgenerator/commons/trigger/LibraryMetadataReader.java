@@ -94,10 +94,8 @@ public final class LibraryMetadataReader {
     public enum MetadataOutcome {
         /** The package ships no {@code resources/trigger-metadata.json} at all. */
         ABSENT,
-        /** A document was read and this build implements its version. */
+        /** A document was read successfully. */
         USABLE,
-        /** A document is present, but declares a spec major version this build does not implement. */
-        UNSUPPORTED_VERSION,
         /** A document is present, but could not be parsed. */
         MALFORMED
     }
@@ -292,20 +290,20 @@ public final class LibraryMetadataReader {
             return gated(TriggerMetadataGson.instance().fromJson(json, TriggerMetadataModel.class),
                     resourcePath).usable();
         } catch (IOException | JsonParseException e) {
-            // A bundled document is this repo's own and TriggerMetadataCorpusTest validates every one, so a
-            // failure here is a build defect. Logged all the same: silence is what made the shipped-document
-            // equivalent undiagnosable.
+            // A bundled document is this repo's own, so a failure here is a build defect. Logged all the
+            // same: silence is what made the shipped-document equivalent undiagnosable.
             LOGGER.warning("Ignoring bundled " + resourcePath + ": " + e);
             return Optional.empty();
         }
     }
 
     /**
-     * Applies the spec's top-level {@code version} gate to a freshly-parsed document.
+     * Wraps a freshly-parsed document in a read outcome.
      *
-     * <p>A rejected document reports {@link MetadataOutcome#UNSUPPORTED_VERSION} rather than an absence,
-     * because those two demand opposite things of a caller: an absence may be filled from elsewhere, a
-     * rejection may not. The log line deliberately does not claim what the caller will do.
+     * <p>A document that parsed to nothing reports {@link MetadataOutcome#MALFORMED} rather than an
+     * absence, because those two demand opposite things of a caller: an absence may be filled from
+     * elsewhere, a malformed document may not. The log line deliberately does not claim what the caller
+     * will do.
      *
      * @param document the parsed document; may be {@code null}
      * @param source   what was read, for the log line
@@ -315,17 +313,6 @@ public final class LibraryMetadataReader {
         if (document == null) {
             LOGGER.warning("Ignoring " + source + ": it parsed to no document.");
             return MetadataRead.failed(MetadataOutcome.MALFORMED);
-        }
-        SpecVersionGate.VersionVerdict verdict = SpecVersionGate.evaluate(document);
-        if (verdict == SpecVersionGate.VersionVerdict.REJECT) {
-            LOGGER.warning("Ignoring " + source + ": it declares spec version '" + document.version()
-                    + "', which this build does not implement (expected major "
-                    + SpecVersionGate.MAJOR_V1 + ", e.g. '" + SpecVersionGate.VERSION_V1 + "').");
-            return MetadataRead.failed(MetadataOutcome.UNSUPPORTED_VERSION);
-        }
-        if (verdict == SpecVersionGate.VersionVerdict.ACCEPT_WITH_WARNING) {
-            LOGGER.fine(() -> source + " declares no spec `version`; reading it as '"
-                    + SpecVersionGate.VERSION_V1 + "'.");
         }
         return MetadataRead.of(document);
     }

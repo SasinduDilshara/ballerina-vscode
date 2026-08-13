@@ -64,8 +64,8 @@ import java.util.List;
  * document never made.
  *
  * @param version      the spec version this instance conforms to, e.g. {@code "v1.0"}. Spec §11 gives it
- *                     the form {@code v<major>.<minor>}; {@code SpecVersionGate} compares only the major,
- *                     because §11.3 requires an unknown <i>minor</i> to be read rather than refused
+ *                     the form {@code v<major>.<minor>}. Carried as document metadata; this build reads
+ *                     every document it can parse and does not gate on the declared version
  * @param listeners    the connector's listener entry point(s); always at least one — a listener is
  *                     structurally required, so there is no presence marker on this array
  * @param serviceTypes the connector's service-type alternatives. Exactly one entry means it is the
