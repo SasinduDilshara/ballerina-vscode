@@ -37,7 +37,7 @@ import java.util.Optional;
  *
  * <p>The fixtures are built against Trigger Construct Spec v1.0 (m2): {@code ServiceType} no longer carries
  * {@code multipleServicesPerListenerAllowed}, and {@code addMode} moved off {@code Handlers} onto the
- * individual {@code HandlerOption} (spec §5.1), so neither appears in the constructor calls below.
+ * individual {@code HandlerOption} (the spec), so neither appears in the constructor calls below.
  */
 public class TriggerModelSynthesizerTest {
 

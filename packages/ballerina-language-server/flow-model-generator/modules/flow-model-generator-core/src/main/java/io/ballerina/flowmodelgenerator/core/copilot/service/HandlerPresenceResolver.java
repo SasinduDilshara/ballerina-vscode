@@ -23,14 +23,14 @@ import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 import java.util.Optional;
 
 /**
- * Owns <b>spec §5 {@code options[].presence}</b>: whether a handler must be implemented or may be omitted.
+ * Owns <b>the spec {@code options[].presence}</b>: whether a handler must be implemented or may be omitted.
  *
- * <p>Spec §5 scopes the field to {@code addMode: subset}. Under {@code addMode: "many"} the option is a
+ * <p>The spec scopes the field to {@code addMode: subset}. Under {@code addMode: "many"} the option is a
  * shape the user instantiates, so "is this particular handler required" is not a question the document is
  * answering, and the key is <b>omitted entirely</b> rather than guessed at as {@code required}. That is why
  * the result is an {@code Optional<Boolean>} and not a {@code boolean}: three states, not two.
  *
- * <p><b>Scoped per option, and an absent {@code addMode} reads as {@code subset}</b> (§5.1), so the test is
+ * <p><b>Scoped per option, and an absent {@code addMode} reads as {@code subset}</b>, so the test is
  * "this option is not {@code many}" rather than "this option says {@code subset}" — testing for the literal
  * word would drop presence from every option in the corpus that omits {@code addMode}, which is most of them.
  *
@@ -60,15 +60,15 @@ final class HandlerPresenceResolver {
      * Resolves a handler's optionality.
      *
      * @param presence the option's declared {@code presence}; may be {@code null}
-     * @param addMode  the option's own {@code addMode} (spec §5.1); may be {@code null}, which reads as
+     * @param addMode  the option's own {@code addMode} (the spec); may be {@code null}, which reads as
      *                 {@code subset}
      * @return {@code true} for an optional handler, {@code false} for a required one, or empty when the
      *         document is not answering the question
      */
     static Optional<Boolean> resolveOptional(String presence, String addMode) {
         if (TriggerMetadataModel.ServiceType.HandlerOption.ADD_MODE_MANY.equals(addMode)) {
-            // Spec §5: presence is meaningful "only under addMode: subset", which §5.1 makes the reading
-            // for an absent value — so this tests for `many`, not for the literal word `subset`.
+            // Presence is meaningful only under `addMode: subset`, and an absent addMode reads as
+            // subset — so this tests for `many`, not for the literal word `subset`.
             return Optional.empty();
         }
         if (TriggerMetadataModel.Annotation.PRESENCE_OPTIONAL.equals(presence)) {

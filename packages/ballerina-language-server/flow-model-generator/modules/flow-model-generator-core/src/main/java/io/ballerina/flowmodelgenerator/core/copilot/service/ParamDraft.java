@@ -32,7 +32,7 @@ import java.util.List;
  * become a property of {@link AspectRegistry}'s ordering, and inserting a component would silently reshuffle
  * every parameter object.
  *
- * <p>{@code optional} is emitted only when true — spec §7's {@code presence: "required"} is the
+ * <p>{@code optional} is emitted only when true — the spec's {@code presence: "required"} is the
  * default and stating it would violate the general omission rule.
  *
  * @since 1.7.0
@@ -42,7 +42,7 @@ final class ParamDraft {
     // Non-fatal only. A parameter has no veto: what makes a slot unusable — a signature member the package
     // does not declare — is caught before the handler is built at all, so a diagnostic here drops a
     // *contribution* to the slot, never the slot itself.
-    private final List<Veto> diagnostics = new ArrayList<>();
+    private final List<String> diagnostics = new ArrayList<>();
 
     private String name;
     private String description;
@@ -67,7 +67,7 @@ final class ParamDraft {
     }
 
     /**
-     * Spec §7 {@code deprecated} — why this slot is superseded, as the document's own prose.
+     * The spec {@code deprecated} — why this slot is superseded, as the document's own prose.
      *
      * <p>Text rather than a flag, for the reason {@link HandlerDraft#setDeprecated} gives: the sentence
      * names the replacement, which is the only part a reader can act on.
@@ -78,21 +78,21 @@ final class ParamDraft {
         }
     }
 
-    /** Spec §7 {@code params[].type}, resolved to a {@code {name, links}} pair. */
+    /** The spec {@code params[].type}, resolved to a {@code {name, links}} pair. */
     void setType(JsonObject type) {
         this.type = type;
     }
 
-    /** Spec §7 {@code params[].presence}: emitted only for an optional slot. */
+    /** The spec {@code params[].presence}: emitted only for an optional slot. */
     void setOptional(boolean optional) {
         this.optional = optional;
     }
 
     /**
-     * Spec §7 {@code params[].addMode: "many"} — the slot repeats, each occurrence independently named
+     * The spec {@code params[].addMode: "many"} — the slot repeats, each occurrence independently named
      * and typed by the author.
      *
-     * <p>Emitted only when true, per the omission rule; "at most one" is §7's stated default for an absent
+     * <p>Emitted only when true, per the omission rule; "at most one" is the spec's stated default for an absent
      * key. A consumer must read this as "do not put this slot in the signature": the document states no
      * name for it, so writing one would invent a parameter.
      */
@@ -101,7 +101,7 @@ final class ParamDraft {
     }
 
     /**
-     * Spec §7 — the slot's other legal types, as {@code {name, links}} pairs so the type closure can reach
+     * The spec — the slot's other legal types, as {@code {name, links}} pairs so the type closure can reach
      * their definitions. Emitted as an array and never joined: see {@link ParamTypeResolver.ParamType}.
      */
     void setAlternatives(JsonArray alternatives) {
@@ -111,7 +111,7 @@ final class ParamDraft {
     }
 
     /**
-     * Spec §8 at {@code attachPoint: "parameter"} — the annotations this slot may carry.
+     * The spec at {@code attachPoint: "parameter"} — the annotations this slot may carry.
      *
      * <p>Named {@code annotationRefs} rather than {@code annotations} because the {@code Parameter} POJO
      * this deserializes into already has an {@code annotations} field holding {@code AnnotationAttachment}s
@@ -125,7 +125,7 @@ final class ParamDraft {
         }
     }
 
-    /** Spec §9 — the data-binding rule this slot's {@code dataBinding} id names. */
+    /** The spec — the data-binding rule this slot's {@code dataBinding} id names. */
     void setBinding(JsonObject binding) {
         this.binding = binding;
     }
@@ -134,12 +134,12 @@ final class ParamDraft {
      * Records that a contribution was dropped, without dropping the parameter. The reason travels up to the
      * service's report through {@link HandlerDraft#addParam}.
      */
-    void drop(String aspectId, String specSection, String subject, String reason) {
-        diagnostics.add(new Veto(aspectId, specSection, subject, reason));
+    void drop(String reason) {
+        diagnostics.add(reason);
     }
 
     /** Every non-fatal drop recorded while building this parameter. */
-    List<Veto> diagnostics() {
+    List<String> diagnostics() {
         return diagnostics;
     }
 

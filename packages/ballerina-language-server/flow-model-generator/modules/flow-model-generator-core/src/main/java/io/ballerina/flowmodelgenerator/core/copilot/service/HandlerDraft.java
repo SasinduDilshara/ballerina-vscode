@@ -40,10 +40,10 @@ import java.util.List;
 final class HandlerDraft {
 
     private final JsonArray parameters = new JsonArray();
-    private final List<Veto> vetoes = new ArrayList<>();
+    private final List<String> vetoes = new ArrayList<>();
     // Non-fatal: a dropped annotation reference, or one dropped from a parameter. Reported, but the handler
     // still renders — the same policy a dropped handler follows towards its service.
-    private final List<Veto> diagnostics = new ArrayList<>();
+    private final List<String> diagnostics = new ArrayList<>();
 
     private JsonArray annotationRefs;
     private JsonArray returnAnnotationRefs;
@@ -52,17 +52,17 @@ final class HandlerDraft {
     private String description;
     // A concrete type's declared `isolated` qualifier. Emitted only when true; see HandlerQualifierAspect.
     private Boolean isolated;
-    // Spec §5 `presence`, tri-state on purpose: TRUE optional, FALSE required, null "the document is not
+    // The spec `presence`, tri-state on purpose: TRUE optional, FALSE required, null "the document is not
     // answering the question" (addMode: many). See HandlerPresenceResolver.
     private Boolean optional;
     private String accessor;
     private JsonArray accessorValues;
     private boolean accessorRequired;
-    // Spec §5 `values: ["*"]` -- any accessor the language accepts. Kept apart from an enumerated list so a
+    // The spec `values: ["*"]` -- any accessor the language accepts. Kept apart from an enumerated list so a
     // consumer can word the two cases differently; see setAccessorConstraint.
     private boolean accessorOpen;
     private boolean pathRequired;
-    // Spec §5's `path` is the same `valueSpec` as `accessor`, so it carries the same three facts. Only
+    // The spec's `path` is the same `valueSpec` as `accessor`, so it carries the same three facts. Only
     // `pathRequired` was kept, which silently discarded a document's path vocabulary.
     private String path;
     private JsonArray pathValues;
@@ -70,12 +70,12 @@ final class HandlerDraft {
     private String deprecated;
     private JsonObject returnObj;
 
-    /** Spec §5 {@code options[].name}, or a concrete type's declared method name. */
+    /** The spec {@code options[].name}, or a concrete type's declared method name. */
     void setName(String name) {
         this.name = name;
     }
 
-    /** Spec §5 {@code options[].kind}: {@code "remote"} or {@code "resource"}. */
+    /** The spec {@code options[].kind}: {@code "remote"} or {@code "resource"}. */
     void setKind(String kind) {
         this.kind = kind;
     }
@@ -96,7 +96,7 @@ final class HandlerDraft {
     }
 
     /**
-     * Spec §5 {@code options[].presence}, as optionality.
+     * The spec {@code options[].presence}, as optionality.
      *
      * <p>Unlike {@link ParamDraft#setOptional}, {@code false} <b>is</b> emitted: for a handler the
      * difference between "required" and "the document does not say" is real, and only an explicit
@@ -114,7 +114,7 @@ final class HandlerDraft {
     }
 
     /**
-     * Spec §5's {@code accessor} constraint: the legal accessors, whether one must be written, and whether
+     * The spec's {@code accessor} constraint: the legal accessors, whether one must be written, and whether
      * the document leaves the choice open ({@code values: ["*"]}).
      *
      * <p>{@code open} is carried separately rather than encoded as a magic {@code "*"} in the list, because
@@ -131,10 +131,10 @@ final class HandlerDraft {
     }
 
     /**
-     * Spec §5's {@code path}: whether a resource path must be written, and — because {@code path} is the
+     * The spec's {@code path}: whether a resource path must be written, and — because {@code path} is the
      * same {@code valueSpec} as {@code accessor} — which paths are legal.
      *
-     * <p>No syntactic <i>form</i> accompanies it: spec §5 dropped the {@code identifierSegments} /
+     * <p>No syntactic <i>form</i> accompanies it: The spec dropped the {@code identifierSegments} /
      * {@code pathParamSegments} vocabulary because the language already fixes what a resource path may look
      * like. A <b>value list</b> is a different claim — it names the specific paths this connector accepts,
      * which the language cannot know and only the document can state — and it was being dropped.
@@ -151,7 +151,7 @@ final class HandlerDraft {
     }
 
     /**
-     * Spec §5.3 {@code deprecated} — why this handler is superseded, as the document's own prose.
+     * The spec {@code deprecated} — why this handler is superseded, as the document's own prose.
      *
      * <p>Carried as text rather than as a flag because the sentence <i>is</i> the useful part: {@code ftp}'s
      * {@code onFileChange} note names the five typed handlers that replace it, and a bare {@code true} would
@@ -163,13 +163,13 @@ final class HandlerDraft {
         }
     }
 
-    /** Spec §5 {@code options[].returns}; omitted when the return carries no information. */
+    /** The spec {@code options[].returns}; omitted when the return carries no information. */
     void setReturn(JsonObject value) {
         this.returnObj = value;
     }
 
     /**
-     * Spec §8 at {@code attachPoint: "function"} — the annotations this handler must or may carry.
+     * The spec at {@code attachPoint: "function"} — the annotations this handler must or may carry.
      *
      * <p>{@code annotationRefs}, not {@code annotations}: the key names a <i>requirement</i>, matching the
      * name used at parameter scope where {@code annotations} is already taken by the semantic model's own
@@ -182,7 +182,7 @@ final class HandlerDraft {
     }
 
     /**
-     * Spec §8 at {@code attachPoint: "return"} — the annotations the handler's return must or may carry.
+     * The spec at {@code attachPoint: "return"} — the annotations the handler's return must or may carry.
      *
      * <p>Held separately and merged into the {@code return} object by {@link #toJson()} rather than written
      * into it directly, so the component that resolves them does not have to run after the one that builds
@@ -204,8 +204,8 @@ final class HandlerDraft {
     }
 
     /** Records that this handler must be dropped; the orchestrator performs the drop. */
-    void veto(String aspectId, String specSection, String subject, String reason) {
-        vetoes.add(new Veto(aspectId, specSection, subject, reason));
+    void veto(String reason) {
+        vetoes.add(reason);
     }
 
     /**
@@ -215,20 +215,20 @@ final class HandlerDraft {
      * <i>obligation</i> unusable, not the handler, and dropping a handler because one of its annotations
      * was mis-filed would lose far more than it protects.
      */
-    void drop(String aspectId, String specSection, String subject, String reason) {
-        diagnostics.add(new Veto(aspectId, specSection, subject, reason));
+    void drop(String reason) {
+        diagnostics.add(reason);
     }
 
     boolean isVetoed() {
         return !vetoes.isEmpty();
     }
 
-    List<Veto> vetoes() {
+    List<String> vetoes() {
         return vetoes;
     }
 
     /** Every non-fatal drop recorded while building this handler or its parameters. */
-    List<Veto> diagnostics() {
+    List<String> diagnostics() {
         return diagnostics;
     }
 

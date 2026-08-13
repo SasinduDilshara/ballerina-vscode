@@ -24,22 +24,22 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Owns <b>spec §3 {@code serviceTypes[].identifier}</b>: the slot between {@code service} and
+ * Owns <b>the spec {@code serviceTypes[].identifier}</b>: the slot between {@code service} and
  * {@code on new …}, and whether the generated service must fill it.
  *
- * <p>Spec §3 keeps the key present "only when genuinely consulted", so an absent key means the connector
+ * <p>The spec keeps the key present "only when genuinely consulted", so an absent key means the connector
  * ignores whatever is written there rather than that the slot defaults to something. It therefore yields
  * {@link Optional#empty()} and the renderer emits nothing at all, which is what {@code ftp}, {@code kafka},
  * {@code mssql.cdc} and the concrete-service-type libraries need.
  *
- * <p><b>Vocabulary.</b> Spec §10 enumerates exactly two forms for this slot: {@code basePath} and
+ * <p><b>Vocabulary.</b> The spec enumerates exactly two forms for this slot: {@code basePath} and
  * {@code stringLiteral}. An unrecognised form maps to {@link IdentifierForm#UNKNOWN} rather than throwing:
  * the renderer then states that the slot is consulted without inventing a placeholder whose syntax it
  * cannot know.
  *
  * <p><b>Multiple forms.</b> A {@code form} array may list several shapes, and {@link IdentifierSlot#forms()}
  * keeps all of them so the renderer can say which are legal. The rendered placeholder follows the first, per
- * spec §1's codegen-default convention. No corpus document lists more than one.
+ * The spec's codegen-default convention. No corpus document lists more than one.
  *
  * @since 1.7.0
  */
@@ -53,10 +53,10 @@ final class IdentifierResolver {
      * A service type's resolved identifier slot.
      *
      * <p>{@code forms} holds the document's own tokens rather than a resolved enum, so that an unrecognised
-     * token survives to the wire and the renderer can name it in the note it emits. Spec §1's "first element
+     * token survives to the wire and the renderer can name it in the note it emits. The spec's "first element
      * is the codegen default" makes {@code forms.get(0)} the form the rendered placeholder follows.
      *
-     * @param required whether the slot must be filled (spec §10 {@code presence: "required"})
+     * @param required whether the slot must be filled (the spec {@code presence: "required"})
      * @param forms    every legal form as declared, in document order; never empty
      */
     record IdentifierSlot(boolean required, List<String> forms) {

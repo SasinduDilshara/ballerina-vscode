@@ -19,7 +19,7 @@
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
 /**
- * One annotation a metadata document says the generated code must (or may) attach — spec §8.
+ * One annotation a metadata document says the generated code must (or may) attach — the spec.
  *
  * <p><b>Deliberately not {@code AnnotationAttachment}</b>, the semantic-model POJO for an annotation the
  * compiler reports as <i>already present</i> on a library symbol. The two look alike and behave oppositely:
@@ -38,8 +38,8 @@ package io.ballerina.flowmodelgenerator.core.copilot.service;
  * @param module         the {@code org/module} a cross-module annotation belongs to, e.g.
  *                       {@code "ballerinax/cdc"}; {@code null} for one declared by the home module,
  *                       which the renderer then prefixes with the library's own alias
- * @param required       spec §8 {@code presence}: whether the annotation must be attached at all
- * @param attachPoint    spec §8 {@code attachPoint}; always {@code "service"} for this tier
+ * @param required       the spec {@code presence}: whether the annotation must be attached at all
+ * @param attachPoint    the spec {@code attachPoint}; always {@code "service"} for this tier
  * @param typeConstraint the annotation's type as module-prefixed signature text, or {@code null} for a
  *                       marker annotation the document gives no type
  * @since 1.7.0

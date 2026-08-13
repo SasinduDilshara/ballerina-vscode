@@ -127,7 +127,7 @@ public class TriggerModelSynthesizerTest {
 
         TriggerMetadataModel.ServiceType.Handlers handlers =
                 new TriggerMetadataModel.ServiceType.Handlers(true, List.of());
-        // Spec §8 replaced the annotation's reverse `appliesTo` list with a FORWARD reference from the
+        // The spec replaced the annotation's reverse `appliesTo` list with a FORWARD reference from the
         // construct that carries it, so a service type names the annotations it attaches — and an annotation
         // nothing references attaches nowhere, where an absent `appliesTo` used to mean "everywhere". This
         // fixture was written against the reverse form; every one of the ten corpus documents that declares a
@@ -327,7 +327,7 @@ public class TriggerModelSynthesizerTest {
         TriggerMetadataModel.Listener listener = new TriggerMetadataModel.Listener(
                 listenerType, null, List.of("service"), null, null, null, null);
 
-        // Spec §9 writes the binding INLINE on the parameter — there is no registry id to resolve, so the
+        // The spec writes the binding INLINE on the parameter — there is no registry id to resolve, so the
         // whole "dangling dataBinding reference" failure mode is gone. This mirrors ballerinax/kafka's real
         // document: one variant bound by `anydata`, embedded as an ARRAY whose elements INCLUDE the envelope.
         TriggerMetadataModel.DataBinding recordsBinding = new TriggerMetadataModel.DataBinding(List.of(
@@ -364,7 +364,7 @@ public class TriggerModelSynthesizerTest {
         Assert.assertEquals(cd.type(), "PAYLOAD_TYPE_INCLUDED_RECORD");
         Assert.assertEquals(cd.defaultType(), "kafka:AnydataConsumerRecord",
                 "a same-module included-record type is qualified too, same as any other handler param type");
-        // Spec §9 made batching a property of the SHAPE rather than a rule-wide `cardinality` flag, so the
+        // The spec made batching a property of the SHAPE rather than a rule-wide `cardinality` flag, so the
         // template follows the embedding actually chosen. Same result, better grounded: a variant may now be
         // batched while its sibling is not, which the old flat mode list could not express.
         Assert.assertEquals(cd.template(), "{{type}}[]", "an `array` embedding -> [] template");
@@ -372,7 +372,7 @@ public class TriggerModelSynthesizerTest {
     }
 
     /**
-     * Spec §1 makes a type reference a <b>tree</b>: {@code {"shape":"array","elementType":{"name":"byte"}}}
+     * The spec makes a type reference a <b>tree</b>: {@code {"shape":"array","elementType":{"name":"byte"}}}
      * is {@code byte[]}, and such a node carries no {@code name} at all.
      *
      * <p>{@code qualifyTypeRef} read only {@code ref.name()}, so every composite resolved to {@code null} —
@@ -441,7 +441,7 @@ public class TriggerModelSynthesizerTest {
 
     /**
      * Per direct product feedback ("for the onCSVFile handler data binding part we need a similar UX
-     * to what we have with the FTP csv method"): when a parameter's spec §9 binding admits both an
+     * to what we have with the FTP csv method"): when a parameter's the spec binding admits both an
      * {@code array} and a {@code stream} embedding of its bound type (i.e. the value may be read either as
      * {@code T[]} or {@code stream<T, error?>}), the synthesizer must compose the same
      * {@code COMPLEX_PAYLOAD} + {@code stream} {@code PAYLOAD_MODIFIER} shape FTP's real

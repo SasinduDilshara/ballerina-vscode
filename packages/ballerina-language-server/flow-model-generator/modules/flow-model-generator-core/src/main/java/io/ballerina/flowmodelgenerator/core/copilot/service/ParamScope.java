@@ -28,14 +28,14 @@ import java.util.Set;
  * <p>As with {@link HandlerScope}, exactly one of {@code param}/{@code declared} is populated,
  * distinguishing a metadata-described slot from a real declared parameter.
  *
- * <p>{@code position} and {@code siblingNames} exist for one reason: spec §7 leaves a handler
+ * <p>{@code position} and {@code siblingNames} exist for one reason: The spec leaves a handler
  * parameter's name to the service author, so a name-less slot needs a synthesized one that is
  * deterministic and cannot collide with a sibling's authored name.
  *
  * @param handler      the enclosing handler scope
  * @param param        the metadata parameter slot, or {@code null} for a declared parameter
  * @param declared     the semantic-model parameter, or {@code null} for a metadata-driven slot
- * @param position     the slot's zero-based index within its handler; spec §7: "Array order is
+ * @param position     the slot's zero-based index within its handler; the spec: "Array order is
  *                     meaningful"
  * @param siblingNames names already taken within this handler, which a generated name must avoid
  * @since 1.7.0

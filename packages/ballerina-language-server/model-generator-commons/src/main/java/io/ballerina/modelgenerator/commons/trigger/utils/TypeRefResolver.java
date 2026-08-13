@@ -26,10 +26,10 @@ import java.util.Optional;
 import java.util.function.Predicate;
 
 /**
- * The single implementation of <b>Ballerina Trigger Construct Spec §1 — {@code TypeRef}</b>: turning a
+ * The single implementation of <b>Ballerina Trigger Construct The spec — {@code TypeRef}</b>: turning a
  * document's type reference into the module-prefixed signature text a consumer can render.
  *
- * <p>Spec §1 states the two rules this class encodes:
+ * <p>The spec states the two rules this class encodes:
  * <ul>
  *   <li>{@code packageInfo} is present only for a type outside this file's home module, and such a
  *       reference is written with that module's own alias; a bare {@code {"name": ...}} means the
@@ -43,7 +43,7 @@ import java.util.function.Predicate;
  * {@code mssql.cdc.driver} aliases to {@code driver} and {@code trigger.github} to {@code github} —
  * see {@link #moduleAlias(String)}.
  *
- * <p>Lives in commons because spec §1 was implemented twice and divergently, once for the Copilot catalog
+ * <p>Lives in commons because the spec was implemented twice and divergently, once for the Copilot catalog
  * and once for the service-model trigger synthesizer. The Copilot consumer routes through it today; the
  * synthesizer can adopt it as a separate, separately-tested change.
  *
@@ -51,7 +51,7 @@ import java.util.function.Predicate;
  */
 public final class TypeRefResolver {
 
-    /** Spec §1: nil, written {@code ()}, and the member that makes a union nilable. */
+    /** The spec: nil, written {@code ()}, and the member that makes a union nilable. */
     private static final String NIL = "()";
 
     private TypeRefResolver() {
@@ -95,7 +95,7 @@ public final class TypeRefResolver {
     }
 
     /**
-     * Spec §1: "the first element is the codegen default." The single representative member of a
+     * The spec: "the first element is the codegen default." The single representative member of a
      * scalar-or-union slot.
      *
      * @param refs the slot's type members; may be {@code null} or empty
@@ -106,7 +106,7 @@ public final class TypeRefResolver {
     }
 
     /**
-     * The module a {@link TypeRef} belongs to, or {@code null} for a bare reference (spec §1: a bare
+     * The module a {@link TypeRef} belongs to, or {@code null} for a bare reference (the spec: a bare
      * {@code {"name": ...}} means same module as the connector's own types).
      *
      * <p>Prefers {@code moduleName} over {@code packageName}: a submodule such as {@code mssql.cdc}
@@ -165,7 +165,7 @@ public final class TypeRefResolver {
      * strips back off while recording the link; language types and anonymous shapes ({@code json},
      * {@code record {}}, {@code ()}) stay bare.
      *
-     * <p><b>Qualification is per leaf</b>, which is why spec §1 makes this a tree: a composite is rendered
+     * <p><b>Qualification is per leaf</b>, which is why the spec makes this a tree: a composite is rendered
      * by rendering its parts and re-assembling the syntax around them, so {@code stream<anydata, Error?>}
      * qualifies its {@code Error} and leaves {@code anydata} alone. A flat string form could not — its
      * leading identifier is {@code stream}, so the whole expression either gains a prefix it must not have
@@ -206,7 +206,7 @@ public final class TypeRefResolver {
         return name;
     }
 
-    /** Spec §1.1's shape table, as syntax. An unknown shape renders its element rather than inventing one. */
+    /** The spec's shape table, as syntax. An unknown shape renders its element rather than inventing one. */
     private static String renderComposite(TypeRef ref, String homePackageName,
                                           Predicate<String> declaredByHomeModule) {
         String element = renderPart(ref.elementType(), homePackageName, declaredByHomeModule);
@@ -225,7 +225,7 @@ public final class TypeRefResolver {
             return completion.isEmpty() ? "stream<" + element + ">"
                     : "stream<" + element + ", " + completion + ">";
         }
-        // Spec §1.1 closes the shape vocabulary precisely so this cannot be reached silently; returning the
+        // The spec closes the shape vocabulary precisely so this cannot be reached silently; returning the
         // element alone would misdescribe the type, so nothing is emitted and the slot reads as unstated.
         return "";
     }
@@ -233,7 +233,7 @@ public final class TypeRefResolver {
     /**
      * One part of a composite: a single type, or a union.
      *
-     * <p>A union whose last member is {@code ()} is written with {@code ?}, the form spec §1 says a nilable
+     * <p>A union whose last member is {@code ()} is written with {@code ?}, the form the spec says a nilable
      * type takes in source.
      */
     private static String renderPart(List<TypeRef> part, String homePackageName,
@@ -285,7 +285,7 @@ public final class TypeRefResolver {
      * Joins a union's members with {@code |} into one signature.
      *
      * <p>Correct for a slot whose value genuinely <i>is</i> the union — notably a handler's
-     * {@code returns}, where spec §1's nilable rule ({@code T?} written as an explicit {@code ()} member)
+     * {@code returns}, where the spec's nilable rule ({@code T?} written as an explicit {@code ()} member)
      * makes {@code error|()} the intended text. It is <b>not</b> correct for a {@code params[].type} union,
      * which enumerates alternatives legal for the slot rather than a union-typed parameter.
      *

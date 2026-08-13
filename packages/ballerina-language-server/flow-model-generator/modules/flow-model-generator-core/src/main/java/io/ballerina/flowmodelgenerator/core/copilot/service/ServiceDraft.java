@@ -42,28 +42,28 @@ final class ServiceDraft {
 
     private final JsonObject json = new JsonObject();
     private final JsonArray methods = new JsonArray();
-    // Spec §4's open-ended shapes. Held as a field rather than written eagerly for the same reason
+    // The spec's open-ended shapes. Held as a field rather than written eagerly for the same reason
     // `methods` is: the catalog contributes them one at a time, and an empty list must not be emitted.
     private final JsonArray handlerTemplates = new JsonArray();
     // Vetoes raised against this entry — any one of them drops it.
-    private final List<Veto> vetoes = new ArrayList<>();
+    private final List<String> vetoes = new ArrayList<>();
     // Non-fatal drops: a handler that could not be built, an annotation obligation that could not be
     // resolved, a binding rule that does not exist. Reported, but the entry survives — a service type whose
     // contract is partly unusable still has a usable remainder.
-    private final List<Veto> nonFatal = new ArrayList<>();
+    private final List<String> nonFatal = new ArrayList<>();
 
-    /** Spec §3: the wire contract's fixed discriminator for a metadata-derived service. */
+    /** The spec: the wire contract's fixed discriminator for a metadata-derived service. */
     void setKind(String kind) {
         json.addProperty("type", kind);
     }
 
-    /** Spec §3 {@code serviceTypes[].type}: the service object type's name. */
+    /** The spec {@code serviceTypes[].type}: the service object type's name. */
     void setName(String name) {
         json.addProperty("name", name);
     }
 
     /**
-     * Spec §3 {@code deprecated} — why this service type is superseded, as the document's own prose.
+     * The spec {@code deprecated} — why this service type is superseded, as the document's own prose.
      *
      * <p>Text rather than a flag: the sentence names what replaces it. Distinct from the
      * {@code isDeprecated} a compiled symbol carries — that says <i>that</i> the type is deprecated, this
@@ -76,7 +76,7 @@ final class ServiceDraft {
     }
 
     /**
-     * Spec §3's array cardinality: this service type is one of several the document declares, so it is
+     * The spec's array cardinality: this service type is one of several the document declares, so it is
      * "individually optional" rather than mandatory.
      *
      * <p>Emitted only when true, per the omission rule — a document declaring a single service type says
@@ -89,7 +89,7 @@ final class ServiceDraft {
     }
 
     /**
-     * Spec §3 {@code multipleListenersAllowed: false} — this service type attaches to exactly one
+     * The spec {@code multipleListenersAllowed: false} — this service type attaches to exactly one
      * listener.
      *
      * <p>Named for the <b>prohibition</b> rather than mirroring the document's key, so that presence means
@@ -101,7 +101,7 @@ final class ServiceDraft {
     }
 
     /**
-     * Spec §2 {@code multipleServicesOfSameTypeAllowed: false} — one listener hosts at most one service of
+     * The spec {@code multipleServicesOfSameTypeAllowed: false} — one listener hosts at most one service of
      * <i>this type</i>, though it may host others. Same naming rule as {@link #setSingleListenerOnly()}.
      */
     void setSingleServicePerListenerOnly() {
@@ -109,7 +109,7 @@ final class ServiceDraft {
     }
 
     /**
-     * Spec §2 {@code multipleServicesAllowed: false} — one listener hosts at most one service, of any type.
+     * The spec {@code multipleServicesAllowed: false} — one listener hosts at most one service, of any type.
      *
      * <p>The strictly stronger sibling of {@link #setSingleServicePerListenerOnly()}, and emitted instead
      * of it rather than alongside: "at most one service" already entails "at most one of this type", so
@@ -120,7 +120,7 @@ final class ServiceDraft {
     }
 
     /**
-     * Spec §1: the {@code org/module} a cross-module service type belongs to. Absent for a home-module
+     * The spec: the {@code org/module} a cross-module service type belongs to. Absent for a home-module
      * type, which the renderer then prefixes with the listener's alias.
      */
     void setServiceTypeModule(String module) {
@@ -129,7 +129,7 @@ final class ServiceDraft {
         }
     }
 
-    /** Spec §2 {@code listeners[].requiredImports}: side-effect-only imports the generated code needs. */
+    /** The spec {@code listeners[].requiredImports}: side-effect-only imports the generated code needs. */
     void setRequiredImports(JsonArray imports) {
         if (imports != null && !imports.isEmpty()) {
             json.add("requiredImports", imports);
@@ -137,7 +137,7 @@ final class ServiceDraft {
     }
 
     /**
-     * Spec §2.1 {@code listeners[].platformDependencies}: native artifacts the build cannot fetch. Omitted
+     * The spec {@code listeners[].platformDependencies}: native artifacts the build cannot fetch. Omitted
      * when the connector needs none, which is every library but {@code sap.jco}.
      */
     void setPlatformDependencies(JsonArray dependencies) {
@@ -147,7 +147,7 @@ final class ServiceDraft {
     }
 
     /**
-     * Spec §8 {@code annotations[]} at {@code attachPoint: "service"}: the annotations this service type
+     * The spec {@code annotations[]} at {@code attachPoint: "service"}: the annotations this service type
      * must or may carry. Omitted when it carries none, so a service with no obligation says nothing
      * rather than carrying an empty array.
      */
@@ -158,8 +158,8 @@ final class ServiceDraft {
     }
 
     /**
-     * Spec §3 {@code serviceTypes[].identifier}: the slot between {@code service} and {@code on new …}.
-     * Omitted when the connector does not consult it — spec §3: "Omit the whole key if the identifier slot
+     * The spec {@code serviceTypes[].identifier}: the slot between {@code service} and {@code on new …}.
+     * Omitted when the connector does not consult it — the spec: "Omit the whole key if the identifier slot
      * carries no meaning for this connector."
      */
     void setIdentifier(JsonObject identifier) {
@@ -169,7 +169,7 @@ final class ServiceDraft {
     }
 
     /**
-     * Spec §6 {@code rules[]}: the exclusivity constraints this service type declares. Omitted when it
+     * The spec {@code rules[]}: the exclusivity constraints this service type declares. Omitted when it
      * declares none, which is 8 of the 13 corpus documents.
      */
     void setConstraints(JsonArray constraints) {
@@ -178,7 +178,7 @@ final class ServiceDraft {
         }
     }
 
-    /** Spec §2 {@code listeners[].type}: the listener the service attaches to, with its init params. */
+    /** The spec {@code listeners[].type}: the listener the service attaches to, with its init params. */
     void setListener(JsonObject listener) {
         if (listener != null) {
             json.add("listener", listener);
@@ -186,7 +186,7 @@ final class ServiceDraft {
     }
 
     /**
-     * Spec §2 {@code listeners[].services} — <b>no</b> listener in this document declares it can host this
+     * The spec {@code listeners[].services} — <b>no</b> listener in this document declares it can host this
      * service type, so it must never be written as {@code service … on new …}.
      *
      * <p>Named for the prohibition and emitted only when true, the same rule
@@ -203,7 +203,7 @@ final class ServiceDraft {
     }
 
     /**
-     * Spec §4 {@code addMode: "many"} — the shape every handler of this service type takes, for a catalog
+     * The spec {@code addMode: "many"} — the shape every handler of this service type takes, for a catalog
      * whose handler <i>names</i> are the author's to choose.
      *
      * <p><b>Deliberately not a {@code methods} entry.</b> A template has no name, so emitting it alongside
@@ -230,7 +230,7 @@ final class ServiceDraft {
     }
 
     /**
-     * Appends one built handler, or records why it was dropped. Order is preserved — spec §7: "Array
+     * Appends one built handler, or records why it was dropped. Order is preserved — the spec: "Array
      * order is meaningful".
      */
     void addHandler(HandlerDraft handler) {
@@ -253,8 +253,8 @@ final class ServiceDraft {
      * package does not declare, or a handler catalog that cannot be resolved. For anything that makes one
      * <i>contribution</i> unusable, use {@link #drop} instead.
      */
-    void veto(String aspectId, String specSection, String subject, String reason) {
-        vetoes.add(new Veto(aspectId, specSection, subject, reason));
+    void veto(String reason) {
+        vetoes.add(reason);
     }
 
     /**
@@ -265,8 +265,8 @@ final class ServiceDraft {
      * {@link TriggerSchemaServiceLoader} skip the <i>entire service</i>, contradicting
      * {@link ServiceAnnotationResolver}'s own contract that a dropped annotation never drops its service.
      */
-    void drop(String aspectId, String specSection, String subject, String reason) {
-        nonFatal.add(new Veto(aspectId, specSection, subject, reason));
+    void drop(String reason) {
+        nonFatal.add(reason);
     }
 
     /** Whether this entry itself was vetoed. A dropped handler or obligation does not drop its service. */
@@ -275,8 +275,8 @@ final class ServiceDraft {
     }
 
     /** Every drop recorded while building this entry, fatal or not. */
-    List<Veto> vetoes() {
-        List<Veto> all = new ArrayList<>(vetoes);
+    List<String> vetoes() {
+        List<String> all = new ArrayList<>(vetoes);
         all.addAll(nonFatal);
         return all;
     }
@@ -288,7 +288,7 @@ final class ServiceDraft {
      */
     JsonObject toJson() {
         // Templates precede methods, mirroring the order a consumer renders them: the rule for writing a
-        // handler comes before any fixed vocabulary. Spec §5.1 made the two coexist -- `websocket` declares
+        // handler comes before any fixed vocabulary. The spec made the two coexist -- `websocket` declares
         // nine named handlers beside two open-ended shapes -- so this is an ordering, not a choice.
         if (!handlerTemplates.isEmpty()) {
             json.add("handlerTemplates", handlerTemplates);

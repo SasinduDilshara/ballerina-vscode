@@ -26,12 +26,12 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Owns <b>spec §5's resource extras</b>: the two positions of {@code resource function <accessor> <path>()}.
+ * Owns <b>the spec's resource extras</b>: the two positions of {@code resource function <accessor> <path>()}.
  *
  * <p>Replaces {@code HttpResourceExtrasResolver}, {@code GraphqlResourceExtrasResolver} and
  * {@code AccessorPrecedencePolicy}. The first two existed only because the schema named the same two
  * syntactic slots differently per protocol; the third carried an explicitly-flagged guess at which key
- * supplied the accessor. Spec §5 removed the question by giving the construct one {@code accessor} slot and
+ * supplied the accessor. The spec removed the question by giving the construct one {@code accessor} slot and
  * stating the rule symmetrically: both slots are required for {@code kind: "resource"} and neither applies
  * to {@code kind: "remote"}.
  *
@@ -50,26 +50,26 @@ final class ResourceExtrasResolver {
     /**
      * The resolved accessor and path of one resource handler.
      *
-     * <p>Both halves carry a vocabulary, because spec §5 gives {@code accessor} and {@code path} the same
+     * <p>Both halves carry a vocabulary, because the spec gives {@code accessor} and {@code path} the same
      * {@code $ref}: a {@code path} may enumerate literal values or declare itself open
      * ({@code values: ["*"]}) exactly as an accessor may. Only the accessor half used to be carried, so a
      * document constraining its path to a fixed vocabulary lost it silently.
      *
      * @param accessor         the accessor to write into the signature — the first declared value, per
-     *                         spec §1's codegen-default rule. {@code null} when the document leaves it open
+     *                         The spec's codegen-default rule. {@code null} when the document leaves it open
      * @param accessorValues   every legal accessor, for the note; empty when the slot is open
      * @param accessorRequired whether an accessor must be written
-     * @param accessorOpen     spec §5's {@code values: ["*"]} — any accessor the language accepts. Told
+     * @param accessorOpen     the spec's {@code values: ["*"]} — any accessor the language accepts. Told
      *                         apart from an enumerated list because a note saying "must be one of `*`" is
      *                         nonsense
      * @param path             the path to write, when the document names exactly the vocabulary to choose
      *                         from; {@code null} when it enumerates none, which is every corpus document
      * @param pathValues       every legal path, for the note; empty when the document enumerates none
      * @param pathRequired     whether a path must be written. There is still no syntactic {@code form}:
-     *                         spec §5 dropped that vocabulary because the language already fixes what a
+     *                         The spec dropped that vocabulary because the language already fixes what a
      *                         resource path may look like, whereas a value list names the specific paths
      *                         this connector accepts
-     * @param pathOpen         spec §5's {@code values: ["*"]} at the path slot
+     * @param pathOpen         the spec's {@code values: ["*"]} at the path slot
      */
     record ResourceExtras(String accessor, List<String> accessorValues, boolean accessorRequired,
                           boolean accessorOpen, String path, List<String> pathValues, boolean pathRequired,
@@ -107,7 +107,7 @@ final class ResourceExtrasResolver {
      * <p>Shared by both halves rather than duplicated, which is the point: they are the same definition in
      * the schema, so reading them differently is how one of them came to be half-implemented.
      *
-     * @param chosen   the value to write — the first declared one, per spec §1's codegen-default rule;
+     * @param chosen   the value to write — the first declared one, per the spec's codegen-default rule;
      *                 {@code null} when the slot is open or enumerates nothing
      * @param values   every legal value; empty when the slot is open or enumerates nothing
      * @param required whether the slot must be written

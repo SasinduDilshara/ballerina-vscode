@@ -30,15 +30,15 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
- * Owns <b>spec §9's {@code shapes[]} table</b>: how one {@code typedescs[]} variant's bound type is embedded
+ * Owns <b>the spec's {@code shapes[]} table</b>: how one {@code typedescs[]} variant's bound type is embedded
  * in the declared parameter type.
  *
  * <p>Spec v1.0 replaced the {@code direct}/{@code includedRecord}/{@code streamable} modes with the
  * {@code bare}/{@code array}/{@code stream}/{@code included} forms. Three of the four carry nothing but
  * wrapping ({@code bare} has no fields at all), and the only substantive branch is whether the shape embeds
- * an envelope, so §9's shape table gets a single owner rather than four resolvers. What the old
+ * an envelope, so the spec's shape table gets a single owner rather than four resolvers. What the old
  * {@code IncludedRecordModeResolver} genuinely owned survives intact: the derivation of {@code fixedFields}
- * as "the envelope's declared fields minus {@code bindableFields}", which spec §9 requires be derived.
+ * as "the envelope's declared fields minus {@code bindableFields}", which the spec requires be derived.
  *
  * <p>An envelope is embedded not only by {@code form: "included"} but also by an {@code array} or
  * {@code stream} whose {@code element} is {@code included} — the corpus's actual batched-envelope shape
@@ -57,14 +57,14 @@ final class ShapeResolver {
     /**
      * One resolved embedding of a variant's bound type.
      *
-     * @param form           spec §9's {@code form}, carried verbatim so the renderer decides the wording
+     * @param form           the spec's {@code form}, carried verbatim so the renderer decides the wording
      * @param element        for {@code array}/{@code stream}, whether each item is bare or included;
      *                       {@code null} otherwise
      * @param envelope       the record a user type includes with {@code *Envelope;}, as module-prefixed
      *                       signature text; {@code null} for a shape that embeds none
      * @param bindableFields the envelope's fields this variant may retype, in document order; never
      *                       truncated
-     * @param fixedFields    the envelope's remaining fields, derived rather than restated (spec §9). Empty
+     * @param fixedFields    the envelope's remaining fields, derived rather than restated (the spec). Empty
      *                       when the envelope is not an introspectable record of the resolved package — in
      *                       which case a consumer must not claim to know which fields are pinned
      * @param completionType for {@code stream}, the stream's completion type as signature text;
@@ -82,7 +82,7 @@ final class ShapeResolver {
      * Resolves one shape.
      *
      * @param shape          the {@code shapes[]} entry
-     * @param packageName    the resolved package name, for rendering type references per spec §1
+     * @param packageName    the resolved package name, for rendering type references per the spec
      * @param declaresType   whether the home module declares a type of a given name
      * @param envelopeFields the declared field names of a record, by bare type name
      * @return the resolved shape, or {@code null} when the entry names no form and so states nothing
@@ -105,7 +105,7 @@ final class ShapeResolver {
     }
 
     /**
-     * Spec §9's derivation: the envelope's declared fields minus the bindable ones, in declaration order.
+     * The spec's derivation: the envelope's declared fields minus the bindable ones, in declaration order.
      *
      * <p>Uses the envelope's <b>bare</b> name, not its rendered signature: the lookup is against the
      * resolved package's own symbols, where a type is known by the name it was declared with.
@@ -147,7 +147,7 @@ final class ShapeResolver {
     }
 
     /**
-     * A completion type, which spec §9 types as a TypeRef-or-union so that a nilable one is expressed the
+     * A completion type, which the spec types as a TypeRef-or-union so that a nilable one is expressed the
      * same way as everywhere else — an explicit {@code ()} member rather than a flag.
      */
     private static String renderUnion(List<TypeRef> refs, String packageName,

@@ -21,7 +21,7 @@ package io.ballerina.flowmodelgenerator.core.copilot.model;
 import java.util.List;
 
 /**
- * Spec §6.1 {@code subjects[]} — one thing a {@link ServiceConstraint} ranges over.
+ * The spec {@code subjects[]} — one thing a {@link ServiceConstraint} ranges over.
  *
  * <p>A flat POJO with nullable slots rather than a sealed hierarchy, because this type exists only to
  * survive the Gson round-trip; the typed, exhaustively-switched form lives in the resolver, where the
@@ -38,7 +38,7 @@ public class ConstraintSubject {
     private String name;
     private String handler;
     private String role;
-    // Spec §6's top-level `rules[]` — a constraint spanning more than one service type. Present only on a
+    // The spec's top-level `rules[]` — a constraint spanning more than one service type. Present only on a
     // subject belonging to a service type OTHER than the entry carrying the rule, so a rule scoped to one
     // service type states nothing here. Without it a spanning rule would read as though every alternative
     // belonged to whichever service type happened to be rendering.

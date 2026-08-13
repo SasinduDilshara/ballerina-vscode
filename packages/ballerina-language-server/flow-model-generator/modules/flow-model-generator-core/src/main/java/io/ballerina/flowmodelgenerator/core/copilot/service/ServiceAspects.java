@@ -29,9 +29,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The service tier: everything stated once per service entry. Spec §6 constraints are
- * {@link ConstraintAspect}, the handler catalog is {@link HandlerCatalogAspect}, and §8 service annotations
- * are {@link AnnotationAspects#service}; all three are large enough to own their own file.
+ * The service tier: everything stated once per service entry. Constraints are {@link ConstraintAspect}, the
+ * handler catalog is {@link HandlerCatalogAspect}, and service annotations are
+ * {@link AnnotationAspects#service}; all three are large enough to own their own file.
  *
  * <p><b>Instance, not static.</b> {@link #listener} memoizes the object it builds for the lifetime of one
  * library load, so an instance is created per {@link AspectRegistry} and never shared across libraries.
@@ -48,7 +48,7 @@ final class ServiceAspects {
     private final Map<Object, JsonObject> builtListeners = new IdentityHashMap<>();
 
     /**
-     * Spec §1/§3 — the service entry's identity: its type name and, when cross-module, the module that
+     * The spec/the spec — the service entry's identity: its type name and, when cross-module, the module that
      * owns it.
      *
      * <p>Runs first among the service aspects, because it is also the component that can veto the entry
@@ -60,13 +60,13 @@ final class ServiceAspects {
                 scope.serviceType(), scope.homeModule(), scope.declaresType(), declaredServiceTypes(scope));
 
         if (identity.typeName() == null) {
-            draft.veto("serviceIdentity", "§3", scope.libraryName(),
-                    "the document names no type for this service type entry");
+            draft.veto("serviceIdentity: " + scope.libraryName()
+                    + ": the document names no type for this service type entry");
             return;
         }
         if (!identity.declaredByPackage()) {
-            draft.veto("serviceIdentity", "§3", identity.typeName(),
-                    "not declared by the resolved package version");
+            draft.veto("serviceIdentity: " + identity.typeName()
+                    + ": not declared by the resolved package version");
             return;
         }
 
@@ -76,19 +76,19 @@ final class ServiceAspects {
         draft.setName(identity.typeName());
         draft.setServiceTypeModule(identity.serviceTypeModule());
         draft.setAlternatives(identity.alternatives());
-        // Spec §3 `deprecated`, in the same prose form as §5.3's. Set here rather than in a component of
+        // The spec `deprecated`, in the same prose form as the spec's. Set here rather than in a component of
         // its own: it is a property of the service type's identity, and it must not survive the two vetoes
         // above -- a deprecation note on an entry that never renders is a note about nothing.
         draft.setDeprecated(scope.serviceType().deprecated());
     }
 
     /**
-     * How many service types are genuine alternatives to this one — the count spec §3's optionality rule
+     * How many service types are genuine alternatives to this one — the count the spec's optionality rule
      * is read against.
      *
      * <p>Not the size of {@code serviceTypes[]}: a service type the paired listener cannot host is not an
      * alternative to the ones it can, it is a different construct reached another way. The distinction is
-     * spec §2's {@code services}, so the count comes from {@link ListenerPairingResolver}, which owns it.
+     * The spec's {@code services}, so the count comes from {@link ListenerPairingResolver}, which owns it.
      */
     private static int declaredServiceTypes(TriggerScope scope) {
         if (scope.document() == null || scope.document().serviceTypes() == null) {
@@ -101,7 +101,7 @@ final class ServiceAspects {
     }
 
     /**
-     * Spec §3's {@code multiple*Allowed} pair — and the decision of which half of it is worth saying.
+     * The spec's {@code multiple*Allowed} pair — and the decision of which half of it is worth saying.
      *
      * <p><b>Only a prohibition is emitted.</b> Both keys are set on all 26 service types in the corpus, so
      * writing both unconditionally would land a note on essentially every trigger service the Copilot
@@ -131,9 +131,9 @@ final class ServiceAspects {
     }
 
     /**
-     * Spec §2 {@code listeners[].requiredImports} — the side-effect-only imports the generated code needs.
+     * The spec {@code listeners[].requiredImports} — the side-effect-only imports the generated code needs.
      *
-     * <p>Carried on the <b>service</b> rather than hoisted to the library: the spec declares these on the
+     * <p>Carried on the <b>service</b> rather than hoisted to the library: The spec declares these on the
      * listener, so only code that actually uses that listener needs them.
      */
     void requiredImports(TriggerScope scope, ServiceDraft draft) {
@@ -153,7 +153,7 @@ final class ServiceAspects {
     }
 
     /**
-     * Spec §2.1 {@code listeners[].platformDependencies} — native artifacts the build cannot fetch. Carried
+     * The spec {@code listeners[].platformDependencies} — native artifacts the build cannot fetch. Carried
      * on the service for the same reason {@link #requiredImports} is.
      */
     void platformDependencies(TriggerScope scope, ServiceDraft draft) {
@@ -196,7 +196,7 @@ final class ServiceAspects {
     }
 
     /**
-     * Spec §3 {@code serviceTypes[].identifier} — the identifier/base-path slot the generated service must
+     * The spec {@code serviceTypes[].identifier} — the identifier/base-path slot the generated service must
      * or may fill.
      *
      * <p>The wire shape mirrors the document's, {@code {presence, form[]}}, rather than a pre-rendered
@@ -219,10 +219,10 @@ final class ServiceAspects {
     }
 
     /**
-     * Spec §2 {@code listeners[].type} — the listener a service attaches to, with its init parameters, and
-     * §2's {@code services}, which says whether this service type may be attached to one at all.
+     * The spec {@code listeners[].type} — the listener a service attaches to, with its init parameters, and
+     * The spec's {@code services}, which says whether this service type may be attached to one at all.
      *
-     * <p>Spec §2 models no listener init fields in the document, so every parameter comes from the semantic
+     * <p>The spec models no listener init fields in the document, so every parameter comes from the semantic
      * model: names and types from the {@code init} signature, descriptions from its doc comment, and
      * declared defaults recovered from the syntax tree.
      *
@@ -232,7 +232,7 @@ final class ServiceAspects {
      * times that rewrite is applied.
      *
      * <p>The cache is keyed on the <b>document's</b> listener entry, falling back to the class only when
-     * there is none. §2's {@code deprecated} is authored per listener entry, and two entries may name one
+     * there is none. the spec's {@code deprecated} is authored per listener entry, and two entries may name one
      * class, in which case a class-keyed cache would hand the second entry the first's deprecation note.
      */
     void listener(TriggerScope scope, ServiceDraft draft) {
@@ -254,7 +254,7 @@ final class ServiceAspects {
 
         JsonObject listenerObj = new JsonObject();
         listenerObj.addProperty("name", TypeRefResolver.moduleAlias(packageName) + ":" + className);
-        // Spec §2 `deprecated`: prose, not a flag. The document says *why* the listener is superseded, and
+        // The spec `deprecated`: prose, not a flag. The document says *why* the listener is superseded, and
         // that sentence is the only thing that tells a reader what to use instead.
         if (scope.listener() != null && scope.listener().deprecated() != null
                 && !scope.listener().deprecated().isBlank()) {

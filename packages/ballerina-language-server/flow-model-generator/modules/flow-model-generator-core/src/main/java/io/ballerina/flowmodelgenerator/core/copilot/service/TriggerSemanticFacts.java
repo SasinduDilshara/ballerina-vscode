@@ -90,7 +90,7 @@ final class TriggerSemanticFacts {
     // The compiler's own attach points per declared annotation, which is what makes an attachment legal
     // rather than what the document claims. See annotationAttachPoints.
     private final Map<String, Set<String>> annotationAttachPointsByName = new LinkedHashMap<>();
-    // Every declared type definition, for the record-field lookup spec §9's derived fixedFields needs.
+    // Every declared type definition, for the record-field lookup the spec's derived fixedFields needs.
     private final Map<String, TypeDefinitionSymbol> typeDefinitionsByName = new LinkedHashMap<>();
     // Lazily built: only a document with a cross-module annotation ever needs it.
     private Map<String, ModuleSymbol> reachableModules;
@@ -162,7 +162,7 @@ final class TriggerSemanticFacts {
      * The type constraining a declared annotation — the record whose fields an attachment supplies, as a
      * module-prefixed signature ({@code "ftp:ServiceConfiguration"}).
      *
-     * <p>Read from the compiler rather than the document, since spec §8's {@code type} names the annotation
+     * <p>Read from the compiler rather than the document, since the spec's {@code type} names the annotation
      * and not its constraint. Empty for a marker annotation that declares no type, and for any annotation
      * this module does not declare.
      */
@@ -175,7 +175,7 @@ final class TriggerSemanticFacts {
      * {@link AnnotationAttachPoint} constant names.
      *
      * <p>Read from the compiler rather than from the document's {@code attachPoint}: the two can disagree,
-     * and the compiler is the one that rejects the result. Spec §8's {@code attachPoint} states intent;
+     * and the compiler is the one that rejects the result. The spec's {@code attachPoint} states intent;
      * this states what the package will accept.
      *
      * @param name the annotation's name, e.g. {@code "FunctionConfig"}
@@ -219,7 +219,7 @@ final class TriggerSemanticFacts {
     }
 
     /**
-     * The field names a declared record type has, in declaration order — the input spec §9's derived
+     * The field names a declared record type has, in declaration order — the input the spec's derived
      * {@code fixedFields} is computed from ("the envelope's fields minus {@code bindableFields}").
      *
      * <p>Read here rather than through {@code TriggerLibraryIntrospector}, which exposes expanded fields
@@ -327,7 +327,7 @@ final class TriggerSemanticFacts {
      *
      * <p><b>Bounded to the package's default module</b>, the one semantic model
      * {@code CopilotLibraryManager} compiles. A connector declaring its listener in a submodule does not
-     * resolve here, and its service types are dropped with a {@link Veto} by
+     * resolve here, and its service types are dropped with a logged reason by
      * {@link ListenerPairingResolver} rather than silently. No corpus connector does this.
      */
     Optional<ClassSymbol> resolveListenerClass(String metadataDeclaredName) {
@@ -429,7 +429,7 @@ final class TriggerSemanticFacts {
                 return null;
             }
             ExpressionNode expression = (ExpressionNode) ((DefaultableParameterNode) node).expression();
-            // Spec §1's alias rule -- a module's last dot-segment -- has one implementation, in commons.
+            // The spec's alias rule -- a module's last dot-segment -- has one implementation, in commons.
             String alias = TypeRefResolver.moduleAlias(modulePackage.packageName().value());
             if (expression instanceof SimpleNameReferenceNode simpleRef) {
                 return alias + ":" + simpleRef.name().text();

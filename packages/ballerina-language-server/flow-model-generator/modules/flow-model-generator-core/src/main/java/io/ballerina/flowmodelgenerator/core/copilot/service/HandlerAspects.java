@@ -21,8 +21,8 @@ package io.ballerina.flowmodelgenerator.core.copilot.service;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 
 /**
- * The handler tier of spec §5: everything written on one {@code remote}/{@code resource function} line
- * except its parameters, which are {@link ParamAspects}, and its §8 annotations, which are
+ * The handler tier of the spec: everything written on one {@code remote}/{@code resource function} line
+ * except its parameters, which are {@link ParamAspects}, and its the spec annotations, which are
  * {@link AnnotationAspects}.
  *
  * <p>Each method runs once per handler, and each owns one construct so that a change to how a handler is
@@ -43,14 +43,14 @@ final class HandlerAspects {
     }
 
     /**
-     * Spec §5 {@code options[].name} — a handler's name, its description, and its deprecation prose.
+     * The spec {@code options[].name} — a handler's name, its description, and its deprecation prose.
      *
-     * <p>Spec §5.1 inverts the DRY rule here, and only here. A marker service type declares no method, so
+     * <p>The spec inverts the DRY rule here, and only here. A marker service type declares no method, so
      * no symbol carries a doc comment for its handlers, and the document's authored {@code doc} is the only
      * description a generator will ever see. A concrete type's declared method carries a real name and doc
      * comment, so the document is not consulted for either.
      *
-     * <p>Spec §5.3 {@code deprecated} is prose, not a flag: {@code ftp}'s {@code onFileChange} names the
+     * <p>The spec {@code deprecated} is prose, not a flag: {@code ftp}'s {@code onFileChange} names the
      * five typed handlers that replace it, and a boolean would tell a reader to stop using the handler
      * without saying what to use instead.
      */
@@ -68,10 +68,10 @@ final class HandlerAspects {
     }
 
     /**
-     * Spec §5 {@code options[].kind} — whether the renderer writes {@code remote function} or
+     * The spec {@code options[].kind} — whether the renderer writes {@code remote function} or
      * {@code resource function}.
      *
-     * <p>The accessor and path that go with a resource kind are {@link #resourceExtras}: spec §5 gave the
+     * <p>The accessor and path that go with a resource kind are {@link #resourceExtras}: The spec gave the
      * construct a single {@code accessor} slot, so there is no precedence question left here.
      */
     static void kind(HandlerScope scope, HandlerDraft draft) {
@@ -100,13 +100,13 @@ final class HandlerAspects {
     }
 
     /**
-     * Spec §5 {@code options[].presence} — whether a handler must be implemented or may be omitted.
+     * The spec {@code options[].presence} — whether a handler must be implemented or may be omitted.
      *
      * <p>Metadata-driven handlers only. A concrete service type declares its methods and the compiler
      * plugin decides which a service must implement, so the document says nothing and neither does this —
      * which is why {@code trigger.github}'s and {@code mcp:AdvancedService}'s handlers carry no marker.
      *
-     * <p>Spec §5.1 moved {@code addMode} onto the option, making presence a per-handler question: a service
+     * <p>The spec moved {@code addMode} onto the option, making presence a per-handler question: a service
      * type may mix fixed handlers with open-ended shapes, and only the fixed ones have an occurrence count.
      */
     static void presence(HandlerScope scope, HandlerDraft draft) {
@@ -118,9 +118,9 @@ final class HandlerAspects {
     }
 
     /**
-     * Spec §5's resource extras — the accessor and path of {@code resource function <accessor> <path>()}.
+     * The spec's resource extras — the accessor and path of {@code resource function <accessor> <path>()}.
      *
-     * <p>One component for both protocol families, because spec §5 made the two slots library-neutral; it
+     * <p>One component for both protocol families, because the spec made the two slots library-neutral; it
      * replaces the separate HTTP and GraphQL aspects, which existed only because the schema used to name the
      * same two positions differently per protocol.
      *
@@ -140,7 +140,7 @@ final class HandlerAspects {
     }
 
     /**
-     * Spec §5 {@code options[].returns} — the handler's return type.
+     * The spec {@code options[].returns} — the handler's return type.
      *
      * <p>A concrete method's return comes from the semantic model already rendered; a marker type's is the
      * document's union, joined and canonicalized. Both then drop a nil-only return, which carries no

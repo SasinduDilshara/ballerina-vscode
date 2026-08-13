@@ -21,11 +21,11 @@ package io.ballerina.flowmodelgenerator.core.copilot.service;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 
 /**
- * Owns <b>spec §7 {@code params[].presence}</b>: whether a handler parameter may be omitted.
+ * Owns <b>the spec {@code params[].presence}</b>: whether a handler parameter may be omitted.
  *
  * <p>Its own component rather than a method on {@link ParamTypeResolver}, for the same reason
  * {@link ParamRepeatResolver} was split out of it: one spec key, one owner. A parameter slot carries three
- * independent modifiers — its type surface (§7 {@code type}), whether it may be omitted
+ * independent modifiers — its type surface (the spec {@code type}), whether it may be omitted
  * ({@code presence}), and whether it repeats ({@code addMode}) — and the consumer treats all three
  * differently.
  *
@@ -38,7 +38,7 @@ import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 final class ParamPresenceResolver {
 
     /**
-     * Spec §10's presence vocabulary. Declared here rather than borrowed from a sibling construct's
+     * The spec's presence vocabulary. Declared here rather than borrowed from a sibling construct's
      * constant: {@code params[].presence} is its own slot, and coupling it to an unrelated type's
      * constant would make a future divergence in either invisible.
      */
@@ -49,7 +49,7 @@ final class ParamPresenceResolver {
     }
 
     /**
-     * Spec §7 {@code presence}: {@code "optional"} is the only value that changes the signature.
+     * The spec {@code presence}: {@code "optional"} is the only value that changes the signature.
      *
      * <p>Anything else — {@code "required"}, an unrecognised token, or an absent key — reads as required.
      * That asymmetry is deliberate: a parameter wrongly marked optional invites the reader to omit

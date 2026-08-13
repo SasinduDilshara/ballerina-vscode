@@ -21,12 +21,12 @@ package io.ballerina.flowmodelgenerator.core.copilot.model;
 import java.util.List;
 
 /**
- * Spec §3 {@code serviceTypes[].identifier} — the slot between {@code service} and {@code on new …}, and
+ * The spec {@code serviceTypes[].identifier} — the slot between {@code service} and {@code on new …}, and
  * whether the generated service must fill it.
  *
  * <p>Carries the document's own {@code form} tokens rather than a pre-rendered placeholder: turning
  * {@code basePath} into {@code /basePath} is a syntax decision, and every other one already belongs to the
- * renderer. Keeping the raw tokens also means a form outside spec §10's vocabulary survives the trip and can
+ * renderer. Keeping the raw tokens also means a form outside the spec's vocabulary survives the trip and can
  * be named in the note the renderer emits instead of being flattened into "unknown".
  *
  * @since 1.7.0

@@ -21,7 +21,7 @@ package io.ballerina.flowmodelgenerator.core.copilot.model;
 import java.util.List;
 
 /**
- * Spec §2.1 {@code listeners[].platformDependencies} — a native artifact the build cannot fetch.
+ * The spec {@code listeners[].platformDependencies} — a native artifact the build cannot fetch.
  *
  * @since 1.10.0
  */

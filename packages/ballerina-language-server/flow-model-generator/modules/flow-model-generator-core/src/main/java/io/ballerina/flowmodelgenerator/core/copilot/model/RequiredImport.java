@@ -23,7 +23,7 @@ package io.ballerina.flowmodelgenerator.core.copilot.model;
  * a driver package that registers itself at runtime, for instance. Rendered as
  * {@code import <module> as <alias>;}.
  *
- * <p>Resolved from a trigger metadata document's {@code listeners[].requiredImports} (spec §2).
+ * <p>Resolved from a trigger metadata document's {@code listeners[].requiredImports} (the spec).
  * Distinct from {@code TriggerMetadataModel.RequiredImport}, which is the document-side shape
  * ({@code importType} + {@code packageInfo}); this is the wire shape the renderer consumes.
  *

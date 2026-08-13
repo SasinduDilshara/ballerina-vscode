@@ -44,35 +44,35 @@ public class ServiceRemoteFunction {
     private List<Parameter> parameters;
     @SerializedName("return")
     private Return returnInfo;
-    // Spec §5 `options[].presence`, tri-state. Boxed on purpose: the pipeline omits the key entirely under
+    // The spec `options[].presence`, tri-state. Boxed on purpose: the pipeline omits the key entirely under
     // `addMode: "many"`, where the document is not saying whether a handler is required, and a primitive
     // would silently turn that into `false` on the JSON round-trip — asserting "required" for a handler
     // nobody said anything about. Null means "not stated"; the renderer emits no marker for it.
     private Boolean optional;
-    // Spec §5 resource extras — the two positions of `resource function <accessor> <path>()`, and nothing
+    // The spec resource extras — the two positions of `resource function <accessor> <path>()`, and nothing
     // else. The spec collapsed HTTP's `method`/`path` and GraphQL's `accessor`/`fieldName` into one pair,
     // so `methodValues`, `pathForm`, `fieldNameForm`, `fieldNameRequired` and `graphqlOperation` are gone.
     //
     // These fields are the JSON contract, not an internal convenience: `CopilotLibraryManager` deserializes
     // the pipeline's own output back through this class, so a key the pipeline emits and this class does
     // not declare is DROPPED, silently and without a compile error. That is exactly what happened to the
-    // three accessor keys below when §5 landed — the pipeline resolved every HTTP verb and the renderer had
+    // three accessor keys below when the spec landed — the pipeline resolved every HTTP verb and the renderer had
     // a branch to print them, and the whole vocabulary vanished on the round trip. See
     // ServiceRemoteFunctionWireContractTest, which pins every key `HandlerDraft` writes.
     private String accessor;
-    // Spec §5 `accessor.values` — every legal accessor, for the note.
+    // The spec `accessor.values` — every legal accessor, for the note.
     private List<String> accessorValues;
-    // Spec §5 `accessor.presence` — whether one must be written.
+    // The spec `accessor.presence` — whether one must be written.
     private Boolean accessorRequired;
-    // Spec §5 `values: ["*"]` — any accessor the language accepts. Told apart from an enumerated list
+    // The spec `values: ["*"]` — any accessor the language accepts. Told apart from an enumerated list
     // because a note reading "must be one of `*`" is nonsense, whereas "any the language accepts" is usable.
     private Boolean accessorOpen;
-    // Spec §5 `path.presence` — whether a resource path must be written. No syntactic FORM accompanies it:
-    // §5 dropped the `identifierSegments`/`pathParamSegments` vocabulary because the language already fixes
+    // The spec `path.presence` — whether a resource path must be written. No syntactic FORM accompanies it:
+    // the spec dropped the `identifierSegments`/`pathParamSegments` vocabulary because the language already fixes
     // the grammar. A value list is a different claim and is carried below.
     private Boolean pathRequired;
-    // Spec §5 `path` is the same `valueSpec` as `accessor`, so it may enumerate legal paths or declare
-    // itself open. The path to write (the first declared value, per §1's codegen-default rule)...
+    // The spec `path` is the same `valueSpec` as `accessor`, so it may enumerate legal paths or declare
+    // itself open. The path to write (the first declared value, per the spec's codegen-default rule)...
     private String path;
     // ...every legal path, for the note...
     private List<String> pathValues;
@@ -81,7 +81,7 @@ public class ServiceRemoteFunction {
     // path lost the constraint on this hop — the same silent drop the comment above records for the
     // accessor keys, in the other half of one shared definition.
     private Boolean pathOpen;
-    // Spec §8 at `attachPoint: "function"` — annotations the generated handler must or may carry. Named
+    // The spec at `attachPoint: "function"` — annotations the generated handler must or may carry. Named
     // `annotationRefs` to match parameter scope, where `annotations` is already taken by the semantic
     // model's own attachments; consistency across the three scopes beats saving a word at the free one.
     private List<ServiceAnnotationRef> annotationRefs;

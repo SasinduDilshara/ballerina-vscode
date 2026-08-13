@@ -20,7 +20,7 @@ package io.ballerina.flowmodelgenerator.core.copilot.model;
 
 /**
  * An annotation the generated service must or may carry — the wire shape the renderer consumes for a
- * trigger metadata document's {@code annotations[]} at {@code attachPoint: "service"} (spec §8).
+ * trigger metadata document's {@code annotations[]} at {@code attachPoint: "service"} (the spec).
  *
  * <p>Distinct from {@link Annotation}, which states that the library <b>declares</b> an annotation (a
  * fact the compiler reports, rendered as {@code public annotation C A on service;}), and from

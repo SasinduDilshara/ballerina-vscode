@@ -29,7 +29,7 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
- * Owns <b>spec §9 {@code params[].dataBinding}</b> at the variant level: reading each {@code typedescs[]}
+ * Owns <b>the spec {@code params[].dataBinding}</b> at the variant level: reading each {@code typedescs[]}
  * entry's bound and exclusions, and dispatching its {@code shapes[]} to {@link ShapeResolver}.
  *
  * <p>Spec v1.0 moved the binding <b>inline onto the parameter</b> and deleted the top-level
@@ -78,12 +78,12 @@ final class DataBindingResolver {
      * Resolves a parameter's inline binding.
      *
      * <p>{@code envelopeFields} is a plain lookup function rather than a facts object on purpose: it is the
-     * only introspected input §9 needs (spec §9: "No {@code fixedFields}, they are the envelope's fields
+     * only introspected input the spec needs (the spec: "No {@code fixedFields}, they are the envelope's fields
      * minus {@code bindableFields}"), and taking it as a function keeps this resolver and
      * {@link ShapeResolver} unit-testable without a compiled package behind them.
      *
      * @param binding        the parameter's {@code dataBinding}; may be {@code null}
-     * @param packageName    the resolved package name, for rendering type references per spec §1
+     * @param packageName    the resolved package name, for rendering type references per the spec
      * @param declaresType   whether the home module declares a type of a given name
      * @param envelopeFields the declared field names of a record, by bare type name
      * @return the resolved binding, or empty when it states nothing a consumer can act on

@@ -26,9 +26,9 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Owns <b>spec §4 {@code handlers}</b>: which of the two sources a service type's handlers come from.
+ * Owns <b>the spec {@code handlers}</b>: which of the two sources a service type's handlers come from.
  *
- * <p>Spec §4 states the rule directly — {@code backedByConcreteType} "{@code true} means the type's own
+ * <p>The spec states the rule directly — {@code backedByConcreteType} "{@code true} means the type's own
  * methods are the handlers, so introspection already answers everything this file could say. {@code false}
  * means {@code options} is the only source of truth." This is the one component that knows how many
  * handlers exist, and therefore the one that drives the handler and parameter tiers.
@@ -62,7 +62,7 @@ final class HandlerCatalogResolver {
         /**
          * A marker type: the metadata document's {@code options} are the only source of truth.
          *
-         * <p>One variant carrying two lists, because spec §5.1 lets them coexist: {@code addMode} moved from
+         * <p>One variant carrying two lists, because the spec lets them coexist: {@code addMode} moved from
          * the {@code handlers} block onto each option so that fixed lifecycle handlers alongside open
          * user-named ones is expressible, and a service type mixing them has one catalog rather than two.
          *
@@ -70,7 +70,7 @@ final class HandlerCatalogResolver {
          *                  governed by its own {@code presence}
          * @param templates the {@code many} options — shapes whose instances the author names, which
          *                  therefore cannot be written as-is and are rendered as commented guidance
-         *                  (spec §11.1: such a handler "cannot yield a compilable signature")
+         *                  (the spec: such a handler "cannot yield a compilable signature")
          */
         record Documented(List<TriggerMetadataModel.ServiceType.HandlerOption> named,
                           List<TriggerMetadataModel.ServiceType.HandlerOption> templates)
@@ -91,7 +91,7 @@ final class HandlerCatalogResolver {
      *
      * <p><b>Now always empty.</b> It used to carry three kinds of degradation, each a document stating
      * something true that the schema could not express, and each costing real output — {@code graphql} lost
-     * its mutation and subscription shapes entirely. Spec §5.1 made all three legal. The field is kept
+     * its mutation and subscription shapes entirely. The spec made all three legal. The field is kept
      * because the shape of the contract should not change with the corpus, and a future deviation still
      * needs somewhere to go.
      *
@@ -141,7 +141,7 @@ final class HandlerCatalogResolver {
     /**
      * Partitions a marker type's vocabulary by each option's own {@code addMode}.
      *
-     * <p>Spec §5.1 makes {@code subset} the reading for an absent {@code addMode}, so an option is a
+     * <p>The spec makes {@code subset} the reading for an absent {@code addMode}, so an option is a
      * template only when it says so. A {@code many} option is always named {@code "*"} — the author picks
      * the real name — which is why it can never join the named list; a {@code subset} option with no name
      * has nothing to emit and is dropped.

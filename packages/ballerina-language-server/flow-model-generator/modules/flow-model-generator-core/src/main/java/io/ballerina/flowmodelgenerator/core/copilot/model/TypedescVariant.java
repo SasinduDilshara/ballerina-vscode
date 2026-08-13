@@ -21,7 +21,7 @@ package io.ballerina.flowmodelgenerator.core.copilot.model;
 import java.util.List;
 
 /**
- * Spec §9 {@code typedescs[]} — one independent way a parameter's value may be projected.
+ * The spec {@code typedescs[]} — one independent way a parameter's value may be projected.
  *
  * @since 1.10.0
  */

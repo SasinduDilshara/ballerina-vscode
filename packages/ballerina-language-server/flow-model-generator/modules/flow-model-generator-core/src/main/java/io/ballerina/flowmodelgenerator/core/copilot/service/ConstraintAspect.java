@@ -31,7 +31,7 @@ import java.util.Set;
 import java.util.logging.Logger;
 
 /**
- * Spec §6 {@code rules[]} — the exclusivity constraints a service type declares.
+ * The spec {@code rules[]} — the exclusivity constraints a service type declares.
  *
  * <p><b>Runs before the handler catalog.</b> {@link ConstraintResolver} needs this service type's handler
  * names, so that a {@code {handler}} member naming something absent can be dropped rather than offered to
@@ -82,7 +82,7 @@ final class ConstraintAspect {
     }
 
     /**
-     * Spec §6's <b>top-level</b> {@code rules[]} — constraints spanning more than one service type, where
+     * The spec's <b>top-level</b> {@code rules[]} — constraints spanning more than one service type, where
      * every subject must name its {@code serviceType} — narrowed to the ones this service type
      * participates in.
      *
@@ -117,7 +117,7 @@ final class ConstraintAspect {
             // service over another construct's error is exactly what `drop` exists to avoid.
             if (namesNoServiceType(rule)) {
                 LOGGER.warning("Skipped top-level rule '" + rule.id() + "' for " + scope.libraryName()
-                        + ": spec §6 requires every subject of a top-level rule to name its `serviceType`,"
+                        + ": The spec requires every subject of a top-level rule to name its `serviceType`,"
                         + " and none of this rule's subjects does, so it reaches no service type.");
             }
         }
@@ -303,7 +303,7 @@ final class ConstraintAspect {
         if (subject.role() != null) {
             json.addProperty("role", subject.role());
         }
-        // Spec §6: emitted only for a subject belonging to a DIFFERENT service type than the entry being
+        // The spec: emitted only for a subject belonging to a DIFFERENT service type than the entry being
         // rendered, so a service-type-scoped rule — every rule in the corpus — is byte-identical to before.
         // The resolved type name is what a reader recognises; the id follows it for traceability.
         if (subject.serviceType() != null) {

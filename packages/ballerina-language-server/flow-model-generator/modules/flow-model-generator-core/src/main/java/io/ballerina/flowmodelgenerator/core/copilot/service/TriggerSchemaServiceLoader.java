@@ -59,7 +59,7 @@ import java.util.logging.Logger;
  *       returned with {@code documentResolved == true}, which tells the caller <b>not</b> to substitute the
  *       index, since a poorer catalog presented as authoritative hides the defect. Always logged.</li>
  *   <li><b>Entry-level veto</b> — one service type or one handler is dropped with an attributable
- *       {@link Veto} while the rest of the library is served normally.</li>
+ *       reason while the rest of the library is served normally.</li>
  * </ul>
  *
  * <p>Note that a document's declared spec version is <b>not</b> gated on: every document this build can
@@ -104,42 +104,28 @@ final class TriggerSchemaServiceLoader {
     }
 
     /**
-     * The outcome of one library load: the emitted services, and every reason an entry was dropped.
-     *
-     * <p>Vetoes never reach the emitted JSON — they are diagnostics about the document, returned rather
-     * than only logged so a caller or a test can assert exactly what a library dropped and why.
+     * The outcome of one library load.
      *
      * @param services         the emitted service entries, in document order
-     * @param vetoes           every reason an entry was dropped, whether a service type or a single
-     *                         handler
      * @param documentResolved whether a metadata document was found for this library at all, which differs
      *                         from whether it produced anything. Empty-with-no-document means "not a
      *                         trigger library"; empty-with-a-document means the document is there and
      *                         yielded nothing, which is a defect. Only the caller can act on the
      *                         distinction, so it is reported rather than collapsed into an empty array
      */
-    record LoadResult(JsonArray services, List<Veto> vetoes, boolean documentResolved) {
+    record LoadResult(JsonArray services, boolean documentResolved) {
     }
 
     /**
      * Loads services for a trigger library.
      *
      * <p>Returns an empty array when inputs are missing, no metadata document resolves for the library, or
-     * anything throws. Use {@link #load} instead when the caller needs to tell "no document" from
-     * "document resolved and produced nothing" — this overload deliberately discards that distinction.
+     * anything throws. Reasons an entry was dropped are logged, naming the library and the subject.
      *
      * @param libraryName   the library name, e.g. {@code "ballerinax/kafka"}
      * @param pkg           the resolved package the caller already compiled; may be {@code null}
      * @param semanticModel the package's semantic model; may be {@code null}
-     * @return the services JSON, empty when this library is not served from metadata
-     */
-    static JsonArray loadServices(String libraryName, Package pkg, SemanticModel semanticModel) {
-        return load(libraryName, pkg, semanticModel).services();
-    }
-
-    /**
-     * {@link #loadServices} plus the veto report. Same work; this overload simply does not discard the
-     * diagnostics.
+     * @return the services and whether a document was found
      */
     static LoadResult load(String libraryName, Package pkg, SemanticModel semanticModel) {
         if (pkg == null || semanticModel == null) {
@@ -177,17 +163,18 @@ final class TriggerSchemaServiceLoader {
                 TypeRef declared = metadata.listeners().get(0).type();
                 LOGGER.warning("No listener class resolvable for " + libraryName
                         + " (metadata declared: " + (declared == null ? null : declared.name()) + ")");
-                return new LoadResult(new JsonArray(), paired.vetoes(), true);
+                paired.vetoes().forEach(v -> LOGGER.warning("Dropped for " + libraryName + ": " + v));
+                return new LoadResult(new JsonArray(), true);
             }
 
             AspectRegistry registry = new AspectRegistry();
-            // Spec §8's registry is built once per library: it is shared by every service type, and by
+            // The spec's registry is built once per library: it is shared by every service type, and by
             // every attach point once the later phases land.
             AnnotationRegistry annotations = AnnotationRegistry.of(metadata);
             JsonArray services = new JsonArray();
             // Seeded with the pairing tier's own drops: a service type whose listener did not resolve never
             // reaches `buildService`, and the log line above fires only when every pairing fails.
-            List<Veto> vetoes = new ArrayList<>(paired.vetoes());
+            List<String> vetoes = new ArrayList<>(paired.vetoes());
 
             for (ListenerPairingResolver.ListenerPairing pairing : pairings) {
                 ServiceDraft draft = buildService(libraryName, org, packageName, metadata, annotations,
@@ -199,10 +186,10 @@ final class TriggerSchemaServiceLoader {
                 services.add(draft.toJson());
             }
 
-            for (Veto veto : vetoes) {
+            for (String veto : vetoes) {
                 LOGGER.warning("Dropped for " + libraryName + ": " + veto);
             }
-            return new LoadResult(services, vetoes, true);
+            return new LoadResult(services, true);
         } catch (RuntimeException e) {
             LOGGER.warning("Failed to load schema-driven services for " + libraryName + ": " + e.getMessage());
             return empty(documentResolved);
@@ -240,7 +227,7 @@ final class TriggerSchemaServiceLoader {
     }
 
     private static LoadResult empty(boolean documentResolved) {
-        return new LoadResult(new JsonArray(), List.of(), documentResolved);
+        return new LoadResult(new JsonArray(), documentResolved);
     }
 
     /**

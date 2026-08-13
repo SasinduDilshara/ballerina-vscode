@@ -28,15 +28,15 @@ import java.util.Set;
 import java.util.function.Predicate;
 
 /**
- * Owns <b>spec §7 {@code params[]}</b>: a handler parameter slot's type, presence and name.
+ * Owns <b>the spec {@code params[]}</b>: a handler parameter slot's type, presence and name.
  *
- * <p>{@code type} is a {@code TypeRef} or array whose first element is the codegen default (spec §1), so the
+ * <p>{@code type} is a {@code TypeRef} or array whose first element is the codegen default (the spec), so the
  * emitted signature is that member; {@code presence} is {@code required}/{@code optional}.
  *
  * <p>{@code addMode} is <b>not</b> owned here — see {@link ParamRepeatResolver}. The renderer treats
  * {@code presence} and {@code addMode} completely differently, so they are genuinely separate constructs.
  *
- * <p>{@code name} is the interesting one: §7 calls it an "optional domain-meaningful name … added only where
+ * <p>{@code name} is the interesting one: The spec calls it an "optional domain-meaningful name … added only where
  * real source evidence shows it matters". Where the document states one it wins; where it does not, a name is
  * still synthesized, because a method signature cannot be written without one.
  *
@@ -49,7 +49,7 @@ final class ParamTypeResolver {
     }
 
     /**
-     * The slot's emitted type signature: its codegen-default member, module-prefixed per spec §1.
+     * The slot's emitted type signature: its codegen-default member, module-prefixed per the spec.
      */
     static String signature(TriggerMetadataModel.ServiceType.Param param, String packageName,
                             Predicate<String> declaresType) {
@@ -61,11 +61,11 @@ final class ParamTypeResolver {
      * legal for it.
      *
      * <p><b>{@code alternatives} must never be joined with {@code |}.</b> A {@code |}-joined type declares a
-     * parameter <i>of union type</i>, whereas spec §7 means the author picks exactly one of them when writing
+     * parameter <i>of union type</i>, whereas the spec means the author picks exactly one of them when writing
      * the signature. {@code rabbitmq}'s {@code onMessage} takes an {@code AnydataMessage} or a
      * {@code BytesMessage}, not an {@code AnydataMessage|BytesMessage}.
      *
-     * @param signature    the codegen-default member (spec §1's first element), as written in the signature
+     * @param signature    the codegen-default member (the spec's first element), as written in the signature
      * @param alternatives every other legal member, in document order; rendered but never joined
      * @param dropped      members naming a same-module type the resolved package does not declare, recorded
      *                     rather than rendered so an unresolvable type name never reaches the prompt
@@ -81,7 +81,7 @@ final class ParamTypeResolver {
      * {@link #signatureReferencesUndeclaredType}'s job, applied before a handler is built at all.
      *
      * @param param        the slot
-     * @param packageName  the resolved package name, for rendering per spec §1
+     * @param packageName  the resolved package name, for rendering per the spec
      * @param declaresType whether the home module declares a type of a given name
      * @return the signature member, the surviving alternatives, and the members dropped as undeclared
      */
@@ -154,7 +154,7 @@ final class ParamTypeResolver {
     }
 
     /**
-     * A bare reference (spec §1: same module as the connector's own types) whose base identifier looks
+     * A bare reference (the spec: same module as the connector's own types) whose base identifier looks
      * user-defined but which the resolved package does not declare. A {@code packageInfo}-carrying
      * reference is cross-module and cannot be checked against this module's symbols, so it is trusted.
      */

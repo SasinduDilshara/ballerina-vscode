@@ -21,7 +21,7 @@ package io.ballerina.flowmodelgenerator.core.copilot.model;
 import java.util.List;
 
 /**
- * The data-binding rule a handler parameter's {@code dataBinding} id names — spec §9.
+ * The data-binding rule a handler parameter's {@code dataBinding} id names — the spec.
  *
  * @since 1.7.0
  */

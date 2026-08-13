@@ -25,10 +25,10 @@ import java.util.Optional;
 import java.util.function.Predicate;
 
 /**
- * Owns <b>spec §1's home-module rule</b> and <b>§3's {@code serviceTypes[].type}</b>: who a service type
+ * Owns <b>the spec's home-module rule</b> and <b>the spec's {@code serviceTypes[].type}</b>: who a service type
  * belongs to, and therefore what alias it is written with.
  *
- * <p>Spec §1 defines "home" as "whichever module the file's primary construct (its listener, usually)
+ * <p>The spec defines "home" as "whichever module the file's primary construct (its listener, usually)
  * belongs to", and says a {@code packageInfo} is present "only when the type isn't from this file's own
  * home module". Everything here follows from those two sentences:
  * <ul>
@@ -59,7 +59,7 @@ final class ServiceIdentityResolver {
      * @param foreign           whether the type belongs to a module other than home
      * @param declaredByPackage whether the resolved package declares this type; always {@code true} for
      *                          a foreign type, which cannot be checked against this module's symbols
-     * @param alternatives      whether the document declares more than one service type, which spec §3
+     * @param alternatives      whether the document declares more than one service type, which the spec
      *                          makes each of them "individually optional"
      */
     record ServiceIdentity(String typeName, String serviceTypeModule, boolean foreign,
@@ -67,7 +67,7 @@ final class ServiceIdentityResolver {
     }
 
     /**
-     * Spec §1's home module: taken from the listener's own {@code packageInfo} when it declares one,
+     * The spec's home module: taken from the listener's own {@code packageInfo} when it declares one,
      * otherwise the resolved library's default module, which is its package name.
      *
      * @param listener    the document's listener; may be {@code null}
@@ -102,7 +102,7 @@ final class ServiceIdentityResolver {
      */
     static Optional<String> serviceTypeModule(TriggerMetadataModel.ServiceType serviceType,
                                               String homeModule) {
-        // Spec §1's cross-module rule has one implementation, in commons: a service type's ownership is
+        // The spec's cross-module rule has one implementation, in commons: a service type's ownership is
         // the same question as any other type reference's, and answering it twice is how the two would
         // drift.
         return TypeRefResolver.foreignModulePath(
@@ -115,7 +115,7 @@ final class ServiceIdentityResolver {
      * @param serviceType      the service type
      * @param homeModule       the document's home module
      * @param declaresType     whether the resolved package declares a type of the given name
-     * @param serviceTypeCount how many service types the document declares, which is spec §3's <i>only</i>
+     * @param serviceTypeCount how many service types the document declares, which is the spec's <i>only</i>
      *                         statement about whether this one is mandatory: "one entry = required;
      *                         multiple entries = each individually optional"
      */

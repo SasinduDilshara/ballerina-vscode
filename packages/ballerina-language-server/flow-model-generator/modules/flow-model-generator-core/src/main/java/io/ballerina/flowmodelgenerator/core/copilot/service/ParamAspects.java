@@ -28,12 +28,11 @@ import java.util.Optional;
 import java.util.function.Function;
 
 /**
- * The parameter tier of spec §7, plus spec §9's data binding. Each method runs once per parameter slot of a
- * handler.
+ * The parameter tier, plus data binding. Each method runs once per parameter slot of a handler.
  *
  * <p>The same provenance split as the handler tier applies: a <b>declared</b> parameter of a concrete
  * service type supplies its own name, type and optionality; a <b>metadata</b> slot supplies its type and
- * presence, and its name only sometimes. §8 parameter annotations are {@link AnnotationAspects#param}.
+ * presence, and its name only sometimes. Parameter annotations are {@link AnnotationAspects#param}.
  *
  * <p>Order carries no meaning — {@link ParamDraft} holds each slot as a field and emits the wire contract's
  * key order itself.
@@ -47,15 +46,15 @@ final class ParamAspects {
     }
 
     /**
-     * Spec §7 {@code params[]} — one slot's name, description and type.
+     * The spec {@code params[]} — one slot's name, description and type.
      *
-     * <p>§7 calls {@code name} an "optional domain-meaningful name", so where the document omits it a
+     * <p>The spec calls {@code name} an "optional domain-meaningful name", so where the document omits it a
      * deterministic one is generated. This is the only place in the pipeline where a name is synthesized
-     * rather than read. A repeatable slot is exempt: §7 says its occurrences are "each independently named"
+     * rather than read. A repeatable slot is exempt: The spec says its occurrences are "each independently named"
      * by the author, so there is no single name for it and none is synthesized — though an authored name is
      * still a real fact and is kept.
      *
-     * <p>Spec §5.1's rule applies to parameters too: a documented slot of a marker-type handler has no
+     * <p>The spec's rule applies to parameters too: a documented slot of a marker-type handler has no
      * symbol behind it, so the document's {@code doc} is the only description of what it carries.
      */
     static void type(ParamScope scope, ParamDraft draft) {
@@ -73,14 +72,14 @@ final class ParamAspects {
         }
 
         TriggerMetadataModel.ServiceType.Param param = scope.param();
-        // Reading ParamRepeatResolver's predicate rather than the raw key leaves §7's `addMode` with
+        // Reading ParamRepeatResolver's predicate rather than the raw key leaves the spec's `addMode` with
         // exactly one owner.
         String name = ParamRepeatResolver.isRepeatable(param)
                 ? param.name()
                 : ParamTypeResolver.resolveName(param, scope.position(),
                         TypeRefResolver.moduleAlias(packageName), scope.siblingNames());
         draft.setDescription(param.doc());
-        // Spec §7 `deprecated`, the parameter-scope twin of §5.3's. No corpus slot states one yet; the
+        // The spec `deprecated`, the parameter-scope twin of the spec's. No corpus slot states one yet; the
         // wiring is here because the alternative is that the first document to state one loses it silently.
         draft.setDeprecated(param.deprecated());
         if (name != null) {
@@ -93,7 +92,7 @@ final class ParamAspects {
         draft.setName(name);
         draft.setType(TypeResolver.resolveTypeWithLinks(resolved.signature(), packageName));
 
-        // Spec §7's other legal types, as link-carrying pairs so the type closure reaches their
+        // The spec's other legal types, as link-carrying pairs so the type closure reaches their
         // definitions. Never joined with `|` — see ParamTypeResolver.ParamType.
         JsonArray alternatives = new JsonArray();
         for (String alternative : resolved.alternatives()) {
@@ -102,13 +101,13 @@ final class ParamAspects {
         draft.setAlternatives(alternatives);
 
         for (String undeclared : resolved.dropped()) {
-            draft.drop("paramType", "§7", undeclared,
-                    "an alternative type the resolved package version does not declare");
+            draft.drop("paramType: " + undeclared
+                    + ": an alternative type the resolved package version does not declare");
         }
     }
 
     /**
-     * Spec §7 {@code params[].presence} — whether the slot may be omitted from the signature. Reads
+     * The spec {@code params[].presence} — whether the slot may be omitted from the signature. Reads
      * whichever source the handler came from: a metadata slot states {@code presence}, a declared parameter
      * carries the compiler's answer.
      */
@@ -119,7 +118,7 @@ final class ParamAspects {
     }
 
     /**
-     * Spec §7 {@code params[].addMode} — the flag that takes a slot out of the fixed signature.
+     * The spec {@code params[].addMode} — the flag that takes a slot out of the fixed signature.
      *
      * <p>Metadata-described slots only: a declared parameter either exists or does not, and there is no
      * notion of one that repeats.
@@ -131,7 +130,7 @@ final class ParamAspects {
     }
 
     /**
-     * Spec §9 {@code params[].dataBinding} — how a parameter's raw value may be projected into a
+     * The spec {@code params[].dataBinding} — how a parameter's raw value may be projected into a
      * user-defined type.
      *
      * <p>Every type name is written as a {@code {name, links}} pair rather than bare text, because the type
@@ -141,7 +140,7 @@ final class ParamAspects {
      *
      * <p><b>The wire shape mirrors the document's</b> — variants, each with a bound, its exclusions and its
      * shapes — rather than flattening to a single {@code modes} array. Flattening would have to pick one
-     * bound per binding, and §9's whole point is that two variants can share shapes while differing in bound
+     * bound per binding, and the spec's whole point is that two variants can share shapes while differing in bound
      * (ftp's CSV rows) or share a bound while differing in shape (kafka's bare-vs-included).
      */
     static void dataBinding(ParamScope scope, ParamDraft draft) {
@@ -158,15 +157,16 @@ final class ParamAspects {
             // A binding is written inline, so there is no id to have mis-resolved: the only way here is a
             // binding whose every variant was unusable. Reported against the parameter, which is also where
             // the document author has to edit.
-            draft.drop("dataBinding", "§9", param.name() == null ? "<unnamed param>" : param.name(),
-                    "its dataBinding declares no variant with both a bound and a readable shape");
+            String subject = param.name() == null ? "<unnamed param>" : param.name();
+            draft.drop("dataBinding: " + subject
+                    + ": its dataBinding declares no variant with both a bound and a readable shape");
             return;
         }
         draft.setBinding(toJson(spec.get(), packageName));
     }
 
     /**
-     * The envelope-field lookup spec §9's derived {@code fixedFields} needs, or an empty one when no
+     * The envelope-field lookup the spec's derived {@code fixedFields} needs, or an empty one when no
      * compiled package is behind this scope — in which case {@code fixedFields} is simply not derived,
      * rather than guessed.
      */

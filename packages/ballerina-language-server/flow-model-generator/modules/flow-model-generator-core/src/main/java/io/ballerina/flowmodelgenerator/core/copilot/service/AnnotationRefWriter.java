@@ -25,7 +25,7 @@ import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 import java.util.List;
 
 /**
- * The wire shape of a spec §8 annotation requirement, written once and shared by all four attach-point
+ * The wire shape of a the spec annotation requirement, written once and shared by all four attach-point
  * aspects. Owned by nobody, like {@link AnnotationRegistry} and {@link TypeResolver}: the shape is the same
  * at every attach point, and having four aspects each build it would be four places for it to drift.
  *
@@ -60,7 +60,7 @@ final class AnnotationRefWriter {
      * <p>{@code typeConstraint} goes through {@link TypeResolver} exactly as a parameter type does, so the
      * constraining record reaches the prompt by the same link mechanism rather than a second one.
      * {@code module} is omitted for a home-module annotation, which the renderer then prefixes with the
-     * library's own alias — the division of labour spec §1 already imposes on a service type.
+     * library's own alias — the division of labour the spec already imposes on a service type.
      */
     private static JsonObject toJson(AnnotationRef ref, String packageName) {
         JsonObject json = new JsonObject();

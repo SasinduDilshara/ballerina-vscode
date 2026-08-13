@@ -51,19 +51,19 @@ public class Parameter {
      * scope, where the key is historical.
      */
     private List<AnnotationAttachment> annotations;
-    // Spec §7 — the slot's other legal types. Carried as Type (not String) so the renderer's type closure
+    // The spec — the slot's other legal types. Carried as Type (not String) so the renderer's type closure
     // can reach their definitions through the links; never joined into a union.
     private List<Type> alternatives;
     /**
-     * Spec §8 at {@code attachPoint: "parameter"} — annotations code written against this library
+     * The spec at {@code attachPoint: "parameter"} — annotations code written against this library
      * <b>must or may attach</b> here. A requirement on code that does not exist yet, which is why it cannot
      * share {@link #annotations}: that field holds attachments the library already carries.
      */
     private List<ServiceAnnotationRef> annotationRefs;
-    // Spec §9 — how this slot's raw value may be projected into a user-defined type.
+    // The spec — how this slot's raw value may be projected into a user-defined type.
     private ParamBinding binding;
     /**
-     * Spec §7 {@code addMode: "many"} — this slot repeats zero or more times, each occurrence
+     * The spec {@code addMode: "many"} — this slot repeats zero or more times, each occurrence
      * independently named and typed by the author.
      *
      * <p>Boxed and emitted only when true. A renderer must keep such a slot <b>out of the signature</b>:

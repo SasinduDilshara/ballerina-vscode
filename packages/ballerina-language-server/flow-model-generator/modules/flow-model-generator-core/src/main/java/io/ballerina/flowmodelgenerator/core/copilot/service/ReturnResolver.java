@@ -27,10 +27,10 @@ import java.util.Optional;
 import java.util.function.Predicate;
 
 /**
- * Owns <b>spec §5 {@code options[].returns}</b>.
+ * Owns <b>the spec {@code options[].returns}</b>.
  *
  * <p>Joining the members with {@code |} is right here, and only here: a handler's return type genuinely
- * <i>is</i> the union, and spec §1's nilable rule — "{@code T?} = {@code T|()} is an explicit {@code ()}
+ * <i>is</i> the union, and the spec's nilable rule — "{@code T?} = {@code T|()} is an explicit {@code ()}
  * union member, not a separate flag" — makes {@code error|()} the intended text, which canonicalizes to
  * {@code error?}. Contrast a {@code params[].type} union, which enumerates alternatives legal for one
  * slot and must never be joined.

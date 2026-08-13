@@ -49,7 +49,7 @@ final class AspectRegistry {
                 HandlerAspects::kind,
                 HandlerAspects::qualifier,
                 HandlerAspects::presence,
-                // Spec §5 made the accessor/path pair library-neutral, so the two
+                // The spec made the accessor/path pair library-neutral, so the two
                 // protocol-specific aspects collapsed into one.
                 HandlerAspects::resourceExtras,
                 HandlerAspects::returnType,
@@ -79,7 +79,7 @@ final class AspectRegistry {
                 services::platformDependencies,
                 // Must run after identity: identity is what can veto the entry, and an annotation
                 // obligation resolved for a service type that is about to be dropped is output nothing
-                // will read. It does NOT depend on identity's result — spec §8's `appliesTo` matches
+                // will read. It does NOT depend on identity's result — the spec's `appliesTo` matches
                 // `serviceTypes[].id`, which the scope already carries — so this is an ordering of
                 // effect, not of data.
                 AnnotationAspects::service,

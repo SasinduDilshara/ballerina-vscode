@@ -25,9 +25,9 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Lookup over a document's top-level <b>{@code annotations[]}</b> registry (spec §8).
+ * Lookup over a document's top-level <b>{@code annotations[]}</b> registry (the spec).
  *
- * <p>Spec §8 defines the registry as annotation types "referenced elsewhere, defined once", reached by
+ * <p>The spec defines the registry as annotation types "referenced elsewhere, defined once", reached by
  * {@code id} from {@code params[].annotations}, {@code handlers.options[].annotations} and
  * {@code rules[].members[].annotation}, or by {@code attachPoint} for service- and return-level annotations
  * that have no more precise reference. Both access paths live here so that each attach-point component can
@@ -47,7 +47,7 @@ final class AnnotationRegistry {
 
     /**
      * Builds the registry from a document. An absent or empty {@code annotations[]} yields an empty
-     * registry rather than {@code null} — spec §8's key is optional, and a consumer should not have to
+     * registry rather than {@code null} — the spec's key is optional, and a consumer should not have to
      * null-check before every lookup.
      */
     static AnnotationRegistry of(TriggerMetadataModel document) {

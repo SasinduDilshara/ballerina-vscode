@@ -21,7 +21,7 @@ package io.ballerina.flowmodelgenerator.core.copilot.model;
 import java.util.List;
 
 /**
- * Spec §9 {@code shapes[]} — how a {@link TypedescVariant}'s bound type is embedded in the declared type.
+ * The spec {@code shapes[]} — how a {@link TypedescVariant}'s bound type is embedded in the declared type.
  *
  * <p>One class covers all four forms rather than a hierarchy, because this type exists only to survive the
  * Gson round-trip between the pipeline's {@code JsonArray} and the wire; the typed, exhaustively-switched

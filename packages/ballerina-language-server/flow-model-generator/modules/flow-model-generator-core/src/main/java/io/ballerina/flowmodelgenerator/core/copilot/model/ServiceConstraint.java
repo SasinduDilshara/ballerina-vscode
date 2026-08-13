@@ -21,9 +21,9 @@ package io.ballerina.flowmodelgenerator.core.copilot.model;
 import java.util.List;
 
 /**
- * Spec §6 {@code rules[]} — one exclusivity constraint a service type declares.
+ * The spec {@code rules[]} — one exclusivity constraint a service type declares.
  *
- * <p>{@code rule} carries the registry id verbatim ({@code "structure.exactlyOne"}), because spec §6 makes
+ * <p>{@code rule} carries the registry id verbatim ({@code "structure.exactlyOne"}), because the spec makes
  * the vocabulary <b>open</b>: a consumer that does not recognise an id must skip it, which a closed enum
  * here would turn into a parse failure. {@code message} is the document's own sentence and is preferred
  * over anything a renderer can synthesize -- it says why the constraint exists.

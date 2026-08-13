@@ -21,7 +21,7 @@ package io.ballerina.flowmodelgenerator.core.copilot.service;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 
 /**
- * Owns <b>spec §3.1's attachment cardinality</b>: how many listeners one service may attach to, how many
+ * Owns <b>the spec's attachment cardinality</b>: how many listeners one service may attach to, how many
  * services one listener may host, and whether two of those may be the same service type.
  *
  * <p><b>Two of the three facts moved onto the listener in v1.0.</b> The old
@@ -49,7 +49,7 @@ final class CardinalityResolver {
     }
 
     /**
-     * Spec §3.1's three cardinality answers for one (service type x listener) pair.
+     * The spec's three cardinality answers for one (service type x listener) pair.
      *
      * @param multipleListeners           whether one service instance may attach to more than one listener
      *                                    at once ({@code service X on l1, l2 {}}). From the service type
@@ -57,7 +57,7 @@ final class CardinalityResolver {
      *                                    all. From the listener
      * @param multipleServicesOfSameType  whether two of those services may be of this same service type.
      *                                    From the listener, and meaningful only when
-     *                                    {@code multipleServices} is true — spec §2 omits the key entirely
+     *                                    {@code multipleServices} is true — the spec omits the key entirely
      *                                    when it is not, "since one service at most already rules it out"
      */
     record Cardinality(boolean multipleListeners, boolean multipleServices,
@@ -76,7 +76,7 @@ final class CardinalityResolver {
         boolean multipleServices = listener == null
                 || permissiveUnlessForbidden(listener.multipleServicesAllowed());
         // Derived, not defaulted: with at most one service on the listener, two of the same type is
-        // already impossible, and spec §2 accordingly forbids the document from stating the key at all.
+        // already impossible, and the spec accordingly forbids the document from stating the key at all.
         // Reading it as permissive there would emit a note contradicting the one above it.
         boolean sameType = multipleServices
                 && (listener == null

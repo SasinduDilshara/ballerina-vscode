@@ -26,7 +26,7 @@ import java.util.List;
  *
  * <h2>A tree, not a type expression in a string</h2>
  *
- * <p>Spec §1 makes a type reference a <b>tree</b>. A node is either a plain {@link #name}, or a constructed
+ * <p>The spec makes a type reference a <b>tree</b>. A node is either a plain {@link #name}, or a constructed
  * type given by {@link #shape} plus the parts that shape is built from:
  *
  * <pre>
@@ -46,7 +46,7 @@ import java.util.List;
  * {@code TypeRef}, carries its own {@link #packageInfo}, and is qualified independently, so the workaround
  * is no longer needed.
  *
- * <p><b>{@code shape} is closed, unlike the §6.2 rule registry.</b> Spec §1.1 is explicit about the
+ * <p><b>{@code shape} is closed, unlike the spec rule registry.</b> The spec is explicit about the
  * asymmetry: an unrecognised rule can be skipped and the rest of the manifest still used, whereas an
  * unrecognised type shape cannot — the type could not be written at all — so it must fail loudly rather
  * than silently.
@@ -57,7 +57,7 @@ import java.util.List;
  * carrying the wrong fields for its kind far more usefully than a parse failure would. {@link #isNamed()}
  * and {@link #isComposite()} are the intended readers.
  *
- * @param name           the type's simple name for a named node, e.g. {@code "Caller"}. Spec §1
+ * @param name           the type's simple name for a named node, e.g. {@code "Caller"}. The spec
  *                       constrains it to a bare identifier, {@code "()"} or <code>"record {}"</code> — it never
  *                       embeds {@code []}, {@code <>} or a trailing {@code ?}, all of which are shapes or
  *                       unions now. {@code null} for a composite node
@@ -66,7 +66,7 @@ import java.util.List;
  * @param shape          {@link #SHAPE_ARRAY} or {@link #SHAPE_STREAM} for a composite node; {@code null}
  *                       for a named one
  * @param elementType    what the shape holds: the element of an array, the value of a stream. Modelled as
- *                       a list because spec §1 lets any type position be a union
+ *                       a list because the spec lets any type position be a union
  * @param completionType what a stream terminates with; {@code null} for an array, which terminates with
  *                       nothing, and optional even for a stream
  * @since 1.10.0
@@ -77,9 +77,9 @@ public record TypeRef(String name,
                       List<TypeRef> elementType,
                       List<TypeRef> completionType) {
 
-    /** Spec §1.1 {@code shape: "array"} — {@code T[]}. */
+    /** The spec {@code shape: "array"} — {@code T[]}. */
     public static final String SHAPE_ARRAY = "array";
-    /** Spec §1.1 {@code shape: "stream"} — {@code stream<T>} or {@code stream<T, C>}. */
+    /** The spec {@code shape: "stream"} — {@code stream<T>} or {@code stream<T, C>}. */
     public static final String SHAPE_STREAM = "stream";
 
     /** A named node, the common case. */

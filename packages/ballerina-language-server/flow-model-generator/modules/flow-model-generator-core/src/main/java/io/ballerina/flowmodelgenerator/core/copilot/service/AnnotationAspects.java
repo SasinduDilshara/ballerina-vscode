@@ -21,14 +21,14 @@ package io.ballerina.flowmodelgenerator.core.copilot.service;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 
 /**
- * Spec §8 {@code annotations[]} at all four attach points: which annotations generated code must or may
+ * The spec {@code annotations[]} at all four attach points: which annotations generated code must or may
  * carry, on the service, on a handler, on a handler parameter, and on a handler's return.
  *
  * <p>The four differ only in where the id list is read from, which {@link AnnotationScopeResolver.Scope}
  * they select with, and which draft slot they write to; selection itself is one by-id lookup shared by all
  * of them, which is why they are grouped here rather than split across eight files.
  *
- * <p><b>What §8 adds over the library's own annotation list.</b> That list states which annotations a
+ * <p><b>What the spec adds over the library's own annotation list.</b> That list states which annotations a
  * library <i>declares</i>, a fact the compiler reports. These state which ones a construct is <i>obliged to
  * attach</i> — the obligation, its presence and its scope, none of which any symbol carries.
  *
@@ -44,19 +44,19 @@ import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
  */
 final class AnnotationAspects {
 
-    private static final String SPEC_SECTION = "§8";
+    private static final String SPEC_SECTION = "the spec";
 
     private AnnotationAspects() {
         // Prevent instantiation
     }
 
     /**
-     * Spec §8 at {@code attachPoint: "service"}.
+     * The spec at {@code attachPoint: "service"}.
      *
      * <p>Selected by <b>id</b> from {@code serviceTypes[].annotations}, the same forward reference every
      * other point uses. There is deliberately no fallback: an annotation the service type does not
      * reference attaches nowhere. Two corpus documents ({@code smb}, {@code rabbitmq}) reach their service
-     * annotation only from a rule subject, which §8's table does not make a reference site — a rule says
+     * annotation only from a rule subject, which the spec's table does not make a reference site — a rule says
      * what an annotation <i>relates to</i>, not where it goes.
      *
      * <p>Note that {@code annotations[].type} names the annotation, not its constraint:
@@ -77,7 +77,7 @@ final class AnnotationAspects {
     }
 
     /**
-     * Spec §8 at {@code attachPoint: "function"} — reached by id from {@code handlers.options[].annotations}.
+     * The spec at {@code attachPoint: "function"} — reached by id from {@code handlers.options[].annotations}.
      *
      * <p>Only a metadata-described handler can declare them: a concrete service type's methods come from the
      * semantic model, and any annotation they already carry is a fact about the library rather than an
@@ -102,7 +102,7 @@ final class AnnotationAspects {
     }
 
     /**
-     * Spec §8 at {@code attachPoint: "parameter"} — reached by id from {@code params[].annotations}.
+     * The spec at {@code attachPoint: "parameter"} — reached by id from {@code params[].annotations}.
      *
      * <p>The rendered slot differs from every other scope: a parameter annotation is written <b>inline</b>,
      * before the parameter's type ({@code remote function onMessage(@rabbitmq:Payload AnydataMessage msg)}).
@@ -124,7 +124,7 @@ final class AnnotationAspects {
     }
 
     /**
-     * Spec §8 at {@code attachPoint: "return"} — reached by id from
+     * The spec at {@code attachPoint: "return"} — reached by id from
      * {@code handlers.options[].returnAnnotations}.
      *
      * <p>Runs in the handler tier because the return slot belongs to a handler, and is resolved
@@ -153,19 +153,19 @@ final class AnnotationAspects {
 
     private static void report(AnnotationScopeResolver.Resolution resolution, ServiceDraft draft, String id) {
         for (AnnotationScopeResolver.Rejection rejection : resolution.rejections()) {
-            draft.drop(id, SPEC_SECTION, rejection.name(), rejection.reason());
+            draft.drop(id + ": " + rejection.name() + ": " + rejection.reason());
         }
     }
 
     private static void report(AnnotationScopeResolver.Resolution resolution, HandlerDraft draft, String id) {
         for (AnnotationScopeResolver.Rejection rejection : resolution.rejections()) {
-            draft.drop(id, SPEC_SECTION, rejection.name(), rejection.reason());
+            draft.drop(id + ": " + rejection.name() + ": " + rejection.reason());
         }
     }
 
     private static void report(AnnotationScopeResolver.Resolution resolution, ParamDraft draft, String id) {
         for (AnnotationScopeResolver.Rejection rejection : resolution.rejections()) {
-            draft.drop(id, SPEC_SECTION, rejection.name(), rejection.reason());
+            draft.drop(id + ": " + rejection.name() + ": " + rejection.reason());
         }
     }
 }

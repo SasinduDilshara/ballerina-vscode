@@ -19,7 +19,7 @@
 package io.ballerina.flowmodelgenerator.core.copilot.model;
 
 /**
- * Spec §2.1 — one OS-specific native library a {@link PlatformDependency} needs at run time.
+ * The spec — one OS-specific native library a {@link PlatformDependency} needs at run time.
  *
  * <p>A missing one is not a build failure: the package compiles and the service then fails at run time,
  * which is precisely why it has to be carried rather than left to the build graph.

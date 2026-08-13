@@ -28,7 +28,7 @@ import java.util.List;
 public class Return {
     private String description;
     private Type type;
-    // Spec §8 at `attachPoint: "return"` — annotations the generated handler must or may carry on its
+    // The spec at `attachPoint: "return"` — annotations the generated handler must or may carry on its
     // return (`returns @http:Cache {...} T`). Nested here rather than on the method because that is the
     // syntactic slot they attach to.
     private List<ServiceAnnotationRef> annotationRefs;

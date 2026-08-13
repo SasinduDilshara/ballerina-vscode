@@ -26,7 +26,7 @@ import java.util.Set;
 import java.util.function.BiConsumer;
 
 /**
- * Spec §4/§5 — builds every handler of a service type, and through them every parameter.
+ * The spec/the spec — builds every handler of a service type, and through them every parameter.
  *
  * <p>This is the only component that knows how many handlers exist, so it is the one that drives the
  * handler and parameter tiers. Running last among the service aspects is therefore not a convention but a
@@ -55,16 +55,16 @@ final class HandlerCatalogAspect {
         // but the reason now reaches the veto report, so a test can assert it and a document author can
         // find it without reading the language server's log.
         for (String degradation : resolution.degradations()) {
-            draft.drop("handlerCatalog", "§4", typeName, degradation);
+            draft.drop("handlerCatalog: " + typeName + ": " + degradation);
         }
 
         switch (resolution.catalog()) {
             case HandlerCatalogResolver.HandlerCatalog.None none ->
-                    draft.veto("handlerCatalog", "§4", typeName, none.reason());
+                    draft.veto("handlerCatalog: " + typeName + ": " + none.reason());
             case HandlerCatalogResolver.HandlerCatalog.Concrete concrete ->
                     buildDeclared(scope, draft, concrete.methods());
             case HandlerCatalogResolver.HandlerCatalog.Documented documented -> {
-                // Spec §5.1 lets the two coexist, so both lists are built rather than one branch winning.
+                // The spec lets the two coexist, so both lists are built rather than one branch winning.
                 // Named options come first: a reader looking for a method to copy should meet the ones that
                 // are copyable before the shapes that have to be instantiated.
                 buildFromOptions(scope, draft, documented.named());
@@ -79,8 +79,8 @@ final class HandlerCatalogAspect {
      * An open-ended service type: the wildcard describes the shape of a handler the author will name.
      *
      * <p>Built through the <b>same</b> handler and parameter aspects a named option goes through, rather
-     * than by a bespoke path. That is what keeps §5's kind and return, §7's types and alternatives, and
-     * §8's function- and parameter-scope obligations owned by exactly one component each: the template
+     * than by a bespoke path. That is what keeps the spec's kind and return, the spec's types and alternatives, and
+     * The spec's function- and parameter-scope obligations owned by exactly one component each: the template
      * gains every one of them for free, and a later spec change to any of them cannot leave the template
      * behind.
      */
@@ -92,8 +92,8 @@ final class HandlerCatalogAspect {
         if (ParamTypeResolver.signatureReferencesUndeclaredType(template, scope.declaresType())) {
             // Same guard a named option gets: a template naming a type the resolved package does not
             // declare would describe a handler nobody can write.
-            handlerDraft.veto("handlerCatalog", "§4", scope.serviceTypeName(),
-                    "its handler template references a type the resolved package does not declare");
+            handlerDraft.veto("handlerCatalog: " + scope.serviceTypeName()
+                    + ": its handler template references a type the resolved package does not declare");
             draft.addHandlerTemplate(handlerDraft);
             return;
         }
@@ -136,8 +136,8 @@ final class HandlerCatalogAspect {
             // routes any wildcard to `Many` — but that routing is one branch away from this one, and the
             // failure it prevents is silent and uncompilable rather than loud.
             if (TriggerMetadataModel.ServiceType.HandlerOption.WILDCARD_NAME.equals(option.name())) {
-                draft.drop("handlerCatalog", "§4", option.name(),
-                        "a \"*\" option reached the fixed-vocabulary path, where it has no writable name");
+                draft.drop("handlerCatalog: " + option.name()
+                        + ": a \"*\" option reached the fixed-vocabulary path, where it has no writable name");
                 continue;
             }
 
@@ -145,8 +145,8 @@ final class HandlerCatalogAspect {
             HandlerDraft handlerDraft = new HandlerDraft();
 
             if (ParamTypeResolver.signatureReferencesUndeclaredType(option, scope.declaresType())) {
-                handlerDraft.veto("handlerCatalog", "§4", option.name(),
-                        "its signature references a type the resolved package does not declare");
+                handlerDraft.veto("handlerCatalog: " + option.name()
+                        + ": its signature references a type the resolved package does not declare");
                 draft.addHandler(handlerDraft);
                 continue;
             }
@@ -167,7 +167,7 @@ final class HandlerCatalogAspect {
      * fallback uses the slot's index in the full list, which keeps a generated name stable when an unrelated
      * slot is added or removed.
      *
-     * <p><b>A repeatable slot is no longer skipped.</b> Dropping it here cost the prompt everything §7 says
+     * <p><b>A repeatable slot is no longer skipped.</b> Dropping it here cost the prompt everything the spec says
      * about it. It is now built like any other slot, marked by {@link ParamRepeatAspect}, and left out of the
      * rendered signature by the consumer rather than by this loop.
      */

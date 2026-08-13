@@ -34,13 +34,13 @@ public class Service {
     @SerializedName("instructions")
     private String instructions;
     private Listener listener;
-    // Spec §1: the org/module a cross-module service type belongs to (ballerinax/cdc). Null for a
+    // The spec: the org/module a cross-module service type belongs to (ballerinax/cdc). Null for a
     // home-module type. The renderer derives the prefix and the provenance note from it.
     private String serviceTypeModule;
-    // Spec §2: side-effect-only imports the listener requires; needed only by code using that listener.
+    // The spec: side-effect-only imports the listener requires; needed only by code using that listener.
     private List<RequiredImport> requiredImports;
     /**
-     * Spec §8: the annotations this service type must or may carry, scoped by the document's
+     * The spec: the annotations this service type must or may carry, scoped by the document's
      * {@code appliesTo}.
      *
      * <p><b>The key is {@code annotations} here but {@code annotationRefs} at handler, parameter and return
@@ -52,47 +52,47 @@ public class Service {
      * "harmonise" the two by pointing them at one field.
      */
     private List<ServiceAnnotationRef> annotations;
-    // Spec §3: the identifier/base-path slot between `service` and `on new`. Null when the connector does
+    // The spec: the identifier/base-path slot between `service` and `on new`. Null when the connector does
     // not consult it, which is what an absent `identifier` key means.
     private ServiceIdentifier identifier;
-    // Spec §6: the exclusivity constraints this service type declares (`oneOf` / `atMostOne`).
+    // The spec: the exclusivity constraints this service type declares (`oneOf` / `atMostOne`).
     private List<ServiceConstraint> constraints;
     /**
-     * Spec §3's array cardinality: the document declares more than one service type, so this one is
+     * The spec's array cardinality: the document declares more than one service type, so this one is
      * "individually optional" rather than mandatory. Boxed and emitted only when true.
      *
-     * <p>Not a synonym for "mutually exclusive". Spec §3 leaves the choice "to whatever supplied the
+     * <p>Not a synonym for "mutually exclusive". The spec leaves the choice "to whatever supplied the
      * generation intent" and imposes no "exactly one of N" rule — {@code websocket} declares two service
      * types where the first's handler <i>returns</i> the second, so both are routinely declared together.
      */
     private Boolean alternatives;
     /**
-     * Spec §3 {@code multipleListenersAllowed: false} — this service type attaches to exactly one
+     * The spec {@code multipleListenersAllowed: false} — this service type attaches to exactly one
      * listener. Present only when the connector forbids it; a permissive value states nothing, because the
      * one-service-one-listener shape a generator writes by default is legal either way.
      */
     private Boolean singleListenerOnly;
     /**
-     * Spec §3 {@code multipleServicesPerListenerAllowed: false} — one listener hosts at most one service
+     * The spec {@code multipleServicesPerListenerAllowed: false} — one listener hosts at most one service
      * of this type. Same presence rule as {@link #singleListenerOnly}.
      */
     private Boolean singleServicePerListenerOnly;
 
     /**
-     * Spec §2 {@code multipleServicesAllowed: false} — one listener hosts at most one service, of any
+     * The spec {@code multipleServicesAllowed: false} — one listener hosts at most one service, of any
      * type. The strictly stronger sibling of {@link #singleServicePerListenerOnly}, emitted instead of it
      * rather than alongside, since "at most one service" already entails "at most one of this type".
      */
     private Boolean singleServiceOnly;
 
     /**
-     * Spec §2.1 {@code listeners[].platformDependencies} — native artifacts the build cannot fetch.
+     * The spec {@code listeners[].platformDependencies} — native artifacts the build cannot fetch.
      * Carried on the service because the spec declares them on the listener, so only code that uses that
      * listener needs them.
      */
     private List<PlatformDependency> platformDependencies;
     /**
-     * Spec §2 {@code listeners[].services} — no listener declares it can host this service type, so it must
+     * The spec {@code listeners[].services} — no listener declares it can host this service type, so it must
      * never be written as {@code service … on new …}. Boxed and emitted only when true, the same presence
      * rule as {@link #singleListenerOnly}.
      *
@@ -103,7 +103,7 @@ public class Service {
      */
     private Boolean notListenerAttachable;
     /**
-     * Spec §4 {@code addMode: "many"} — the shapes a handler of this service type may take, for a catalog
+     * The spec {@code addMode: "many"} — the shapes a handler of this service type may take, for a catalog
      * whose handler names are the author's to choose.
      *
      * <p>Typed as {@link ServiceRemoteFunction} because each <i>is</i> one in every respect but its name:

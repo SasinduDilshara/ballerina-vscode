@@ -36,11 +36,11 @@ import java.util.function.Predicate;
  * @param libraryName    the full library name, e.g. {@code "ballerinax/mssql"}
  * @param org            the organization, e.g. {@code "ballerinax"}
  * @param packageName    the resolved package name, e.g. {@code "mssql"}
- * @param homeModule     spec §1's "home" module — the module the document's listener belongs to, which
+ * @param homeModule     the spec's "home" module — the module the document's listener belongs to, which
  *                       every cross-module judgement in the document is relative to
  * @param document       the whole trigger metadata document, for constructs that reference sibling
  *                       registries by id
- * @param annotations    spec §8's top-level {@code annotations[]} registry, built once per library because
+ * @param annotations    the spec's top-level {@code annotations[]} registry, built once per library because
  *                       it is shared by every service type and attach point
  * @param serviceType    the service type this scope is building
  * @param listener       the listener paired with {@code serviceType}; never {@code null}

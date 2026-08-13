@@ -26,7 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Owns <b>spec §2 {@code listeners[].requiredImports}</b>: "Side-effect-only imports needed at runtime
+ * Owns <b>the spec {@code listeners[].requiredImports}</b>: "Side-effect-only imports needed at runtime
  * (e.g. {@code import ballerinax/mssql.cdc.driver as _;}) that nothing references by name."
  *
  * <p>Because nothing references them by name, no other part of the pipeline can discover them — a CDC
@@ -56,7 +56,7 @@ final class RequiredImportResolver {
     /**
      * Resolves a listener's declared side-effect imports, in document order.
      *
-     * <p>{@code importType} is deliberately <b>not</b> filtered on. Spec §10 lists {@code driver} as the
+     * <p>{@code importType} is deliberately <b>not</b> filtered on. The spec lists {@code driver} as the
      * only value today, but an unrecognised kind still needs its import emitted for the generated code to
      * work — so it degrades rather than disappearing.
      *

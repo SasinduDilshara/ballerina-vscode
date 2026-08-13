@@ -97,14 +97,14 @@ import static io.ballerina.servicemodelgenerator.extension.util.Constants.KIND_R
  * <p>This reads the m2 shape of {@link TriggerMetadataModel} throughout. Four constructs were restructured,
  * and each is handled where it is consumed rather than adapted at the boundary:
  * <ul>
- *   <li><b>§6</b> — {@code type: "oneOf"} over {@code members[].part} became {@code rule:
+ *   <li><b>the spec</b> — {@code type: "oneOf"} over {@code members[].part} became {@code rule:
  *       "structure.exactlyOne"} over {@code subjects[].kind}, and {@code members[].preferred} became a
  *       rule-level {@code prefer: "<role>"}. See {@link #isSupersededByPreferredAnnotation}.</li>
- *   <li><b>§5.1</b> — {@code addMode} moved from the {@code handlers} block onto each option, so a service
+ *   <li><b>the spec</b> — {@code addMode} moved from the {@code handlers} block onto each option, so a service
  *       type may mix fixed handlers with open user-named ones. See {@link #buildFunctionFromAuthoring}.</li>
- *   <li><b>§8</b> — the annotation's reverse {@code appliesTo} list became a forward reference from
+ *   <li><b>the spec</b> — the annotation's reverse {@code appliesTo} list became a forward reference from
  *       {@code serviceTypes[].annotations}. See {@link #applicableServiceAnnotations}.</li>
- *   <li><b>§9</b> — the top-level {@code dataBindingRules} registry and its {@code direct}/
+ *   <li><b>the spec</b> — the top-level {@code dataBindingRules} registry and its {@code direct}/
  *       {@code includedRecord}/{@code streamable} modes became a binding written inline on the parameter,
  *       as independent {@code typedescs[]} variants each carrying its own {@code shapes[]}. See
  *       {@link #dataBindingTypeProperty}.</li>
@@ -409,7 +409,7 @@ public final class TriggerModelSynthesizer {
      * True when an exclusivity rule on this service type prefers an annotation over the identifier, so the
      * identifier field is not offered in the form.
      *
-     * <p>Migrated to spec §6's open rule registry: the closed {@code type: "oneOf"} enum with
+     * <p>Migrated to the spec's open rule registry: the closed {@code type: "oneOf"} enum with
      * {@code members[].part} became {@code rule: "structure.exactlyOne"} over {@code subjects[].kind}, and
      * the per-member {@code preferred: true} flag became a rule-level {@code prefer: "<role>"} naming one
      * subject's {@link TriggerMetadataModel.Subject#role()}. Same question, same answer.
@@ -501,7 +501,7 @@ public final class TriggerModelSynthesizer {
             }
         } else if (handlers != null && handlers.options() != null) {
             for (TriggerMetadataModel.ServiceType.HandlerOption option : handlers.options()) {
-                // Spec §5.1 moved `addMode` off the `handlers` block onto each option, precisely so a service
+                // The spec moved `addMode` off the `handlers` block onto each option, precisely so a service
                 // type can offer fixed lifecycle handlers alongside open user-named ones. Reading it per
                 // option is therefore not a mechanical rename: a mixed catalog was previously all-or-nothing.
                 schemaFunctions.add(buildFunctionFromAuthoring(option, authoring, moduleName,
@@ -584,7 +584,7 @@ public final class TriggerModelSynthesizer {
     private static TriggerUISchemaModel.FunctionModel buildFunctionFromAuthoring(
             TriggerMetadataModel.ServiceType.HandlerOption option, TriggerMetadataModel authoring,
             String moduleName, TriggerLibraryFacts facts, ConnectorIdentity identity) {
-        // Spec §5.1: `addMode` is the option's own, and `subset` is the reading when it is absent.
+        // The spec: `addMode` is the option's own, and `subset` is the reading when it is absent.
         boolean many = option.isMany();
         boolean required = "required".equals(option.presence());
 
@@ -643,7 +643,7 @@ public final class TriggerModelSynthesizer {
             TriggerMetadataModel.ServiceType.Param param, TriggerMetadataModel authoring, String moduleName) {
         boolean optional = "optional".equals(param.presence());
         String name = param.name() == null ? "" : param.name();
-        // Spec §9 writes the binding INLINE on the parameter, so there is no id to resolve against a registry
+        // The spec writes the binding INLINE on the parameter, so there is no id to resolve against a registry
         // and therefore no dangling reference to drop a parameter over — the old `findDataBindingRule` lookup,
         // and the whole failure mode of a binding naming an entry that does not exist, are simply gone.
         TriggerMetadataModel.DataBinding bindingRule = param.dataBinding();
@@ -702,7 +702,7 @@ public final class TriggerModelSynthesizer {
      * binding models both cardinalities gets the identical large-file streaming UX for free, generically,
      * without per-connector code.
      *
-     * <h2>Migrated from {@code dataBindingRules} to spec §9's inline {@code typedescs}</h2>
+     * <h2>Migrated from {@code dataBindingRules} to the spec's inline {@code typedescs}</h2>
      *
      * <p>Spec v1.0 deleted the top-level registry and the {@code direct}/{@code includedRecord}/
      * {@code streamable} <i>modes</i>, replacing them with {@code typedescs[]} — independent variants, each
@@ -729,7 +729,7 @@ public final class TriggerModelSynthesizer {
                                                                   String paramName) {
         // The embedding the form is built around: an envelope-embedding shape when the binding offers one,
         // since `PAYLOAD_TYPE_INCLUDED_RECORD` is the richer composition; otherwise the first shape of the
-        // first usable variant, which is spec §1's codegen default applied one level down.
+        // first usable variant, which is the spec's codegen default applied one level down.
         Embedding chosen = chooseEmbedding(binding);
         boolean streamable = anyShape(binding, shape ->
                 TriggerMetadataModel.Shape.FORM_STREAM.equals(shape.form()));
@@ -793,7 +793,7 @@ public final class TriggerModelSynthesizer {
      * One {@code shapes[]} entry together with the variant that owns it.
      *
      * <p>Both halves are needed to build the form: the bound type comes from the variant and the embedding
-     * from the shape, and spec §9 deliberately lets one variant embed an envelope while its sibling does not.
+     * from the shape, and the spec deliberately lets one variant embed an envelope while its sibling does not.
      *
      * @param variant the {@code typedescs[]} entry
      * @param shape   one of its embeddings
@@ -897,7 +897,7 @@ public final class TriggerModelSynthesizer {
         if (authoring.annotations() == null) {
             return applicable;
         }
-        // Spec §8 replaced the reverse `appliesTo` list with a forward reference from the construct that
+        // The spec replaced the reverse `appliesTo` list with a forward reference from the construct that
         // carries the annotation, so applicability is now read off the SERVICE TYPE rather than the
         // annotation. The polarity inverts with it: an annotation the service type does not reference
         // attaches nowhere, where an absent `appliesTo` used to mean "everywhere". Verified against the
@@ -1045,8 +1045,8 @@ public final class TriggerModelSynthesizer {
      * needs a module prefix there. Relies on the convention that a user-defined type name starts
      * uppercase, unlike a builtin/composite signature (e.g. {@code string}, {@code ()}).
      *
-     * <p><b>A composite node is delegated to {@link TypeRefResolver}</b>, which owns spec §1's shape table.
-     * Spec §1 made a type reference a <i>tree</i> — {@code {"shape":"array","elementType":{"name":"byte"}}} is
+     * <p><b>A composite node is delegated to {@link TypeRefResolver}</b>, which owns the spec's shape table.
+     * The spec made a type reference a <i>tree</i> — {@code {"shape":"array","elementType":{"name":"byte"}}} is
      * {@code byte[]} — and a composite node carries no {@code name} at all, so the named-node rule below
      * returned {@code null} for every one of them. Three positions in the shipped corpus are composites
      * ({@code websocket}'s {@code byte[]} frame parameters, {@code graphql}'s {@code stream} subscription

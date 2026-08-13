@@ -308,11 +308,11 @@ public class CopilotSchemaServicesTest {
 
         JsonObject onConsumerRecord = methodNamed(service, "onConsumerRecord");
         Assert.assertEquals(onConsumerRecord.get("type").getAsString(), "remote");
-        // Spec §5.1 reversed this. A marker service type still declares no method, so there is no doc
+        // The spec reversed this. A marker service type still declares no method, so there is no doc
         // comment to introspect — which is exactly why the document now AUTHORS one, and why it is the only
         // description a generator will ever see for such a handler.
         Assert.assertTrue(onConsumerRecord.has("description"),
-                "spec §5.1 makes `doc` the authored description of a marker-type handler");
+                "the spec makes `doc` the authored description of a marker-type handler");
         Assert.assertTrue(onConsumerRecord.get("description").getAsString()
                         .startsWith("Invoked with each batch of records polled"),
                 onConsumerRecord.toString());
@@ -325,7 +325,7 @@ public class CopilotSchemaServicesTest {
         Assert.assertFalse(onConsumerRecord.get("optional").getAsBoolean(),
                 "kafka's onConsumerRecord declares presence: \"required\"");
 
-        // Spec §7 makes `name` required on every fixed slot, so these are the document's own authored
+        // The spec makes `name` required on every fixed slot, so these are the document's own authored
         // names rather than generated ones — and the order is the document's, which is why it is asserted
         // at all: kafka 4.6.5's own README documents
         // `onConsumerRecord(kafka:Caller caller, kafka:BytesConsumerRecord[] records)`, so `caller` leads.
@@ -363,14 +363,14 @@ public class CopilotSchemaServicesTest {
         Assert.assertEquals(methodNames(service), List.of("onMessage", "onRequest", "onError"));
 
         JsonObject onRequest = methodNamed(service, "onRequest");
-        // Authored names. Spec §7 makes `params[].name` required on every fixed slot, so these come
+        // Authored names. The spec makes `params[].name` required on every fixed slot, so these come
         // from the document rather than from the generator -- which is why they no longer have to
         // coincide with what the retired service-index happened to carry.
         Assert.assertEquals(paramNames(onRequest), List.of("message", "caller"));
         Assert.assertEquals(onRequest.getAsJsonObject("return")
                 .getAsJsonObject("type").get("name").getAsString(), "anydata|error");
         Assert.assertTrue(onRequest.has("description"),
-                "spec §5.1 makes `doc` the authored description of a marker-type handler");
+                "the spec makes `doc` the authored description of a marker-type handler");
 
         JsonObject onError = methodNamed(service, "onError");
         Assert.assertEquals(paramNames(onError), List.of("message", "err"));
@@ -412,12 +412,12 @@ public class CopilotSchemaServicesTest {
         Assert.assertEquals(listener.get("name").getAsString(), "mssql:CdcListener",
                 "The metadata-declared CdcListener must validate against the resolved package");
 
-        // Spec §1: the service type belongs to ballerinax/cdc, not to the home module, so it is
+        // The spec: the service type belongs to ballerinax/cdc, not to the home module, so it is
         // written with its own module's alias — `service cdc:Service on new mssql:CdcListener(...)`.
         // `mssql:Service` would not compile.
         Assert.assertEquals(service.get("serviceTypeModule").getAsString(), "ballerinax/cdc");
 
-        // Spec §2: the listener's side-effect import travels with the service that uses it. The
+        // The spec: the listener's side-effect import travels with the service that uses it. The
         // foreign service type itself is NOT imported - provenance is carried by the renderer's
         // Special Agent Note, the same mechanism every other cross-module reference uses.
         List<String> imports = new ArrayList<>();
@@ -427,7 +427,7 @@ public class CopilotSchemaServicesTest {
                     + (entry.has("alias") ? " as " + entry.get("alias").getAsString() : ""));
         }
         Assert.assertTrue(imports.contains("ballerinax/mssql.cdc.driver as _"),
-                "Spec §2 side-effect import missing, got " + imports);
+                "The spec side-effect import missing, got " + imports);
         Assert.assertFalse(imports.contains("ballerinax/cdc"),
                 "A foreign service type must not be imported, got " + imports);
 
@@ -451,7 +451,7 @@ public class CopilotSchemaServicesTest {
 
     @Test
     public void testMssqlCrossModuleServiceAnnotationCarriesItsConstraint() {
-        // Spec §8 across a module boundary — the case the whole annotation phase exists for. mssql's
+        // The spec across a module boundary — the case the whole annotation phase exists for. mssql's
         // document declares a REQUIRED annotation that belongs to ballerinax/cdc, and generated CDC code
         // without it does not work.
         JsonObject service = serviceNamed(load("ballerinax/mssql"), "Service");
@@ -464,7 +464,7 @@ public class CopilotSchemaServicesTest {
         Assert.assertEquals(annotation.get("name").getAsString(), "ServiceConfig");
         Assert.assertEquals(annotation.get("presence").getAsString(), "required");
         Assert.assertEquals(annotation.get("attachPoint").getAsString(), "service");
-        // Spec §1: it belongs to another module, so it states that module and renders `@cdc:ServiceConfig`.
+        // The spec: it belongs to another module, so it states that module and renders `@cdc:ServiceConfig`.
         Assert.assertEquals(annotation.get("module").getAsString(), "ballerinax/cdc");
 
         // The document names the annotation TAG (`ServiceConfig`); its constraining record is called
@@ -489,7 +489,7 @@ public class CopilotSchemaServicesTest {
     // constraint is the compiler's record and not the document's tag.
     //
     // Removed because the corpus resolves ftp at `ballerinaFtpVersion`, and that release declares no
-    // service-scope annotation at all — so the §8 resolver drops `ServiceConfig` as undeclared, which is
+    // service-scope annotation at all — so the spec resolver drops `ServiceConfig` as undeclared, which is
     // correct for that version and leaves the test nothing to assert. The cross-module half of the same
     // guarantee is still covered by testMssqlCrossModuleServiceAnnotationCarriesItsConstraint above.
 
@@ -621,9 +621,9 @@ public class CopilotSchemaServicesTest {
         Assert.assertEquals(paramNames(onFileJson), List.of("content", "caller", "fileInfo"));
         Assert.assertTrue(paramNamed(onFileJson, "caller").get("optional").getAsBoolean());
         assertInternalLink(paramNamed(onFileJson, "fileInfo"), "FileInfo");
-        // Spec §5.1: smb's handlers are marker-type, so the document authors their descriptions.
+        // The spec: smb's handlers are marker-type, so the document authors their descriptions.
         Assert.assertTrue(onFileJson.has("description"),
-                "spec §5.1 makes `doc` the authored description of a marker-type handler");
+                "the spec makes `doc` the authored description of a marker-type handler");
     }
 
     @Test
@@ -643,7 +643,7 @@ public class CopilotSchemaServicesTest {
         Assert.assertEquals(methodNames(service), List.of("onEventNotification",
                 "onSubscriptionVerification", "onUnsubscriptionVerification",
                 "onSubscriptionValidationDenied", "onHubError"));
-        // The parameter is now AUTHORED by the document (spec §7 makes `name` required on a fixed slot)
+        // The parameter is now AUTHORED by the document (the spec makes `name` required on a fixed slot)
         // rather than generated from the type, so it is `err` where the generator produced
         // `internalHubError`. The type is what matters and is unchanged.
         assertInternalLink(paramNamed(methodNamed(service, "onHubError"), "err"), "InternalHubError");
@@ -779,8 +779,8 @@ public class CopilotSchemaServicesTest {
      * schema-driven library.
      *
      * <p>{@code ballerina/ftp} has BOTH sources, so it is the case where substituting one for the other is
-     * possible at all. The index entry describes the same handlers with strictly fewer facts — no §8
-     * annotation obligations, no §6 constraints, no §9 binding rules, no presence markers — so serving it in
+     * possible at all. The index entry describes the same handlers with strictly fewer facts — no
+     * annotation obligations, no constraints, no binding rules, no presence markers — so serving it in
      * place of the document would be a silent downgrade rather than a fallback.
      *
      * <p>Asserting both halves matters: that the two paths differ, and that the schema path is the richer
@@ -795,7 +795,7 @@ public class CopilotSchemaServicesTest {
                 "ftp is schema-driven; the index catalog must not be what the overload returns");
 
         JsonObject schemaService = serviceNamed(viaOverload, "Service");
-        // The §8 obligation was asserted here too, and is not any more: the ftp release the corpus pins
+        // The spec obligation was asserted here too, and is not any more: the ftp release the corpus pins
         // declares no service-scope annotation, so there is none to carry. The claim this test makes is
         // unaffected — the two assertions below are each a fact the index has no column for, which is what
         // makes the schema path the richer of the two rather than merely a different one.
@@ -803,7 +803,7 @@ public class CopilotSchemaServicesTest {
         Assert.assertTrue(onFileCsv.has("optional"),
                 "the schema path states whether a handler must be implemented; the index does not");
         Assert.assertTrue(paramNamed(onFileCsv, "contents").has("binding"),
-                "the schema path carries the §9 binding rule; the index has no equivalent");
+                "the schema path carries the spec binding rule; the index has no equivalent");
     }
 
     @Test
@@ -849,7 +849,7 @@ public class CopilotSchemaServicesTest {
         Assert.assertTrue(service.has("handlerTemplates"),
                 "http is an addMode:\"many\" catalog, so its shape must reach the wire: " + service);
         Assert.assertTrue(service.has("identifier"),
-                "§3's required base path is stated by the document and must survive");
+                "the spec's required base path is stated by the document and must survive");
         // The fourth assertion -- that the curated guidance is carried onto the surviving entry -- and the
         // testTheCuratedGuidanceIsTheLibrarysOwnServiceMarkdown case that checked the absorbed text both
         // asserted the content of copilot/instructions/ballerina/http/service.md. That file (with the other
@@ -862,7 +862,7 @@ public class CopilotSchemaServicesTest {
 
     @Test
     public void testGraphqlRendersEveryWildcardShapeNotJustTheFirst() {
-        // graphql declares three "*" options where spec §4 allows one: a query (resource/get), a mutation
+        // graphql declares three "*" options where the spec allows one: a query (resource/get), a mutation
         // (remote) and a subscription (resource/subscribe, returning a stream). They differ in kind,
         // accessor and return, so taking only the first deleted two thirds of the handler surface.
         JsonObject service = serviceNamed(load("ballerina/graphql"), "Service");

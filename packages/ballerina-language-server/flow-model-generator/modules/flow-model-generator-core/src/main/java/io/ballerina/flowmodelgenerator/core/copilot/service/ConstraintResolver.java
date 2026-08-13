@@ -27,10 +27,10 @@ import java.util.Set;
 import java.util.logging.Logger;
 
 /**
- * Resolves <b>spec §6 {@code rules[]}</b>: the cross-construct constraints a service type declares.
+ * Resolves <b>the spec {@code rules[]}</b>: the cross-construct constraints a service type declares.
  *
  * <p>A rule is a {@code rule: "<namespace>.<id>"} drawn from an open registry (see {@link Kind}) over a
- * tagged union of subject kinds. Per §6, an unrecognised rule id or subject kind is skipped with a logged
+ * tagged union of subject kinds. Per the spec, an unrecognised rule id or subject kind is skipped with a logged
  * warning rather than failing, so an older consumer can still read a newer manifest.
  *
  * @since 1.7.0
@@ -43,7 +43,7 @@ final class ConstraintResolver {
         // Prevent instantiation
     }
 
-    /** The registry entries this build implements (spec §6.2). */
+    /** The registry entries this build implements (the spec). */
     enum Kind {
         /** Exactly one subject present — not zero, not more than one. */
         EXACTLY_ONE(TriggerMetadataModel.Rule.RULE_EXACTLY_ONE),
@@ -85,7 +85,7 @@ final class ConstraintResolver {
     }
 
     /**
-     * One resolved subject: spec §6.1's tagged union, flattened to the fields a consumer renders.
+     * One resolved subject: the spec's tagged union, flattened to the fields a consumer renders.
      *
      * <p>Sealed so the renderer's switch cannot silently drop a newly added subject kind.
      *
@@ -120,7 +120,7 @@ final class ConstraintResolver {
          * An annotation as a whole — its presence, rather than a field inside it.
          *
          * @param annotationId   the {@code annotations[].id} referenced
-         * @param annotationName the annotation's name, resolved through the §8 registry
+         * @param annotationName the annotation's name, resolved through the annotation registry
          * @param role           the subject's role label
          * @param serviceType    the owning service type's declared name, or {@code null}
          * @param serviceTypeId  the owning service type's id, or {@code null}
@@ -133,7 +133,7 @@ final class ConstraintResolver {
          * A field inside an annotation's record, e.g. {@code @rabbitmq:ServiceConfig}'s {@code queueName}.
          *
          * @param annotationId   the {@code annotations[].id} referenced
-         * @param annotationName the annotation's name, resolved through the §8 registry
+         * @param annotationName the annotation's name, resolved through the annotation registry
          * @param path           the field path; an array so a nested field is reachable
          * @param role           the subject's role label
          * @param serviceType    the owning service type's declared name, or {@code null}
@@ -234,9 +234,9 @@ final class ConstraintResolver {
      * @param libraryName            the library, for log attribution only
      * @param rules                  the rules to resolve; may be {@code null}
      * @param enclosingServiceTypeId the id of the service type being built, which a subject naming none
-     *                               belongs to (spec §6); {@code null} when there is no enclosing type
+     *                               belongs to (the spec); {@code null} when there is no enclosing type
      * @param index                  the document's service types, for attributing a subject that names one
-     * @param annotations            spec §8's registry, mapping a subject's annotation id to the annotation
+     * @param annotations            the spec's registry, mapping a subject's annotation id to the annotation
      *                               it names; {@code null} keeps the id as the name
      * @return the resolved rules, in document order
      */
@@ -255,7 +255,7 @@ final class ConstraintResolver {
             }
             Kind kind = Kind.of(rule.rule());
             if (kind == null) {
-                // Spec §6's skip-unknown policy, which is what lets an older consumer read a newer manifest.
+                // The spec's skip-unknown policy, which is what lets an older consumer read a newer manifest.
                 LOGGER.warning("Skipped rule '" + rule.id() + "' for " + libraryName
                         + ": '" + rule.rule() + "' is not a registry entry this build implements");
                 continue;
@@ -425,7 +425,7 @@ final class ConstraintResolver {
     }
 
     /**
-     * The name of the annotation a subject references, via spec §8's registry. With no registry the id is
+     * The name of the annotation a subject references, via the spec's registry. With no registry the id is
      * returned unchanged.
      */
     private static String annotationName(String annotationId, AnnotationRegistry annotations) {

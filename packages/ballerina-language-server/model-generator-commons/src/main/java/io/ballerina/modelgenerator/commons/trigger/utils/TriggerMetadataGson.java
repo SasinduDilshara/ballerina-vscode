@@ -38,7 +38,7 @@ import java.util.List;
  * The {@link Gson} instance for deserializing a {@code trigger-metadata.json} document into a
  * {@link TriggerMetadataModel}.
  *
- * <p>It exists for one construct: spec §1's {@link TypeRef}, which is both <b>polymorphic</b> and
+ * <p>It exists for one construct: the spec's {@link TypeRef}, which is both <b>polymorphic</b> and
  * <b>recursive</b>, and which appears in slots that may hold either a single type or a union.
  *
  * <ul>
@@ -81,7 +81,7 @@ public final class TriggerMetadataGson {
     }
 
     /**
-     * Reads one {@link TypeRef} node, whichever of spec §1's variants it is.
+     * Reads one {@link TypeRef} node, whichever of the spec's variants it is.
      *
      * <p>An unknown {@code shape} is carried through rather than rejected here, so that one unrecognised
      * node does not cost the whole document. Note that nothing currently reports it: the shape reaches
@@ -110,7 +110,7 @@ public final class TriggerMetadataGson {
         return new TypeRef(name, packageInfo);
     }
 
-    /** Spec §1's one-or-many rule: a bare object is a singleton, an array is the union, in order. */
+    /** The spec's one-or-many rule: a bare object is a singleton, an array is the union, in order. */
     static List<TypeRef> readList(JsonElement element) {
         if (element == null || element.isJsonNull()) {
             return null;

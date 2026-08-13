@@ -21,7 +21,7 @@ package io.ballerina.flowmodelgenerator.core.copilot.service;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 
 /**
- * Owns <b>spec §5 {@code options[].kind}</b>: whether a handler is a remote method or a resource method.
+ * Owns <b>the spec {@code options[].kind}</b>: whether a handler is a remote method or a resource method.
  *
  * <p>Trivial and alone on purpose. This is the one field the renderer's keyword choice depends on —
  * {@code remote function} versus {@code resource function} — and getting it wrong emits source that does not
@@ -36,7 +36,7 @@ import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
  */
 final class HandlerKindResolver {
 
-    /** The two handler shapes spec §10's {@code kind} vocabulary admits. */
+    /** The two handler shapes the spec's {@code kind} vocabulary admits. */
     enum Kind {
         REMOTE(TriggerMetadataModel.ServiceType.HandlerOption.KIND_REMOTE),
         RESOURCE(TriggerMetadataModel.ServiceType.HandlerOption.KIND_RESOURCE);

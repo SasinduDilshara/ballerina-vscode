@@ -21,9 +21,9 @@ package io.ballerina.flowmodelgenerator.core.copilot.service;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 
 /**
- * Owns <b>spec §7 {@code params[].addMode}</b>: whether a parameter slot repeats.
+ * Owns <b>the spec {@code params[].addMode}</b>: whether a parameter slot repeats.
  *
- * <p>Spec §7 defines exactly one value — {@code "many"}, meaning the slot repeats zero or more times, each
+ * <p>The spec defines exactly one value — {@code "many"}, meaning the slot repeats zero or more times, each
  * occurrence independently named and typed (HTTP query/header, MCP tool args) — with an absent key meaning
  * "at most one".
  *
@@ -49,7 +49,7 @@ final class ParamRepeatResolver {
      * Whether a slot repeats.
      *
      * <p>Only the declared {@code "many"} is recognised. An unrecognised term reads as "at most one",
-     * which is spec §7's stated default for an absent key: mis-reading an unknown term as repeatable would
+     * which is the spec's stated default for an absent key: mis-reading an unknown term as repeatable would
      * silently delete a real parameter from the signature.
      *
      * @param addMode the slot's declared {@code addMode}; may be {@code null}

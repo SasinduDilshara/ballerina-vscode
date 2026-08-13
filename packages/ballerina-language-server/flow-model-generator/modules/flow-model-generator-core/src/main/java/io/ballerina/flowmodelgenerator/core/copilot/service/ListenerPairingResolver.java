@@ -29,10 +29,10 @@ import java.util.Optional;
 import java.util.function.Function;
 
 /**
- * Owns <b>spec §2 {@code listeners[].type} and {@code .services}</b>: which listener hosts which service
+ * Owns <b>the spec {@code listeners[].type} and {@code .services}</b>: which listener hosts which service
  * type.
  *
- * <p>Spec §2 defines {@code services} as the {@code serviceTypes[].id} values a listener can host, so a
+ * <p>The spec defines {@code services} as the {@code serviceTypes[].id} values a listener can host, so a
  * service type is paired with the listener that names its id. When no listener names it — or the document
  * omits {@code services} — the first listener is used. All 13 corpus documents declare exactly one
  * listener, so the multi-listener path is <b>latent</b>: implemented and unit-testable against a synthetic
@@ -79,7 +79,7 @@ final class ListenerPairingResolver {
     }
 
     /**
-     * Whether <b>any</b> listener in the document declares it can host this service type — spec §2's
+     * Whether <b>any</b> listener in the document declares it can host this service type — the spec's
      * {@code services}.
      *
      * <p>Distinct from {@link #hostOf}, which must always return <i>some</i> listener so the entry can
@@ -120,10 +120,10 @@ final class ListenerPairingResolver {
     }
 
     /**
-     * How many of a document's service types <b>one listener can actually host</b> — spec §2's
+     * How many of a document's service types <b>one listener can actually host</b> — the spec's
      * {@code services}.
      *
-     * <p>This is the count spec §3's optionality rule has to be read against, and it is <b>not</b> the
+     * <p>This is the count the spec's optionality rule has to be read against, and it is <b>not</b> the
      * size of {@code serviceTypes[]}. {@code websocket} separates the two: it declares two service types,
      * but its listener lists only {@code upgradeService} (see {@link #isHostedByAnyListener}). Counting
      * declarations rather than hostable types would call those two alternatives.
@@ -161,7 +161,7 @@ final class ListenerPairingResolver {
      * @param pairings one pairing per service type whose listener resolved, in document order
      * @param vetoes   one veto per service type dropped because its listener did not resolve
      */
-    record Pairings(List<ListenerPairing> pairings, List<Veto> vetoes) {
+    record Pairings(List<ListenerPairing> pairings, List<String> vetoes) {
     }
 
     /**
@@ -204,7 +204,7 @@ final class ListenerPairingResolver {
                                            List<TriggerMetadataModel.ServiceType> serviceTypes,
                                            Function<String, Optional<ClassSymbol>> listenerClasses) {
         List<ListenerPairing> pairings = new ArrayList<>();
-        List<Veto> vetoes = new ArrayList<>();
+        List<String> vetoes = new ArrayList<>();
         if (listeners == null || listeners.isEmpty() || serviceTypes == null) {
             return new Pairings(pairings, vetoes);
         }
@@ -219,10 +219,10 @@ final class ListenerPairingResolver {
             if (listenerClass.isEmpty()) {
                 // Attributed to the service type, not the listener: the service type is what disappears from
                 // the catalog, and it is what a reader will notice missing.
-                vetoes.add(new Veto("listenerPairing", "§2", subjectOf(serviceType),
-                        "the resolved package declares no listener class for "
-                                + (declared == null ? "this document's listener" : "'" + declared + "'")
-                                + ", so the service could not be attached to one"));
+                vetoes.add("listenerPairing: " + subjectOf(serviceType)
+                        + ": the resolved package declares no listener class for "
+                        + (declared == null ? "this document's listener" : "'" + declared + "'")
+                        + ", so the service could not be attached to one");
                 continue;
             }
             pairings.add(new ListenerPairing(serviceType, listener, listenerClass.get()));

@@ -21,7 +21,7 @@ package io.ballerina.modelgenerator.commons.trigger.models;
 import java.util.List;
 
 /**
- * Spec §5 — a constraint on one part of a resource handler's signature.
+ * The spec — a constraint on one part of a resource handler's signature.
  *
  * <p>A resource handler is identified by its accessor and its path, matching the language form
  * {@code resource function <accessor> <path>()}. Both are required for {@code kind: "resource"} and neither
@@ -46,7 +46,7 @@ public record ValueSpec(String presence, List<String> values) {
     public static final String PRESENCE_REQUIRED = "required";
     public static final String PRESENCE_OPTIONAL = "optional";
 
-    /** Spec §5: a single {@code "*"} in {@code values} means any value the language accepts. */
+    /** The spec: a single {@code "*"} in {@code values} means any value the language accepts. */
     public static final String ANY = "*";
 
     /** Whether this slot must be written. */

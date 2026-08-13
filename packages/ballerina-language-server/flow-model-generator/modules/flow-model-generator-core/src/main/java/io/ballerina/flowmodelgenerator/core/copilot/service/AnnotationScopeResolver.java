@@ -26,14 +26,14 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * The mechanics every spec §8 attach-point resolver shares, owned by nobody — the same role
+ * The mechanics every the spec attach-point resolver shares, owned by nobody — the same role
  * {@link AnnotationRegistry} and {@link TypeResolver} play. Resolving a registry entry into an
  * {@link AnnotationRef} is identical at every attach point; what differs is <i>which</i> entries a scope
  * selects, and that is what each attach-point resolver owns.
  *
  * <h2>The attach-point guard</h2>
  *
- * <p>Spec §8's {@code attachPoint} states the document's <b>intent</b>; what actually compiles is decided
+ * <p>The spec's {@code attachPoint} states the document's <b>intent</b>; what actually compiles is decided
  * by the annotation's declaration in the resolved package, and the two can disagree. The compiler's own
  * rejections are what define the admissible sets in {@link Scope}:
  * <pre>
@@ -58,7 +58,7 @@ import java.util.Set;
 final class AnnotationScopeResolver {
 
     /**
-     * A §8 scope: the {@code attachPoint} it selects, and the declared points the Ballerina compiler admits
+     * A the spec scope: the {@code attachPoint} it selects, and the declared points the Ballerina compiler admits
      * at the syntactic slot it renders into.
      */
     enum Scope {
@@ -86,7 +86,7 @@ final class AnnotationScopeResolver {
             this.admissiblePoints = admissiblePoints;
         }
 
-        /** The spec §8 {@code attachPoint} value entries must declare to be selected by this scope. */
+        /** The spec {@code attachPoint} value entries must declare to be selected by this scope. */
         String attachPoint() {
             return attachPoint;
         }
@@ -103,7 +103,7 @@ final class AnnotationScopeResolver {
     }
 
     /**
-     * The three compiler-backed facts §8 needs about an annotation, as a narrow seam rather than the whole
+     * The three compiler-backed facts the spec needs about an annotation, as a narrow seam rather than the whole
      * {@link TriggerSemanticFacts}.
      *
      * <p>Same reasoning {@link TriggerScope} applies to its {@code declaresType} predicate: depending on
@@ -194,13 +194,13 @@ final class AnnotationScopeResolver {
     }
 
     /**
-     * Resolves the annotations a construct references <b>by id</b> — spec §8's precise access path, used by
+     * Resolves the annotations a construct references <b>by id</b> — the spec's precise access path, used by
      * {@code handlers.options[].annotations} and {@code params[].annotations}.
      *
-     * @param registry   the document's §8 registry
+     * @param registry   the document's annotation registry
      * @param ids        the referenced ids, in document order; may be {@code null}
      * @param scope      the scope selecting and validating the entries
-     * @param homeModule spec §1's home module, which decides whether an entry is cross-module
+     * @param homeModule the spec's home module, which decides whether an entry is cross-module
      * @param facts      the compiler-backed facts; {@code null} skips every check that needs them
      * @return the references to emit and the entries dropped
      */
@@ -221,7 +221,7 @@ final class AnnotationScopeResolver {
                 continue;
             }
             if (!scope.attachPoint().equals(annotation.attachPoint())) {
-                // Spec §8 files each entry at exactly one point; rendering one at the wrong slot puts an
+                // The spec files each entry at exactly one point; rendering one at the wrong slot puts an
                 // attachment where the compiler does not allow it.
                 rejections.add(new Rejection(nameOf(annotation, id),
                         "the registry files it at attachPoint '" + annotation.attachPoint()
@@ -264,7 +264,7 @@ final class AnnotationScopeResolver {
     }
 
     /**
-     * Spec §8 {@code presence}: {@code "required"} or {@code "optional"}. Anything else — including an
+     * The spec {@code presence}: {@code "required"} or {@code "optional"}. Anything else — including an
      * absent value — reads as optional, so an unrecognised vocabulary term cannot silently assert that
      * generated code is obliged to carry an annotation.
      *

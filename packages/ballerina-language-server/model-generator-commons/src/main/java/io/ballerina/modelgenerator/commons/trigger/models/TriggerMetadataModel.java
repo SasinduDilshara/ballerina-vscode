@@ -39,18 +39,18 @@ import java.util.List;
  * <p>This models spec <b>v1.0</b>, which restructured several constructs relative to the pre-release
  * {@code "v1"} documents. The differences a reader of the older shape will notice:
  * <ul>
- *   <li><b>§0</b> — ids and every reference to one are {@code $}-prefixed. The sigil is carried
+ *   <li><b>the spec</b> — ids and every reference to one are {@code $}-prefixed. The sigil is carried
  *       verbatim rather than stripped: it is part of the value, references and definitions gain it
  *       symmetrically, so equality comparisons are unaffected.</li>
- *   <li><b>§2/§3</b> — attachment cardinality is split three ways. Two facts describe the
+ *   <li><b>the spec/the spec</b> — attachment cardinality is split three ways. Two facts describe the
  *       <i>listener instance</i> and moved onto {@link Listener}; only "may one service attach to
  *       several listeners" stays on {@link ServiceType}.</li>
- *   <li><b>§6</b> — {@code rules} became a reference to an open registry ({@link Rule}) instead of a
+ *   <li><b>the spec</b> — {@code rules} became a reference to an open registry ({@link Rule}) instead of a
  *       closed {@code oneOf}/{@code atMostOne} enum, and gained a top-level array for constraints
  *       spanning more than one service type.</li>
- *   <li><b>§8</b> — the reverse {@code appliesTo} list is gone. Every annotation is now reached by a
+ *   <li><b>the spec</b> — the reverse {@code appliesTo} list is gone. Every annotation is now reached by a
  *       forward reference from the construct that carries it.</li>
- *   <li><b>§9</b> — the top-level {@code dataBindingRules} registry is gone; a binding is written
+ *   <li><b>the spec</b> — the top-level {@code dataBindingRules} registry is gone; a binding is written
  *       inline on the parameter it describes ({@link DataBinding}).</li>
  * </ul>
  *
@@ -63,7 +63,7 @@ import java.util.List;
  * consumer that states only the prohibition would otherwise turn an omission into a restriction the
  * document never made.
  *
- * @param version      the spec version this instance conforms to, e.g. {@code "v1.0"}. Spec §11 gives it
+ * @param version      the spec version this instance conforms to, e.g. {@code "v1.0"}. The spec gives it
  *                     the form {@code v<major>.<minor>}. Carried as document metadata; this build reads
  *                     every document it can parse and does not gate on the declared version
  * @param listeners    the connector's listener entry point(s); always at least one — a listener is
@@ -74,7 +74,7 @@ import java.util.List;
  *                     generation intent
  * @param annotations  registry of annotation types referenced elsewhere in this document, defined once;
  *                     {@code null}/absent when the connector declares none
- * @param rules        spec §6 constraints spanning more than one service type, where every
+ * @param rules        the spec's constraints spanning more than one service type, where every
  *                     subject must name its {@code serviceType}. A rule scoped to a single service type
  *                     lives on that {@link ServiceType#rules()} instead; {@code null}/absent when none
  * @since 1.10.0
@@ -92,17 +92,17 @@ public record TriggerMetadataModel(
      * library itself, not from this file. There is no {@code presence} field — a listener is always
      * structurally required.
      *
-     * <p>Spec §3.1 puts two of the three attachment-cardinality facts here rather than on the service
+     * <p>The spec puts two of the three attachment-cardinality facts here rather than on the service
      * type, because both describe what <i>this listener instance</i> will accept.
      *
      * @param type                              the listener class
-     * @param deprecated                        spec §5.3 — why this listener is deprecated, as prose;
+     * @param deprecated                        the spec — why this listener is deprecated, as prose;
      *                                          {@code null} when it is current
      * @param services                          the {@link ServiceType#id()} values this listener can host
      * @param multipleServicesAllowed           can one instance of this listener host more than one
      *                                          service at all? Boxed: absent states nothing
      * @param multipleServicesOfSameTypeAllowed can two of those services be of the same service type?
-     *                                          Spec §2 omits it when {@code multipleServicesAllowed} is
+     *                                          The spec omits it when {@code multipleServicesAllowed} is
      *                                          {@code false}, since one service at most already rules it
      *                                          out. Boxed: "absent means unconstrained"
      * @param requiredImports                   packages that must be imported for side effect even though
@@ -135,7 +135,7 @@ public record TriggerMetadataModel(
     }
 
     /**
-     * Spec §2.1 — a native artifact the build needs, mirroring {@code Ballerina.toml}'s
+     * The spec — a native artifact the build needs, mirroring {@code Ballerina.toml}'s
      * {@code [[platform.<javaVersion>.dependency]]} table.
      *
      * <p>Modeled because it is the one dependency class nothing else records: {@code requiredImports}
@@ -175,7 +175,7 @@ public record TriggerMetadataModel(
     }
 
     /**
-     * An OS-specific native library. Where it must be placed is determined by {@code os}, so spec §2.1
+     * An OS-specific native library. Where it must be placed is determined by {@code os}, so the spec
      * states that mapping once rather than repeating it per entry: {@code linux} →
      * {@code LD_LIBRARY_PATH}, {@code windows} → {@code PATH}, {@code macos} → {@code DYLD_LIBRARY_PATH}.
      *
@@ -189,7 +189,7 @@ public record TriggerMetadataModel(
         public static final String OS_MACOS = "macos";
     }
 
-    // Spec §5.3 made `deprecated` a plain string: presence of the field is the deprecation, and the value
+    // The spec made `deprecated` a plain string: presence of the field is the deprecation, and the value
     // is the explanation. The record that used to model {reason, since, replacement} is gone -- a reason can
     // name a version or a successor in the sentence itself, and a generator puts the text in the construct's
     // `# # Deprecated` doc section beside `@deprecated`.
@@ -212,16 +212,16 @@ public record TriggerMetadataModel(
      *                                 {@code false} — a consumer that states only the prohibition would
      *                                 otherwise turn an omission into a restriction the document never
      *                                 made
-     * @param deprecated               spec §5.3 — why this service type is deprecated, as prose;
+     * @param deprecated               the spec — why this service type is deprecated, as prose;
      *                                 {@code null} when it is current
-     * @param annotations              spec §8 — ids of annotations with {@code attachPoint: "service"}
+     * @param annotations              the spec — ids of annotations with {@code attachPoint: "service"}
      *                                 that this service type carries. The forward reference that replaced
      *                                 the old reverse {@code appliesTo} list
      * @param identifier               the identifier/base-path slot (the string/path after
      *                                 {@code service}); {@code null}/absent when the slot carries no
      *                                 meaning for this service type
      * @param handlers                 the handler catalog
-     * @param rules                    spec §6 constraints scoped to this service type;
+     * @param rules                    the spec's constraints scoped to this service type;
      *                                 {@code null}/absent when none apply
      * @since 1.10.0
      */
@@ -239,7 +239,7 @@ public record TriggerMetadataModel(
         /**
          * The handler catalog for one service type.
          *
-         * <p><b>{@code addMode} moved off this block in spec §4</b>, onto each option. Whether a handler is
+         * <p><b>{@code addMode} moved off this block in the spec</b>, onto each option. Whether a handler is
          * a fixed name or a repeatable shape is a property of that handler, and the two can coexist: a
          * service type may offer fixed lifecycle handlers alongside open user-named ones, which a
          * block-level flag could not say.
@@ -261,16 +261,16 @@ public record TriggerMetadataModel(
          * @param name              the handler's method name, or {@link #WILDCARD_NAME} for an
          *                          open/many-shaped handler
          * @param kind              {@link #KIND_REMOTE} or {@link #KIND_RESOURCE}
-         * @param addMode           spec §5.1 — {@link #ADD_MODE_SUBSET} (the reading when absent) or
+         * @param addMode           the spec — {@link #ADD_MODE_SUBSET} (the reading when absent) or
          *                          {@link #ADD_MODE_MANY}. It sits on the option rather than on
          *                          {@code handlers} because the two coexist: a service type may offer fixed
          *                          lifecycle handlers alongside open user-named ones
-         * @param doc               spec §5.2 — required. What this handler is for and when it fires.
+         * @param doc               the spec — required. What this handler is for and when it fires.
          *                          Docs invert the DRY rule, and unconditionally here: {@code options}
          *                          exists only when {@code backedByConcreteType} is {@code false}, so every
          *                          handler written here has no method behind it and no doc comment to read,
          *                          making this the only description a generator will ever see
-         * @param deprecated        spec §5.3 — why this handler is deprecated, as prose; {@code null} when
+         * @param deprecated        the spec — why this handler is deprecated, as prose; {@code null} when
          *                          it is current. A deprecated handler still counts for
          *                          {@code structure.atLeastOne}: it remains legal, just not recommended
          * @param presence          meaningful only under {@code addMode: "subset"} —
@@ -283,12 +283,12 @@ public record TriggerMetadataModel(
          * @param params            the handler's parameters, in meaningful positional order
          * @param returns           the handler's return type(s) — a union is expressed as more than one
          *                          element
-         * @param accessor          spec §5 — the legal accessors of a {@code resource} handler. Required
+         * @param accessor          the spec — the legal accessors of a {@code resource} handler. Required
          *                          for {@code kind: "resource"} and forbidden for {@code remote}. HTTP puts
          *                          its verbs here and GraphQL puts {@code get}/{@code subscribe}: the schema
          *                          names the position once rather than once per library, because both are
          *                          the same slot in the same language construct
-         * @param path              spec §5 — whether a resource path is required. No syntactic form is
+         * @param path              the spec — whether a resource path is required. No syntactic form is
          *                          recorded: the language already fixes what a resource path may look like
          */
         public record HandlerOption(
@@ -309,12 +309,12 @@ public record TriggerMetadataModel(
             public static final String KIND_RESOURCE = "resource";
             public static final String WILDCARD_NAME = "*";
 
-            /** Spec §5.1: one fixed method name, governed by {@code presence}. The default when absent. */
+            /** The spec: one fixed method name, governed by {@code presence}. The default when absent. */
             public static final String ADD_MODE_SUBSET = "subset";
-            /** Spec §5.1: a shape the user instantiates any number of times, always named {@code "*"}. */
+            /** The spec: a shape the user instantiates any number of times, always named {@code "*"}. */
             public static final String ADD_MODE_MANY = "many";
 
-            /** Spec §5.1 makes {@code subset} the reading for an absent {@code addMode}. */
+            /** The spec makes {@code subset} the reading for an absent {@code addMode}. */
             public boolean isMany() {
                 return ADD_MODE_MANY.equals(addMode);
             }
@@ -324,16 +324,16 @@ public record TriggerMetadataModel(
          * One parameter slot of a {@link HandlerOption}. Order in the array is meaningful and is trusted
          * to convey positional constraints.
          *
-         * @param name        the parameter name to emit. Spec §7 makes this required on every fixed
+         * @param name        the parameter name to emit. The spec makes this required on every fixed
          *                    slot and permits its omission only under {@code addMode: "many"}, where
          *                    the user names each occurrence: a handler in {@code options[]} has no method
          *                    behind it, so codegen renders the parameter from this entry alone, and
          *                    omitting the name does not add flexibility — it makes each generator invent
          *                    its own
-         * @param doc         spec §5.2 — required. What this parameter carries; on a
+         * @param doc         the spec — required. What this parameter carries; on a
          *                    {@code many} slot it describes what one occurrence is, which is the only place
          *                    that gets said
-         * @param deprecated  spec §5.3 — why this parameter is deprecated, as prose; {@code null} when it
+         * @param deprecated  the spec — why this parameter is deprecated, as prose; {@code null} when it
          *                    is current
          * @param type        the parameter's legal type(s) — a union is expressed as more than one
          *                    element. States the full static surface for this slot even where
@@ -342,7 +342,7 @@ public record TriggerMetadataModel(
          * @param addMode     {@link Handlers#ADD_MODE_MANY} when this slot can repeat zero or more times,
          *                    each occurrence independently named/typed by the user; {@code null} means "at
          *                    most one"
-         * @param dataBinding spec §9, written inline on the parameter it describes; present only when the
+         * @param dataBinding the spec, written inline on the parameter it describes; present only when the
          *                    raw value can be projected into a different, user-defined type
          * @param annotations ids of annotations with {@code attachPoint: "parameter"}
          */
@@ -359,7 +359,7 @@ public record TriggerMetadataModel(
     }
 
     /**
-     * One entry in the top-level <b>{@code annotations[]}</b> registry (spec §8) — an annotation type
+     * One entry in the top-level <b>{@code annotations[]}</b> registry (the spec) — an annotation type
      * referenced elsewhere in the document, defined once here rather than restated at each attachment
      * point.
      *
@@ -397,14 +397,14 @@ public record TriggerMetadataModel(
     }
 
     /**
-     * Spec §6 — a named constraint from an <b>open registry</b>. The rule is referenced, never defined
+     * The spec — a named constraint from an <b>open registry</b>. The rule is referenced, never defined
      * here: {@link #rule} names a constraint the consumer already implements, {@link #subjects} say what
      * it ranges over, and {@link #args} parameterize it. Adding a constraint is a new registry entry, not
      * a schema change.
      *
-     * <p><b>Unknown ids are skipped, never fatal.</b> Spec §6: "A consumer that does not recognise a
+     * <p><b>Unknown ids are skipped, never fatal.</b> The spec: "A consumer that does not recognise a
      * {@code rule} id or a subject {@code kind} skips that rule with a logged warning and never fails."
-     * That policy is what makes a new constraint kind additive, and therefore what lets §11 treat it as a
+     * That policy is what makes a new constraint kind additive, and therefore what lets the spec treat it as a
      * minor bump.
      *
      * <p><b>Placement.</b> A rule scoped to one service type lives on that {@code serviceTypes[]} entry.
@@ -450,7 +450,7 @@ public record TriggerMetadataModel(
     }
 
     /**
-     * Spec §6.1 — what a {@link Rule} ranges over. A tagged union discriminated by {@link #kind}, so a
+     * The spec — what a {@link Rule} ranges over. A tagged union discriminated by {@link #kind}, so a
      * malformed subject is always distinguishable.
      *
      * <p>Modeled as one record with all shapes' fields rather than a sealed hierarchy, because Gson
@@ -503,7 +503,7 @@ public record TriggerMetadataModel(
     }
 
     /**
-     * Spec §9 — how a handler parameter's raw value may be projected into a different, user-defined type.
+     * The spec — how a handler parameter's raw value may be projected into a different, user-defined type.
      *
      * <p>Written <b>inline on the parameter</b> it describes rather than in a top-level registry: a binding
      * describes one slot, so it carries no id and nothing references it.
@@ -530,7 +530,7 @@ public record TriggerMetadataModel(
     }
 
     /**
-     * Spec §9 — how a {@link TypedescVariant}'s bound type is embedded in the declared parameter type.
+     * The spec — how a {@link TypedescVariant}'s bound type is embedded in the declared parameter type.
      *
      * <p>Batching combines with either embedding, which is why {@code array}/{@code stream} carry an
      * {@link #element}: kafka batches both of its variants, one as an array of bare values and one as an
@@ -545,7 +545,7 @@ public record TriggerMetadataModel(
      *                       is {@code included}
      * @param bindableFields the envelope's fields this variant's typedesc may retype; every other field
      *                       stays fixed. The complement is always derivable, so it is never restated
-     * @param completionType for {@code stream}, the stream's completion type. A union — spec §9 types it
+     * @param completionType for {@code stream}, the stream's completion type. A union — the spec types it
      *                       as a TypeRef-or-union so a nilable completion ({@code error?}) is written
      *                       the same way it is everywhere else: an explicit {@code ()} member
      */

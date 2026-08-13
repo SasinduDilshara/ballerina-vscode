@@ -24,12 +24,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Owns <b>spec §2.1 {@code listeners[].platformDependencies}</b>: native artifacts the build cannot fetch.
+ * Owns <b>the spec {@code listeners[].platformDependencies}</b>: native artifacts the build cannot fetch.
  *
  * <p>The sibling of {@link RequiredImportResolver}, for the same underlying reason: both describe a
  * dependency that <b>nothing in the generated code references by name</b>, so no other part of the pipeline
  * can discover it. A {@code requiredImport} is a Ballerina package; a platform dependency is a jar — in the
- * case §2.1 was written for, one whose licence forbids publishing it to any reachable repository.
+ * case the spec was written for, one whose licence forbids publishing it to any reachable repository.
  *
  * <p><b>Native libraries are the half that fails silently.</b> A missing jar is a compile error; a missing
  * native library is not — the package compiles, and the service fails at run time when the JVM tries to load
@@ -47,7 +47,7 @@ final class PlatformDependencyResolver {
      * One artifact the generated project needs on its classpath.
      *
      * @param coordinate     the Maven coordinate as {@code groupId:artifactId:version}
-     * @param provided       whether spec §2.1's {@code scope: "provided"} applies, i.e. the jar is
+     * @param provided       whether the spec's {@code scope: "provided"} applies, i.e. the jar is
      *                       compile-time only and must be supplied by the deployment rather than bundled
      * @param acquisitionUrl where to obtain it; {@code null} when the document states none
      * @param acquisitionNote the human instructions, which is the part that actually identifies which
@@ -67,7 +67,7 @@ final class PlatformDependencyResolver {
      * @param os       {@code linux}, {@code windows} or {@code macos}
      * @param file     the library file name
      * @param variable the environment variable that OS discovers it through. Derived here rather than
-     *                 carried in the document, exactly as spec §2.1 states it once in prose: "Where the
+     *                 carried in the document, exactly as the spec states it once in prose: "Where the
      *                 library must go is determined by {@code os}, so it is stated once here instead of on
      *                 every entry". A consumer that omitted it would leave the reader knowing what to
      *                 download and not where to put it
@@ -123,7 +123,7 @@ final class PlatformDependencyResolver {
         return libraries;
     }
 
-    /** Spec §2.1's os-to-variable table. Unknown OS yields {@code null} rather than a guessed variable. */
+    /** The spec's os-to-variable table. Unknown OS yields {@code null} rather than a guessed variable. */
     private static String discoveryVariable(String os) {
         return switch (os) {
             case TriggerMetadataModel.NativeLibrary.OS_LINUX -> "LD_LIBRARY_PATH";
