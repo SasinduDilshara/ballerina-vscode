@@ -95,10 +95,8 @@ final class ServiceIdentityResolver {
      * The {@code org/module} a cross-module service type belongs to, e.g. {@code ballerinax/cdc}.
      *
      * <p>The <i>module</i> is emitted rather than the alias it renders with: the module is the fact the
-     * document states, and deriving a prefix from it is a syntax decision belonging to the renderer —
-     * which already derives module prefixes the same way for every other foreign type reference.
-     * Emitting the full coordinate also lets the renderer name the owning package in the provenance note
-     * it attaches.
+     * document states, and deriving a prefix from it is a syntax decision belonging to the renderer.
+     * Emitting the full coordinate also lets the renderer name the owning package in its provenance note.
      *
      * @return the foreign {@code org/module}, or empty for a home-module type or an unusable coordinate
      */

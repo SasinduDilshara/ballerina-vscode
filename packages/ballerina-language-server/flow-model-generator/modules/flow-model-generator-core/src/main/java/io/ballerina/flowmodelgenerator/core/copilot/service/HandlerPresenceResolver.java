@@ -25,17 +25,14 @@ import java.util.Optional;
 /**
  * Owns <b>spec §5 {@code options[].presence}</b>: whether a handler must be implemented or may be omitted.
  *
- * <p>Spec §5 scopes the field precisely — "{@code presence} | Only under {@code addMode: subset}" — and that
- * one sentence is the whole of this component. Under {@code addMode: "many"} the option is a shape the user
- * instantiates, so "is this particular handler required" is not a question the document is answering; the
- * key is therefore <b>omitted entirely</b> rather than guessed at as {@code required}. That distinction is
- * why the result is an {@code Optional<Boolean>} and not a {@code boolean}: three states, not two.
+ * <p>Spec §5 scopes the field to {@code addMode: subset}. Under {@code addMode: "many"} the option is a
+ * shape the user instantiates, so "is this particular handler required" is not a question the document is
+ * answering, and the key is <b>omitted entirely</b> rather than guessed at as {@code required}. That is why
+ * the result is an {@code Optional<Boolean>} and not a {@code boolean}: three states, not two.
  *
- * <p><b>Scoped per option, and an absent {@code addMode} reads as {@code subset}.</b> §5.1 moved the flag
- * off the {@code handlers} block onto each option and named {@code subset} its default, so the scoping test
- * is "this option is not {@code many}" rather than "this option says {@code subset}". Testing for the literal
- * word would drop presence from every option in the corpus that omits {@code addMode} — which is most of
- * them — and re-introduce exactly the defect the last paragraph describes.
+ * <p><b>Scoped per option, and an absent {@code addMode} reads as {@code subset}</b> (§5.1), so the test is
+ * "this option is not {@code many}" rather than "this option says {@code subset}" — testing for the literal
+ * word would drop presence from every option in the corpus that omits {@code addMode}, which is most of them.
  *
  * <table>
  *   <caption>The three states, and what each means downstream</caption>
@@ -49,10 +46,7 @@ import java.util.Optional;
  * </table>
  *
  * <p>The value is inverted into <i>optionality</i> rather than carried as the spec's own word because the
- * wire key is {@code optional} — the same key, and the same polarity, that a parameter already uses. Before
- * this component the key was never emitted at all, so a mandatory handler ({@code kafka}'s
- * {@code onConsumerRecord}, {@code websub}'s {@code onEventNotification}) was indistinguishable from a
- * skippable one.
+ * wire key is {@code optional} — the same key, and the same polarity, that a parameter already uses.
  *
  * @since 1.7.0
  */

@@ -27,11 +27,9 @@ import java.util.List;
 /**
  * The accumulating output of one handler, written by the handler-level components.
  *
- * <p>Every slot is <b>held as a field and emitted once in {@link #toJson()}</b>, rather than written straight
- * into a {@link JsonObject} as each component runs. That is what lets the wire contract's key order be a
- * property of this class instead of a property of {@link AspectRegistry}'s ordering: {@code kind} is owned by
- * a different component from {@code name}, and neither should have to run in a particular position just to
- * keep the emitted JSON reading naturally.
+ * <p>Every slot is <b>held as a field and emitted once in {@link #toJson()}</b> rather than written straight
+ * into a {@link JsonObject} as each component runs, so the wire contract's key order is a property of this
+ * class rather than of {@link AspectRegistry}'s ordering.
  *
  * <p>A {@code description} is emitted only when one genuinely exists. For a marker service type neither
  * source has one — the metadata document does not model descriptions, and the library declares no method to
@@ -136,12 +134,10 @@ final class HandlerDraft {
      * Spec §5's {@code path}: whether a resource path must be written, and — because {@code path} is the
      * same {@code valueSpec} as {@code accessor} — which paths are legal.
      *
-     * <p>No syntactic <i>form</i> accompanies it. Spec §5 dropped the {@code identifierSegments} /
-     * {@code pathParamSegments} vocabulary because "the language already fixes what a resource path may
-     * look like" — the old list was restating the grammar, and a consumer that quoted it was telling the
-     * reader something Ballerina already guarantees. A <b>value list</b> is a different claim: it names the
-     * specific paths this connector accepts, which the language cannot know and only the document can state.
-     * It was being dropped, in exact symmetry with the accessor vocabulary that went missing on the same hop.
+     * <p>No syntactic <i>form</i> accompanies it: spec §5 dropped the {@code identifierSegments} /
+     * {@code pathParamSegments} vocabulary because the language already fixes what a resource path may look
+     * like. A <b>value list</b> is a different claim — it names the specific paths this connector accepts,
+     * which the language cannot know and only the document can state — and it was being dropped.
      */
     void setPathConstraint(String path, List<String> values, boolean required, boolean open) {
         this.pathRequired = required;

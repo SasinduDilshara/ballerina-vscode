@@ -105,11 +105,10 @@ final class ServiceAspects {
      *
      * <p><b>Only a prohibition is emitted.</b> Both keys are set on all 26 service types in the corpus, so
      * writing both unconditionally would land a note on essentially every trigger service the Copilot
-     * renders. {@code true} grants a permission a generator would not exercise unprompted — the default
-     * shape a model writes, one service on one listener, is legal either way — whereas {@code false}
-     * forbids something a model can plausibly reach for: asked to consume two Kafka topics, the obvious
-     * shape is two services on one listener, which {@code kafka} makes illegal. Across the whole corpus
-     * this emits <b>three</b> lines instead of twenty-four.
+     * renders. {@code true} grants a permission a generator would not exercise unprompted, whereas
+     * {@code false} forbids something a model can plausibly reach for: asked to consume two Kafka topics,
+     * the obvious shape is two services on one listener, which {@code kafka} makes illegal. Across the whole
+     * corpus this emits <b>three</b> lines instead of twenty-four.
      *
      * <p>The two keys are written <b>separately</b> rather than merged into one note: they answer different
      * questions, and {@code kafka} is the only service type where both fire, so a combined line would be
@@ -223,19 +222,18 @@ final class ServiceAspects {
      * Spec §2 {@code listeners[].type} — the listener a service attaches to, with its init parameters, and
      * §2's {@code services}, which says whether this service type may be attached to one at all.
      *
-     * <p>Spec §2 is explicit that "No listener init fields are ever modeled" in the document, so every
-     * parameter comes from the semantic model: names and types from the {@code init} signature,
-     * descriptions from its doc comment, and declared defaults recovered from the syntax tree.
+     * <p>Spec §2 models no listener init fields in the document, so every parameter comes from the semantic
+     * model: names and types from the {@code init} signature, descriptions from its doc comment, and
+     * declared defaults recovered from the syntax tree.
      *
-     * <p>The built object is <b>cached and shared</b> by identity across every service entry of a library.
-     * That sharing is load-bearing rather than incidental: a downstream enricher rewrites
-     * {@code listener.name} in place for packages shipping a non-canonical listener class, and handing each
-     * service its own copy would change how many times that rewrite is applied.
+     * <p>The built object is <b>cached and shared</b> by identity across every service entry of a library,
+     * which is load-bearing: a downstream enricher rewrites {@code listener.name} in place for packages
+     * shipping a non-canonical listener class, and handing each service its own copy would change how many
+     * times that rewrite is applied.
      *
      * <p>The cache is keyed on the <b>document's</b> listener entry, falling back to the class only when
-     * there is none. Keying on the class alone was safe while every field came from the semantic model, but
-     * §2's {@code deprecated} is authored per listener entry — and two entries may name one class, in which
-     * case a class-keyed cache would hand the second entry the first's deprecation note.
+     * there is none. §2's {@code deprecated} is authored per listener entry, and two entries may name one
+     * class, in which case a class-keyed cache would hand the second entry the first's deprecation note.
      */
     void listener(TriggerScope scope, ServiceDraft draft) {
         Object key = scope.listener() != null ? scope.listener() : scope.listenerClass();

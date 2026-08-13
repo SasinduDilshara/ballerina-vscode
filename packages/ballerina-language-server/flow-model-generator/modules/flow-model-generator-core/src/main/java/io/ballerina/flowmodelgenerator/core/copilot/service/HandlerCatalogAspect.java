@@ -162,16 +162,14 @@ final class HandlerCatalogAspect {
     /**
      * Builds a metadata handler's parameters.
      *
-     * <p>The name pool is seeded with every authored name in the option <i>before</i> any name is
-     * generated, so a generated name can never collide with an authored one declared later in the list.
-     * The positional fallback uses the slot's index in the full list, which keeps a generated name stable
-     * when an unrelated slot is added or removed.
+     * <p>The name pool is seeded with every authored name in the option <i>before</i> any name is generated,
+     * so a generated name can never collide with an authored one declared later in the list. The positional
+     * fallback uses the slot's index in the full list, which keeps a generated name stable when an unrelated
+     * slot is added or removed.
      *
-     * <p><b>A repeatable slot is no longer skipped.</b> It used to be dropped here outright, which cost
-     * the prompt everything §7 says about it — {@code mcp}'s five repeatable slots carry three union type
-     * surfaces and three {@code @http:Header} obligations that reached the prompt nowhere. It is now built
-     * like any other slot, marked by {@link ParamRepeatAspect}, and left out of the rendered signature by
-     * the consumer rather than by this loop.
+     * <p><b>A repeatable slot is no longer skipped.</b> Dropping it here cost the prompt everything §7 says
+     * about it. It is now built like any other slot, marked by {@link ParamRepeatAspect}, and left out of the
+     * rendered signature by the consumer rather than by this loop.
      */
     private void buildOptionParams(HandlerScope handlerScope, HandlerDraft handlerDraft,
                                    List<TriggerMetadataModel.ServiceType.Param> params) {

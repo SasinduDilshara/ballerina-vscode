@@ -89,11 +89,9 @@ final class HandlerAspects {
      * introspectable from the library, which is what the governing DRY principle says the document must
      * leave alone.
      *
-     * <p>Omitting {@code isolated} does not produce a warning — it produces "mismatched function
-     * signatures: expected 'remote function onListTools() returns (…)', found 'remote function
-     * onListTools() returns (…)'", where the two printed signatures are character-for-character identical
-     * because the compiler prints neither qualifier. Verified against {@code mcp:AdvancedService}: without
-     * the qualifier the service fails to compile; with it, {@code bal build} succeeds.
+     * <p>Omitting {@code isolated} does not produce a warning but "mismatched function signatures", where
+     * the two printed signatures are character-for-character identical because the compiler prints neither
+     * qualifier. Verified against {@code mcp:AdvancedService}.
      */
     static void qualifier(HandlerScope scope, HandlerDraft draft) {
         if (scope.isConcrete() && scope.declared().isolatedQualifier()) {

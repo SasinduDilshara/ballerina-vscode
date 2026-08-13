@@ -28,22 +28,17 @@ import java.util.Set;
 import java.util.function.Predicate;
 
 /**
- * Owns <b>spec §7 {@code params[]}</b>: a handler parameter slot's type, presence, repeatability and name.
+ * Owns <b>spec §7 {@code params[]}</b>: a handler parameter slot's type, presence and name.
  *
- * <p>Spec §7 makes three statements this component implements:
- * <ul>
- *   <li>{@code type} is a {@code TypeRef} or array, and per §1 "the first element is the codegen
- *       default" — so the emitted signature is the first member.</li>
- *   <li>{@code presence} is {@code required}/{@code optional}.</li>
- * </ul>
+ * <p>{@code type} is a {@code TypeRef} or array whose first element is the codegen default (spec §1), so the
+ * emitted signature is that member; {@code presence} is {@code required}/{@code optional}.
  *
- * <p>{@code addMode} is <b>not</b> owned here — see {@link ParamRepeatResolver}. It used to be, which put
- * two of §7's four keys in one component and one in another for no reason; the renderer treats
+ * <p>{@code addMode} is <b>not</b> owned here — see {@link ParamRepeatResolver}. The renderer treats
  * {@code presence} and {@code addMode} completely differently, so they are genuinely separate constructs.
  *
- * <p>{@code name} is the interesting one: §7 calls it an "optional domain-meaningful name … added only
- * where real source evidence shows it matters". Where the document states one it wins; where it does not,
- * a name must still be synthesized because a method signature cannot be written without one.
+ * <p>{@code name} is the interesting one: §7 calls it an "optional domain-meaningful name … added only where
+ * real source evidence shows it matters". Where the document states one it wins; where it does not, a name is
+ * still synthesized, because a method signature cannot be written without one.
  *
  * @since 1.7.0
  */
@@ -66,17 +61,14 @@ final class ParamTypeResolver {
      * legal for it.
      *
      * <p><b>{@code alternatives} must never be joined with {@code |}.</b> A {@code |}-joined type declares a
-     * parameter <i>of union type</i> — a handler that accepts either shape at run time — whereas spec §7
-     * means the author picks exactly one of them when writing the signature ("restates the full static
-     * surface for this slot"). {@code rabbitmq}'s {@code onMessage} takes an {@code AnydataMessage} or a
+     * parameter <i>of union type</i>, whereas spec §7 means the author picks exactly one of them when writing
+     * the signature. {@code rabbitmq}'s {@code onMessage} takes an {@code AnydataMessage} or a
      * {@code BytesMessage}, not an {@code AnydataMessage|BytesMessage}.
      *
-     * @param signature    the codegen-default member (spec §1: "the first element"), as written in the
-     *                     signature
+     * @param signature    the codegen-default member (spec §1's first element), as written in the signature
      * @param alternatives every other legal member, in document order; rendered but never joined
-     * @param dropped      members naming a same-module type the resolved package does not declare. They are
-     *                     recorded rather than rendered: a document authored against a different release
-     *                     must not put an unresolvable type name in the prompt
+     * @param dropped      members naming a same-module type the resolved package does not declare, recorded
+     *                     rather than rendered so an unresolvable type name never reaches the prompt
      */
     record ParamType(String signature, List<String> alternatives, List<String> dropped) {
     }

@@ -26,16 +26,14 @@ import java.util.List;
 /**
  * Owns <b>spec §2.1 {@code listeners[].platformDependencies}</b>: native artifacts the build cannot fetch.
  *
- * <p>The sibling of {@link RequiredImportResolver}, and for the same underlying reason: both describe a
+ * <p>The sibling of {@link RequiredImportResolver}, for the same underlying reason: both describe a
  * dependency that <b>nothing in the generated code references by name</b>, so no other part of the pipeline
- * can discover it. A {@code requiredImport} is a Ballerina package; a platform dependency is a jar — and in
- * the case §2.1 was written for, one whose licence forbids publishing it to any repository a build can
- * reach.
+ * can discover it. A {@code requiredImport} is a Ballerina package; a platform dependency is a jar — in the
+ * case §2.1 was written for, one whose licence forbids publishing it to any reachable repository.
  *
- * <p><b>Native libraries are the half that fails silently.</b> A missing jar is a compile error, which is
- * loud. A missing native library is not: the package compiles, and the service fails at run time when the
- * JVM tries to load it. Nothing in the build graph records that requirement, which is exactly the gap this
- * metadata exists to fill, so the OS-specific entries are carried through rather than summarized away.
+ * <p><b>Native libraries are the half that fails silently.</b> A missing jar is a compile error; a missing
+ * native library is not — the package compiles, and the service fails at run time when the JVM tries to load
+ * it. So the OS-specific entries are carried through rather than summarized away.
  *
  * @since 1.10.0
  */

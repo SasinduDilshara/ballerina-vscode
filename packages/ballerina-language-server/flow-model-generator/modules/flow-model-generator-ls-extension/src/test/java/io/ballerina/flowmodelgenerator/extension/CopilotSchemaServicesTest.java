@@ -77,31 +77,24 @@ public class CopilotSchemaServicesTest {
     /**
      * The package version each library's assertions are resolved against.
      *
-     * <p>Resolution is otherwise "whatever Central serves latest", which makes every assertion in this
-     * class hostage to an upstream release. That is not hypothetical: {@code ballerina/smb} 2.0.1
-     * (published 2026-08-06) removed the {@code WatchEvent} record and added a compiler plugin that
-     * rejects {@code onFileChange}, and two tests here began failing with {@code expected [6] but found
-     * [5]} — a message that says nothing at all about the cause.
+     * <p>Resolution is otherwise "whatever Central serves latest", which makes every assertion in this class
+     * hostage to an upstream release. That is not hypothetical: {@code ballerina/smb} 2.0.1 removed the
+     * {@code WatchEvent} record and added a compiler plugin that rejects {@code onFileChange}, and two tests
+     * here began failing with {@code expected [6] but found [5]}.
      *
      * <p><b>The build owns these values, not this class.</b> They arrive through
      * {@value #PINNED_VERSIONS_PROPERTY}, assembled by {@code copilotCorpusVersions} in
      * {@code flow-model-generator-ls-extension/build.gradle} straight out of
-     * {@code build-config/ballerina_dependencies/Dependencies.toml} — the lock file the hermetic
-     * Ballerina home is provisioned from, so the version a test <i>requests</i> is by construction the
-     * version the build <i>provisioned</i>. Held as literals here, the two drifted: the build pre-fetched
-     * {@code ftp} 2.16.0 and {@code http} 2.16.3 while this map asked for 2.20.1 and 2.16.6, and the
-     * difference was invisible because an unfetched version is simply downloaded from Central, or skipped.
+     * {@code build-config/ballerina_dependencies/Dependencies.toml} — the lock file the hermetic Ballerina
+     * home is provisioned from, so the version a test <i>requests</i> is by construction the version the
+     * build <i>provisioned</i>. Held as literals here, the two drifted silently.
      *
-     * <p>A bump is therefore one line in that project's {@code Ballerina.toml} plus a regenerated lock,
-     * and it is expected to come with re-verifying the affected trigger-metadata document against the new
-     * release.
+     * <p>A bump is therefore one line in that project's {@code Ballerina.toml} plus a regenerated lock, and
+     * is expected to come with re-verifying the affected trigger-metadata document against the new release.
      *
-     * <p><b>There is deliberately no hardcoded fallback.</b> One existed, holding the same versions as
-     * literals for a run with no build behind it, and it was the very duplication this indirection exists
-     * to remove: bumping the provisioned version left the literal behind, so the two could disagree again
-     * with nothing to catch it. An absent property is now a hard failure naming what to do, which costs a
-     * clear message on a bare {@code java -cp} run and nothing at all under Gradle — including an IDE that
-     * delegates test runs to it.
+     * <p><b>There is deliberately no hardcoded fallback</b>, which would reintroduce the duplication this
+     * indirection removes. An absent property is a hard failure naming what to do, which costs a clear
+     * message on a bare {@code java -cp} run and nothing at all under Gradle.
      */
     private static final Map<String, String> PINNED_VERSIONS = pinnedVersions();
 
@@ -496,13 +489,9 @@ public class CopilotSchemaServicesTest {
     // constraint is the compiler's record and not the document's tag.
     //
     // Removed because the corpus resolves ftp at `ballerinaFtpVersion`, and that release declares no
-    // service-scope annotation at all — only `annotation FtpFunctionConfig FunctionConfig on service remote
-    // function;`. The §8 resolver therefore drops `ServiceConfig` as undeclared, which is correct behaviour
-    // for that version and leaves the test nothing to assert. The document describes a later ftp.
-    //
-    // The cross-module half of the same guarantee is still covered by
-    // testMssqlCrossModuleServiceAnnotationCarriesItsConstraint above, which asserts the same
-    // tag-vs-constraint distinction for `ballerinax/cdc`'s ServiceConfig / CdcServiceConfig.
+    // service-scope annotation at all — so the §8 resolver drops `ServiceConfig` as undeclared, which is
+    // correct for that version and leaves the test nothing to assert. The cross-module half of the same
+    // guarantee is still covered by testMssqlCrossModuleServiceAnnotationCarriesItsConstraint above.
 
     // ---- mcp ---------------------------------------------------------------------------
 
@@ -791,9 +780,8 @@ public class CopilotSchemaServicesTest {
      *
      * <p>{@code ballerina/ftp} has BOTH sources, so it is the case where substituting one for the other is
      * possible at all. The index entry describes the same handlers with strictly fewer facts — no §8
-     * annotation obligations, no §6 constraints, no §9 binding rules, no presence markers — so serving it
-     * in place of the document would not be a fallback but a silent downgrade, and the reader would have
-     * no way to tell which one they were given.
+     * annotation obligations, no §6 constraints, no §9 binding rules, no presence markers — so serving it in
+     * place of the document would be a silent downgrade rather than a fallback.
      *
      * <p>Asserting both halves matters: that the two paths differ, and that the schema path is the richer
      * one. Difference alone would also be satisfied by the schema path being worse.

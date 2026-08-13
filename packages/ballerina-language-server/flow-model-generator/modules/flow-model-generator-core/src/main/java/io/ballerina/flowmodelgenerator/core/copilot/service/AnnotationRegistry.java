@@ -29,13 +29,9 @@ import java.util.Optional;
  *
  * <p>Spec §8 defines the registry as annotation types "referenced elsewhere, defined once", reached by
  * {@code id} from {@code params[].annotations}, {@code handlers.options[].annotations} and
- * {@code rules[].members[].annotation}, or by {@code attachPoint} for service- and return-level
- * annotations that have no more precise reference. Both access paths live here so that each attach-point
- * component can stay a pure filter rather than re-implementing the lookup.
- *
- * <p>Nothing consumes this yet: the components that render annotation requirements arrive with the
- * annotation phase. It is introduced now because the registry is shared by four of them plus the
- * constraint resolver, so building it once here is what lets those land as pure additions.
+ * {@code rules[].members[].annotation}, or by {@code attachPoint} for service- and return-level annotations
+ * that have no more precise reference. Both access paths live here so that each attach-point component can
+ * stay a pure filter rather than re-implementing the lookup.
  *
  * @since 1.7.0
  */

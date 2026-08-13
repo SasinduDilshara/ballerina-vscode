@@ -41,10 +41,9 @@ export interface Parameter {
     type: Type;
     default?: string;
     // Whether this parameter may be omitted. The pipeline emits it only when true — from the init method's
-    // DEFAULTABLE/INCLUDED_RECORD parameter kind on the metadata path, or the service index's own flag
-    // otherwise — so absent means required. `renderFixedService` depends on it to decide whether a listener
-    // argument may carry a default; declared here rather than read through a cast, so a producer that stops
-    // sending it fails type-checking instead of silently dropping every listener default.
+    // DEFAULTABLE/INCLUDED_RECORD parameter kind, or the service index's own flag — so absent means required.
+    // Declared here rather than read through a cast, so a producer that stops sending it fails type-checking
+    // instead of silently dropping every listener default.
     optional?: boolean;
     annotations?: AnnotationAttachment[];
 }
@@ -137,8 +136,7 @@ export interface Field {
     default?: string;
     // Whether the record field is declared `T name?;`. Declared here rather than read through an `as any`
     // cast in `renderRecord`, for the reason `Parameter.optional` gives one interface above: a producer that
-    // stops sending it must fail type-checking rather than silently turn every optional field into a
-    // mandatory one. The cast was the only reason this compiled while the field was undeclared.
+    // stops sending it must fail type-checking rather than silently turn every optional field mandatory.
     optional?: boolean;
     isDeprecated?: boolean;
     annotations?: AnnotationAttachment[];
@@ -236,12 +234,9 @@ export interface ServiceRemoteFunction {
     isolated?: boolean;
     // Spec §5 resource extras — the two positions of `resource function <accessor> <path>()`, and nothing
     // else. The spec replaced HTTP's `method`/`path` and GraphQL's `accessor`/`fieldName` with one pair
-    // described symmetrically ("Both are required for `kind: "resource"` and neither applies to `kind:
-    // "remote"`"), which is why `methodValues`/`pathForm`/`fieldNameForm`/`graphqlOperation` are gone.
-    //
-    // `graphqlOperation` is not lost with them: it is derivable from what remains. A query is `resource`
-    // with accessor `get`, a subscription is `resource` with accessor `subscribe`, and a mutation is
-    // `remote` — so restating it would be the spec's own "fully derivable from other fields" omission.
+    // described symmetrically, which is why `methodValues`/`pathForm`/`fieldNameForm`/`graphqlOperation` are
+    // gone. `graphqlOperation` is derivable from what remains: a query is `resource`/`get`, a subscription
+    // `resource`/`subscribe`, and a mutation `remote`.
     //
     // `accessor` is the value to write (§1: the first declared value is the codegen default); the rest
     // describe the slot's constraint. Spec §11.2 still holds: a path is intent-derived and never invented.
@@ -253,10 +248,9 @@ export interface ServiceRemoteFunction {
     accessorOpen?: boolean;
     pathRequired?: boolean;
     // Spec §5 gives `path` the same `valueSpec` as `accessor`, so it may enumerate the legal paths or declare
-    // itself open. `path` is the one to write (§1: the first declared value is the codegen default),
-    // `pathValues` the rest of the vocabulary, `pathOpen` the `values: ["*"]` case. All three were missing
-    // while the accessor half had them, so a document constraining its path reached the prompt with only
-    // "a path is required" — the specific paths, which are the part the language cannot infer, were dropped.
+    // itself open. `path` is the one to write (§1's codegen default), `pathValues` the rest of the
+    // vocabulary, `pathOpen` the `values: ["*"]` case. All three were missing while the accessor half had
+    // them, so a document constraining its path reached the prompt with only "a path is required".
     path?: string;
     pathValues?: string[];
     pathOpen?: boolean;
@@ -346,10 +340,9 @@ export interface ConstraintSubject {
     // free labels, referenced by the rule's `prefer`.
     role?: string;
     // Spec §6's top-level `rules[]`: a constraint spanning more than one service type. The declared *type
-    // name* of the service type this subject belongs to, present only when that is NOT the service type
-    // being rendered — so a rule scoped to one service type carries nothing here and reads exactly as it
-    // did. Without it a spanning rule would present every alternative as belonging to the service type the
-    // reader happens to be looking at.
+    // name* of the service type this subject belongs to, present only when that is NOT the one being
+    // rendered — so a rule scoped to one service type carries nothing here. Without it a spanning rule would
+    // present every alternative as belonging to the service type the reader happens to be looking at.
     serviceType?: string;
 }
 
@@ -378,13 +371,11 @@ export interface Service {
     // Hand-authored guidance for writing this service, from
     // `resources/copilot/instructions/<org>/<module>/service.md`.
     //
-    // Declared on `Service` rather than only on `GenericService` because a metadata-derived (fixed) entry
-    // now absorbs it too. The division of labour is strict and is what keeps the two halves from ever
-    // contradicting each other: a curated file may state ONLY what neither the trigger-metadata document
-    // nor the semantic model can — project conventions (an http listener belongs at module level),
-    // compiler-plugin rules (`@http:Payload` is optional for a lone record parameter), defaults (a graphql
-    // service defaults to `/graphql`), and worked examples. Everything factual — types, presence,
-    // annotations, accessors, binding — is synthesized and must not be restated here.
+    // Declared on `Service` rather than only on `GenericService` because a metadata-derived (fixed) entry now
+    // absorbs it too. The division of labour is strict: a curated file may state ONLY what neither the
+    // trigger-metadata document nor the semantic model can — project conventions, compiler-plugin rules,
+    // defaults and worked examples. Everything factual (types, presence, annotations, accessors, binding) is
+    // synthesized and must not be restated here.
     instructions?: string;
     // Spec §1: the `org/module` a cross-module service type belongs to (`ballerinax/cdc`). Absent
     // for a home-module type, which is prefixed with the listener's alias instead.
@@ -397,9 +388,8 @@ export interface Service {
     // Spec §6: the exclusivity constraints this service type declares.
     constraints?: ServiceConstraint[];
     // Spec §3's array cardinality: the document declares more than one service type, so this one is
-    // "individually optional" rather than mandatory. NOT a mutual-exclusivity marker — §3 leaves the
-    // choice to the generation intent and imposes no "exactly one of N" rule, and `websocket` declares two
-    // service types where the first's handler returns the second, so both are routinely written together.
+    // "individually optional" rather than mandatory. NOT a mutual-exclusivity marker — §3 imposes no
+    // "exactly one of N" rule, and `websocket`'s two service types are routinely written together.
     alternatives?: boolean;
     // Spec §3 `multipleListenersAllowed: false` — this service type attaches to exactly one listener.
     // Present only when the connector forbids it; the permissive case states nothing, because the
@@ -415,21 +405,19 @@ export interface Service {
     // service because the spec declares them on the listener, so only code using that listener needs them.
     platformDependencies?: PlatformDependency[];
     // Spec §2 `listeners[].services`: no listener declares it can host this service type, so it must never
-    // be written as `service … on new …` — the compiler rejects that with "service type is not supported by
-    // the listener". Present only when the restriction holds. `renderFixedService` renders such a type as a
-    // `service class` that includes it, which is how `websocket`'s Service is actually reached.
+    // be written as `service … on new …`. Present only when the restriction holds. `renderFixedService`
+    // renders such a type as a `service class` that includes it, which is how `websocket`'s Service is
+    // actually reached.
     notListenerAttachable?: boolean;
     // Spec §3 `deprecated` — why this service type is superseded, as prose. See
     // ServiceRemoteFunction.deprecated for why it is text and not a flag.
     deprecated?: string;
     // Hand-authored guidance for writing TESTS against this service, from
     // `resources/copilot/instructions/<org>/<module>/test.md`. Set by the Java side on every service of a
-    // library that ships one, and named by the system prompt: "Respect … the testGenerationInstruction field
-    // in whatever library associated with the service in the library API documentation".
+    // library that ships one, and named by the system prompt.
     //
     // It was undeclared here and rendered nowhere, so the prompt instructed the model to honour text it never
-    // received. Declared on `Service` because that is where the producer sets it; rendered once per library,
-    // because the claim is about the library and repeating it per service type would say nothing more.
+    // received. Rendered once per library, because the claim is about the library.
     testGenerationInstruction?: string;
 }
 
@@ -476,15 +464,12 @@ export interface FixedService extends Service {
     // Absent for fixed services whose service type declares no methods (e.g. mcp's marker Service).
     methods?: ServiceRemoteFunction[];
     // Spec §4 `addMode: "many"`: the shapes a handler of this service type may take, for a catalog whose
-    // handler names are the author's to choose. Typed as ServiceRemoteFunction because each is one in
-    // every respect but its name — but they are deliberately NOT in `methods`, because they are not
-    // writable as-is. Spec §11.1: such a handler "cannot yield a compilable signature", so each renders as
-    // commented guidance and never as syntax.
+    // handler names are the author's to choose. Typed as ServiceRemoteFunction because each is one in every
+    // respect but its name — but deliberately NOT in `methods`, because they are not writable as-is (spec
+    // §11.1: such a handler "cannot yield a compilable signature"), so each renders as commented guidance.
     //
     // A list, though spec §4 says one: `graphql` declares three — a query (`resource`/`get`), a mutation
-    // (`remote`) and a subscription (`resource`/`subscribe`, returning a stream). They differ in kind,
-    // accessor and return, so rendering only the first (as this did until now) deleted two thirds of the
-    // connector's handler surface.
+    // (`remote`) and a subscription (`resource`/`subscribe`) — differing in kind, accessor and return.
     handlerTemplates?: ServiceRemoteFunction[];
 }
 

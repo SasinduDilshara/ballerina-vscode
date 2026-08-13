@@ -32,20 +32,15 @@ import java.util.function.Predicate;
  * Owns <b>spec §9 {@code params[].dataBinding}</b> at the variant level: reading each {@code typedescs[]}
  * entry's bound and exclusions, and dispatching its {@code shapes[]} to {@link ShapeResolver}.
  *
- * <h2>What changed from the registry form</h2>
- *
  * <p>Spec v1.0 moved the binding <b>inline onto the parameter</b> and deleted the top-level
- * {@code dataBindingRules[]} registry, which removes an entire failure mode rather than relocating it:
- * there is no id, so there is no dangling reference to resolve, report, or drop a parameter over. What used
- * to be this component's most common diagnostic — "no {@code dataBindingRules[]} entry declares this id" —
- * cannot occur.
+ * {@code dataBindingRules[]} registry, which removes a failure mode rather than relocating it: with no id
+ * there is no dangling reference to resolve, report, or drop a parameter over.
  *
  * <p>It also changed the unit of variation. The old {@code supportedModes[]} were alternative <i>modes</i>
- * over one shared rule, with {@code cardinality} hoisted to the rule so every mode was batched or none
- * was. The new {@code typedescs[]} are independent <i>variants</i>, each with its own bound, its own
- * exclusions and its own shapes — so one variant can be batched while its sibling is not, and two variants
- * may share a bound and differ only in shape. Nothing about the old shape could express that; kafka's
- * "array of bare values or array of envelope-including records" was approximated by a rule-level flag.
+ * over one shared rule, with {@code cardinality} hoisted to the rule so every mode was batched or none was.
+ * The new {@code typedescs[]} are independent <i>variants</i>, each with its own bound, its own exclusions
+ * and its own shapes — so one variant can be batched while its sibling is not, and two variants may share a
+ * bound and differ only in shape, as kafka's do.
  *
  * <p><b>Degradation.</b> Nothing here throws. A variant naming no bound, or one whose every shape is
  * unreadable, is skipped; a binding whose every variant is skipped yields {@link Optional#empty()} so the

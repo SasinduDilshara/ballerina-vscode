@@ -666,14 +666,13 @@ function collectServiceTypeRefs(service: Service): Type[] {
             for (const annotation of param.annotationRefs ?? []) {
                 add(annotation?.typeConstraint);
             }
-            // Spec §9: every type a binding note can name. The envelope is the one that matters most — the
-            // renderer tells the reader to write `*kafka:AnydataConsumerRecord;`, which is unusable unless
-            // that record is defined in the same prompt.
+            // Spec §9: every type a binding note can name. The envelope matters most — the renderer tells
+            // the reader to write `*kafka:AnydataConsumerRecord;`, which is unusable unless that record is
+            // defined in the same prompt.
             //
             // Walks `typedescs[]`, the shape §9 now takes. It walked the removed `modes[]` until this was
-            // fixed, which silently emptied the whole branch: `param.binding?.modes` is `undefined` on
-            // every parameter, so the loop ran zero times and every envelope, bound and excluded type
-            // dropped out of the closure — the exact failure the comment above warns about.
+            // fixed, which silently emptied the whole branch and dropped every envelope, bound and excluded
+            // type out of the closure.
             for (const variant of param.binding?.typedescs ?? []) {
                 add(variant.constraint);
                 for (const type of variant.excludes ?? []) {
@@ -803,35 +802,24 @@ function addInternalRecord(
 /**
  * Type names excluded from the internal type closure.
  *
- * **No rationale was recorded when this list was introduced** (it predates the current file and was carried
- * through several refactors unchanged), so what follows is what the entries verifiably have in common rather
- * than a restatement of an intent nobody wrote down.
+ * **No rationale was recorded when this list was introduced** (it predates the current file), so what follows
+ * is what the entries verifiably have in common rather than a restatement of an intent nobody wrote down.
  *
- * Every one of the ten `ballerinax/github` entries is an **alias of a primitive** — checked against the
- * library's own rendered catalog:
- *
- *     type CodeScanningAnalysisToolGuid string|();      type ActionsEnabled boolean;
- *     type AlertDismissedAt string|();                  type PreventSelfReview boolean;
- *     type AlertFixedAt string|();                      type ActionsCanApprovePullRequestReviews boolean;
- *     type AlertAutoDismissedAt string|();              type CodeScanningAlertDismissedComment string|();
- *     type NullableAlertUpdatedAt string|();            type SecretScanningAlertResolutionComment string|();
- *
- * An alias of a primitive tells a reader nothing they cannot see from the field that references it, and these
- * connectors reference them from dozens of records — so pulling each into the closure spends prompt budget on
- * declarations with no content. The five `ballerinax/twilio` entries follow the naming convention that
- * library's generator uses for the same shape; that is unverified here, because twilio is not in the render
- * corpus.
+ * Every one of the ten `ballerinax/github` entries is an **alias of a primitive** (`type ActionsEnabled
+ * boolean;`, `type AlertDismissedAt string|();` and so on), which tells a reader nothing they cannot see from
+ * the field that references it — and these connectors reference them from dozens of records, so pulling each
+ * into the closure spends prompt budget on declarations with no content. The five `ballerinax/twilio` entries
+ * follow that library's generator convention for the same shape; unverified here, since twilio is not in the
+ * render corpus.
  *
  * **Excluding a name here does not hide the type.** The exclusion applies to the *closure walk* only, so a
- * library that declares one still renders it in its own `typeDefs` section — `ballerinax/github`'s render
- * contains `type AlertDismissedAt string|();`. What the list avoids is dragging it in as a dependency of
- * every function that happens to touch it.
+ * library that declares one still renders it in its own `typeDefs` section. What the list avoids is dragging
+ * it in as a dependency of every function that happens to touch it.
  *
  * Hardcoded by library-specific name, which is the real objection to it: a third connector with the same
  * generator shape gets no benefit, and the list can only grow by hand. The principled version is a *shape*
  * test — skip an alias whose definition is a primitive or a union of primitives — which needs the type's
- * definition at the point of the walk and is a change to what the closure means rather than to this list.
- * Recorded here rather than attempted, because it would move the type surface of every large connector.
+ * definition at the point of the walk and would move the type surface of every large connector.
  */
 function isIgnoredRecordName(recordName: string): boolean {
     const ignoredRecords = [
@@ -965,17 +953,15 @@ function addLibraryRecords(externalRecords: Map<string, string[]>, libraryName: 
  * and the fetch itself costs a package resolution. `lang.annotations` is the one exception, because it
  * declares real annotation types (`@deprecated`) that generated code does attach.
  *
- * **This replaces a `ballerina/lang.int`-only skip marked `// TODO: find a proper solution`.** The proper
- * solution is the rule the Java side already applies at the point links are created —
- * `TypeLinkBuilder.isPredefinedLangLib`, same predicate, same `lang.annotations` carve-out — so the two now
- * agree instead of one covering the whole class and the other one member of it.
+ * This replaces a `ballerina/lang.int`-only skip marked `// TODO: find a proper solution`. The Java side
+ * applies the same predicate at the point links are created (`TypeLinkBuilder.isPredefinedLangLib`, same
+ * `lang.annotations` carve-out), so the two now agree.
  *
- * Both are kept rather than collapsed into one, and deliberately: the Java filter decides whether a *link* is
- * emitted, this one decides whether a *library is fetched*, and the second is reachable from any producer that
- * builds links another way — `TypeResolver.resolveAnnotationConstraint` sets a library name straight from a
- * metadata document, and never passes through the Java filter at all. With the Java filter in place today no
- * `ballerina/lang.*` reference survives to reach this function, so this is a backstop rather than a live path;
- * verified against all 22 rendered libraries, none of which references a lang library.
+ * Both are kept rather than collapsed into one: the Java filter decides whether a *link* is emitted, this one
+ * whether a *library is fetched*, and the second is reachable from any producer that builds links another way
+ * — `TypeResolver.resolveAnnotationConstraint` sets a library name straight from a metadata document. With
+ * the Java filter in place no `ballerina/lang.*` reference survives to reach this function, so this is a
+ * backstop rather than a live path.
  */
 function isLangLibrary(libraryName: string): boolean {
     return libraryName.startsWith("ballerina/lang.")

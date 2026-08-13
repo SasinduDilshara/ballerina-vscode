@@ -142,8 +142,7 @@ final class ParamAspects {
      * <p><b>The wire shape mirrors the document's</b> — variants, each with a bound, its exclusions and its
      * shapes — rather than flattening to a single {@code modes} array. Flattening would have to pick one
      * bound per binding, and §9's whole point is that two variants can share shapes while differing in bound
-     * (ftp's CSV rows: {@code string[]} or {@code record {}}), or share a bound while differing in shape
-     * (kafka's bare-vs-included). Either collapse silently deletes half the surface.
+     * (ftp's CSV rows) or share a bound while differing in shape (kafka's bare-vs-included).
      */
     static void dataBinding(ParamScope scope, ParamDraft draft) {
         TriggerMetadataModel.ServiceType.Param param = scope.param();

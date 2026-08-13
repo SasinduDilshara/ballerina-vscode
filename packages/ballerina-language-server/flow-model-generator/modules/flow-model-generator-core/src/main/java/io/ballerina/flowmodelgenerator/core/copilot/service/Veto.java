@@ -21,15 +21,12 @@ package io.ballerina.flowmodelgenerator.core.copilot.service;
 /**
  * A recorded reason an entry was dropped from the catalog.
  *
- * <p>Replaces the inline {@code continue} + {@code LOGGER.warning} pattern, under which a dropped
- * handler left no trace a caller could inspect and a <i>broken</i> metadata document was
- * indistinguishable from an <i>absent</i> one — both silently fell back to the SQLite service index.
- * A veto is attributable: it names the component that raised it, the spec section that component
- * owns, and the subject that was dropped, so "why did websub's {@code onHubError} disappear?" has an
- * answer.
+ * <p>Replaces the inline {@code continue} + {@code LOGGER.warning} pattern, under which a dropped handler
+ * left no trace a caller could inspect and a <i>broken</i> metadata document was indistinguishable from an
+ * <i>absent</i> one — both silently fell back to the SQLite service index. A veto is attributable: it names
+ * the component that raised it, the spec section that component owns, and the subject that was dropped.
  *
- * <p>Vetoes never reach the emitted JSON. They are diagnostics about the document, not content for the
- * prompt.
+ * <p>Vetoes never reach the emitted JSON. They are diagnostics about the document, not prompt content.
  *
  * @param aspectId    the component that raised it, e.g. {@code "handlerCatalog"}
  * @param specSection the spec section that component owns, e.g. {@code "§4"}

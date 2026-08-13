@@ -25,15 +25,12 @@ import java.util.function.BiConsumer;
  * The single ordered list of components, and the one place the pipeline's shape is declared.
  *
  * <p>A component is a function from a read-only scope to a mutable draft, so it is registered as a method
- * reference rather than as a class implementing an interface. There was an interface per tier once, each
- * declaring {@code id()} and {@code specSection()} alongside {@code contribute}; nothing ever dispatched
- * those two through an interface reference, so the only member that was actually a contract is the one
- * kept here.
+ * reference rather than as a class implementing an interface.
  *
  * <p><b>Ordering.</b> Within a tier the order is declared once, here. Only three entries have a reason to
- * sit where they do, and each is noted at its line; the rest are order-independent. Handler-tier order in
- * particular carries no meaning at all: {@link HandlerDraft} holds each slot as a field and emits the wire
- * contract's key order itself, so a component can be inserted anywhere without changing the JSON.
+ * sit where they do, and each is noted at its line; the rest are order-independent. Handler-tier order
+ * carries no meaning at all: {@link HandlerDraft} holds each slot as a field and emits the wire contract's
+ * key order itself, so a component can be inserted anywhere without changing the JSON.
  *
  * <p><b>Lifetime.</b> A registry is built per library load, never shared: {@link ServiceAspects} memoizes
  * the listener object it builds, and that cache is only valid within one library's resolved package.

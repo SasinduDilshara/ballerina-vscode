@@ -347,17 +347,14 @@ public class LibraryModelConverter {
     /**
      * Reduces a compiler type signature to the short name the rest of the model expects.
      *
-     * <p>Historically this was {@code substring(lastIndexOf(':') + 1)}, which is correct only for a
-     * bare qualified name ({@code ballerina/http:2.15.0:Request} -> {@code Request}). Applied to a
-     * composite signature it discards everything before the last module reference, so
-     * {@code stream<rowType, ballerina/sql:1.19.0:Error?>} became {@code Error?>} — a fragment with
-     * an unmatched bracket.
+     * <p>Historically this was {@code substring(lastIndexOf(':') + 1)}, which is correct only for a bare
+     * qualified name ({@code ballerina/http:2.15.0:Request} -> {@code Request}). Applied to a composite
+     * signature it discards everything before the last module reference, so
+     * {@code stream<rowType, ballerina/sql:1.19.0:Error?>} became {@code Error?>}.
      *
-     * <p>The truncation is therefore kept only when its result is well-formed; otherwise the whole
-     * signature is rewritten in place, preserving the construct and aliasing each module reference.
-     * Restricting the new path to signatures the old one provably mangles keeps every currently
-     * correct name byte-identical — in particular the bare names that the {@code links} mechanism
-     * re-qualifies downstream, which must not arrive already prefixed.
+     * <p>The truncation is therefore kept only when its result is well-formed; otherwise the whole signature
+     * is rewritten in place, preserving the construct and aliasing each module reference. Restricting the new
+     * path to signatures the old one provably mangles keeps every currently correct name byte-identical.
      */
     private static String shortenTypeName(String signature, String currentOrg, String currentPackage) {
         if (signature == null || !signature.contains(":")) {

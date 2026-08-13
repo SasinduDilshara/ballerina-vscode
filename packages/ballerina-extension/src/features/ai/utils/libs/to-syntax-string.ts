@@ -1644,14 +1644,13 @@ function renderPlatformDependencyNotes(dependencies: PlatformDependency[] | unde
  * Spec §3 `multipleListenersAllowed` / `multipleServicesPerListenerAllowed` — stated only as prohibitions.
  *
  * The pipeline sends a key only when the connector forbids something, so there is no permissive case to
- * filter here. The reason it does is worth repeating at the point of use: the shape a generator writes by
- * default — one service, one listener — is legal whether or not the connector allows more, so the
- * permissive value changes nothing it would otherwise produce, while the prohibition is what stands
+ * filter here. The default shape a generator writes — one service, one listener — is legal either way, so
+ * the permissive value changes nothing it would otherwise produce, while the prohibition is what stands
  * between the model and code that does not compile.
  *
- * Two lines rather than one merged sentence: `kafka` is the only service type in the corpus where both
- * fire, and a combined line would state something false for `ballerinax/trigger.google.calendar`, where
- * only the second holds.
+ * Two lines rather than one merged sentence: `kafka` is the only corpus service type where both fire, and a
+ * combined line would state something false for `ballerinax/trigger.google.calendar`, where only the second
+ * holds.
  */
 function renderCardinalityNotes(service: Service): string[] {
     const lines: string[] = [];
@@ -1675,23 +1674,19 @@ function renderCardinalityNotes(service: Service): string[] {
  * Spec §4 `addMode: "many"` — the body of a service type whose handlers the author names.
  *
  * **Every line is a `//` comment, and that is forced rather than stylistic.** A `#` documentation line is
- * only legal immediately before a declaration; inside an otherwise empty service body the compiler rejects
- * it outright — verified: `ERROR documentation not attached to a construct`, followed by cascading parse
- * errors. So the notes cannot use the `#` form the rest of this file uses for guidance, and the signature
- * cannot be live code either: spec §11.1 is explicit that such a handler "cannot yield a compilable
- * signature", because the name is the author's to choose.
+ * only legal immediately before a declaration; inside an otherwise empty service body the compiler answers
+ * `ERROR documentation not attached to a construct`. The signature cannot be live code either: spec §11.1 is
+ * explicit that such a handler "cannot yield a compilable signature", because the name is the author's to
+ * choose.
  *
- * What is emitted is therefore a commented template that invents nothing beyond the name placeholder:
- * the kind, the parameter types, the return and the annotation obligations are all things the document
- * states. Types are module-qualified because the reader writes them in their own module — the same rule
- * the §9 `*envelope;` note already follows.
+ * What is emitted is therefore a commented template that invents nothing beyond the name placeholder: the
+ * kind, the parameter types, the return and the annotation obligations are all things the document states.
+ * Types are module-qualified because the reader writes them in their own module.
  *
- * The filled-in form is intended to compile once a real name replaces `<handlerName>` — but that is a goal,
- * NOT a verified guarantee, and the distinction matters. It holds for a catalog whose contract is fully
- * expressed by the document (`mcp`). It does not necessarily hold where a compiler plugin imposes rules the
- * document cannot state: `ballerina/http` requires `@http:Payload` once a handler takes more than one
- * parameter, and the template has no way to know that. Treat this block as the shape a handler takes, not as
- * a line that is guaranteed to build unedited; the library's own curated guidance carries the plugin rules.
+ * The filled-in form is *intended* to compile once a real name replaces `<handlerName>`, but that is a goal
+ * rather than a verified guarantee: it does not necessarily hold where a compiler plugin imposes rules the
+ * document cannot state, as `ballerina/http` does by requiring `@http:Payload` once a handler takes more
+ * than one parameter. The library's own curated guidance carries the plugin rules.
  */
 function renderHandlerTemplates(templates: ServiceRemoteFunction[] | undefined,
                                 listenerAlias: string | null): string[] {
@@ -1704,8 +1699,7 @@ function renderHandlerTemplates(templates: ServiceRemoteFunction[] | undefined,
     // catalog whose every shape is `resource` accepts NOTHING else, and the compiler enforces it:
     // `ballerina/http` answers a remote method with "ERROR remote methods are not allowed in
     // http:Service". The generic wording ("any number of handlers") reads as permission to write a remote
-    // one, so for a resource-only catalog the kind has to be named up front — it is the difference between
-    // guidance and a compile error.
+    // one, so for a resource-only catalog the kind has to be named up front.
     const kinds = new Set(templates.map((template) => template.type));
     const kindWord = kinds.size === 1 && kinds.has("resource") ? "resource handlers"
         : (kinds.size === 1 && kinds.has("remote") ? "remote handlers" : "handlers");
@@ -1731,10 +1725,8 @@ function renderHandlerTemplates(templates: ServiceRemoteFunction[] | undefined,
         lines.push(...renderHandlerTemplateBody(template, listenerAlias, indent));
     });
     // A blank line closes the block. Spec §5.1 let a service type carry templates AND named handlers at
-    // once -- `websocket` declares nine of the latter beside two of the former -- and without this the
-    // last commented signature ran straight into the first handler's `#` doc comment, so the two blocks
-    // read as one. Every other handler in the body is blank-line separated; this makes the template block
-    // no different.
+    // once -- `websocket` declares nine of the latter beside two of the former -- and without this the last
+    // commented signature ran straight into the first handler's `#` doc comment, so the two read as one.
     lines.push("");
     return lines;
 }
@@ -1753,21 +1745,18 @@ function renderHandlerTemplateBody(template: ServiceRemoteFunction,
 
     // `renderParamDef` is the same expression this built inline — required-annotation attachments, then the
     // qualified type, then the name when the document states one. A template's parameter list is a handler's
-    // parameter list, so rendering it twice meant a change to either (spec §7's presence rule, §8's inline
-    // attachments) had to be made in both or the commented template would drift from the real signature.
+    // parameter list, so rendering it twice meant a change to either had to be made in both.
     const params = (template.parameters ?? [])
         .filter((param) => !param.repeatable)
         .map((param) => renderParamDef(param, listenerAlias))
         .join(", ");
     const returnType = qualifyDeclaredType(template.return?.type, listenerAlias);
     const returnStr = returnType ? ` returns ${returnType}` : "";
-    // The same policy `renderMethodSignature` applies to a named resource handler, and for the same
-    // reason: when the document supplies no accessor there is none to write, and substituting `get`
-    // would be inventing API. Falling back to `remote function` keeps the line copyable — which is the
-    // branch graphql's *mutation* shape takes, since a mutation is `kind: "remote"` and declares no
-    // accessor at all.
-    // A resource handler's *path* is what a remote handler's name is — so the author-chosen slot is the
-    // path placeholder, and appending `<handlerName>` after it as well would emit
+    // The same policy `renderMethodSignature` applies to a named resource handler: when the document
+    // supplies no accessor there is none to write, and substituting `get` would be inventing API. Falling
+    // back to `remote function` keeps the line copyable — the branch graphql's *mutation* shape takes.
+    // A resource handler's *path* is what a remote handler's name is, so the author-chosen slot is the path
+    // placeholder; appending `<handlerName>` after it as well would emit
     // `resource function get pathSegment <handlerName>(...)`, which is not a signature at all.
     const templateAccessor = resourceAccessor(template);
     const declarator = templateAccessor
@@ -1778,12 +1767,12 @@ function renderHandlerTemplateBody(template: ServiceRemoteFunction,
     // renderers so that a change to what §7 or §8 says reaches the template automatically; only the `# `
     // marker is swapped, because of the compiler rule above.
     //
-    // The list must stay in step with `renderHandlers`, which is the only other place a handler's notes are
-    // built. It did not: `renderResourceNote`, `renderAlternativeNotes` and `renderBindingNotes` were missing
-    // here, and a template is the ONLY shape an `addMode: "many"` catalog renders — so for `ballerina/http`
-    // (a wildcard catalog) its 8 legal accessors, its 3 path forms and its §9 binding rule reached the prompt
-    // nowhere at all, despite the pipeline resolving every one of them. Ordered exactly as `renderHandlers`
-    // orders them: what the handler is, then what its parameters may hold, then which may be omitted.
+    // The list must stay in step with `renderHandlers`, the only other place a handler's notes are built. It
+    // did not: `renderResourceNote`, `renderAlternativeNotes` and `renderBindingNotes` were missing here,
+    // and a template is the ONLY shape an `addMode: "many"` catalog renders — so for `ballerina/http` its 8
+    // legal accessors, 3 path forms and §9 binding rule reached the prompt nowhere. Ordered exactly as
+    // `renderHandlers` orders them: what the handler is, then what its parameters may hold, then which may
+    // be omitted.
     const notes = [
         // Spec §5.1's authored handler description. It was reaching the wire as `description` and being
         // dropped here, which was the one asymmetry in this block: the template's PARAMETER docs rendered
@@ -1815,10 +1804,9 @@ function renderHandlerTemplateBody(template: ServiceRemoteFunction,
 
     // The obligation block and the signature are the two lines a reader actually copies, so they are
     // written as real Ballerina behind the `// ` and nothing else: uncommenting them, substituting a name
-    // and adding a body must compile. (A body is required — like every handler this file renders, the
-    // signature ends in `;` and is a declaration, not a definition.) That is why `{}` appears here where
-    // the declaration-level block uses `{...}` — `{...}` is not an expression, so it would turn a
-    // copyable line into a guaranteed compile error the moment the comment marker comes off.
+    // and adding a body must compile. That is why `{}` appears here where the declaration-level block uses
+    // `{...}` — `{...}` is not an expression, so it would turn a copyable line into a compile error the
+    // moment the comment marker comes off.
     for (const annotation of template.annotationRefs ?? []) {
         const { qualifiedName, constraint, provenanceNote } =
             qualifyRequirement(annotation, listenerAlias);
@@ -1847,11 +1835,10 @@ function renderHandlers(service: FixedService, listenerAlias: string | null,
     const lines: string[] = [];
     for (const method of service.methods ?? []) {
         // `.trimEnd()` is load-bearing, not tidiness. An index-served description arrives with a trailing
-        // newline ("Triggers on a new record create event.\n"), and appending another produced a BLANK LINE
-        // between the description and the `# + param` lines below it. A blank line terminates a Ballerina
-        // doc comment, so the description became a dangling comment and what attached to the handler was a
-        // block containing only parameter docs. Harmless until parameter docs existed; now four of
-        // salesforce's handlers are affected.
+        // newline, and appending another produced a BLANK LINE between the description and the `# + param`
+        // lines below it. A blank line terminates a Ballerina doc comment, so the description became a
+        // dangling comment and only the parameter docs attached to the handler. Four of salesforce's
+        // handlers are affected.
         const desc = method.description ? `    # ${method.description.trimEnd()}\n` : "";
         // Spec §5.1 makes the document author a `doc` for every parameter of a non-concrete handler,
         // because no symbol carries one. Rendered as Ballerina's own `# + name - text` parameter
@@ -1869,19 +1856,16 @@ function renderHandlers(service: FixedService, listenerAlias: string | null,
         // Spec §5.3's prose, as its own doc section. It must be the LAST `#` block of the comment, which
         // the compiler decides rather than taste: `# # Deprecated` opens a markdown section, so every `#`
         // line after it becomes that section's BODY. Emitting it first swallowed the `# + watchEvent` line
-        // below it and `bal build` reported `undocumented parameter 'watchEvent'` -- the parameter doc was
-        // present and inert. Placed here it is preceded by the description, the notes and the obligations,
-        // and followed only by the annotation and the signature.
+        // below it and `bal build` reported `undocumented parameter 'watchEvent'`.
         const deprecationSection = renderDeprecationSection(method.deprecated, "    ");
         const depBlock = deprecationSection.length > 0 ? deprecationSection.join("\n") + "\n" : "";
         // The annotation is not optional beside the section: `bal build` rejects the documentation without
         // it -- "'Deprecated' documentation is only allowed on constructs annotated as '@deprecated'". So
-        // the document's prose is sufficient reason to write `@deprecated`, and gating it on `isDeprecated`
-        // alone emitted a warning-generating pair for `ftp`'s `onFileChange`, whose marker service type
-        // declares no method for the compiler to have annotated.
+        // the document's prose is sufficient reason to write `@deprecated`; gating it on `isDeprecated`
+        // alone emitted a warning-generating pair for `ftp`'s `onFileChange`.
         //
-        // The two still say different things and neither replaces the other: the annotation makes the
-        // compiler warn, the section names the replacement.
+        // The two still say different things: the annotation makes the compiler warn, the section names the
+        // replacement.
         const dep = method.isDeprecated || method.deprecated ? "    @deprecated\n" : "";
         // Spec §7: a repeatable slot is never written into the signature — the document states no name
         // for it, so emitting one would invent a parameter. `renderRepeatNotes` states it instead.
@@ -1915,9 +1899,8 @@ function renderHandlers(service: FixedService, listenerAlias: string | null,
         const noteBlock = notes.length > 0 ? notes.join("\n") + "\n" : "";
         // Split rather than flattened, because §5.3's section has to go BETWEEN the two halves. §8's
         // obligation block is a `#` note plus an `@X {...}` attachment, and Ballerina requires every `#`
-        // line to precede every annotation — so appending the deprecation section after the whole block
-        // put documentation below an annotation, which is the same class of error the section was moved
-        // to avoid. `ftp`'s `onFileChange` is the one handler that is both annotated and deprecated.
+        // line to precede every annotation — so appending the deprecation section after the whole block put
+        // documentation below an annotation. `ftp`'s `onFileChange` is the one handler that is both.
         const obligations = splitAnnotationRequirementLines(
             method.annotationRefs, listenerAlias, "handler", "    ");
         const obligationNotes = obligations.notes.length > 0
@@ -1943,23 +1926,21 @@ function renderHandlers(service: FixedService, listenerAlias: string | null,
  * `service websocket:Service on new websocket:Listener(...)` with "service type is not supported by the
  * listener". But it is not dead either — `websocket`'s `Service` is the *return* of its `UpgradeService`
  * resource, and its nine handlers exist nowhere else in the catalog, because the library's own `Service`
- * object type is a marker that declares none of them (the compiler plugin enforces the contract at
- * user-code compile time, so `objectType.methods()` is empty and the Types section renders `class Service
- * { }`). Rendering it as a listener attachment was uncompilable; dropping it would delete the nine
- * signatures from the prompt entirely. It is written as what a reader actually writes instead.
+ * object type is a marker that declares none of them. It is written as what a reader actually writes
+ * instead.
  *
  * Three things are deliberately NOT carried over from the attachment shape, each because it is illegal or
  * meaningless here rather than merely redundant:
- *  - **the §8 service-scope annotation block** — verified: `@websocket:ServiceConfig` on a `service class`
- *    is `ERROR annotation 'ballerina/websocket:…:ServiceConfig' is not allowed on class`. Those annotations
- *    are declared `on service`, and a class is not a service declaration;
+ *  - **the §8 service-scope annotation block** — `@websocket:ServiceConfig` on a `service class` is
+ *    `ERROR annotation … is not allowed on class`; those annotations are declared `on service`, and a class
+ *    is not a service declaration;
  *  - **the §3 cardinality notes** — they describe how many listeners the type may attach to, and it
  *    attaches to none;
  *  - **the §3 identifier slot** — there is no `service <identifier> on new …` line to put one in.
  *
  * The §6 constraint notes ARE carried over, and they are load-bearing: compiling this block with all nine
  * websocket handlers gives exactly `Cannot have onTextMessage with onMessage remote function` and the
- * matching `onBinaryMessage` error. Honour them and it builds.
+ * matching `onBinaryMessage` error.
  */
 function renderServiceClass(service: FixedService, listenerAlias: string | null): string {
     const lines: string[] = [];
@@ -2026,25 +2007,22 @@ function renderFixedService(service: FixedService): string {
     }
 
     // Curated guidance, when the library ships a `service.md` this entry absorbed. Emitted FIRST, and as
-    // raw markdown rather than `#` documentation lines, for two reasons: prose frames the declaration that
-    // follows, and `#`-prefixing a multi-kilobyte block with fenced code samples would turn it into a
-    // Ballerina doc comment attached to the service — legal, but far harder to read. This is the same raw
-    // form `renderGenericService` has always used, so nothing about how the text reaches the model changes;
-    // what changes is that a synthesized declaration now follows it instead of replacing it.
+    // raw markdown rather than `#` documentation lines: prose frames the declaration that follows, and
+    // `#`-prefixing a multi-kilobyte block with fenced code samples would turn it into a Ballerina doc
+    // comment attached to the service — legal, but far harder to read. Same raw form
+    // `renderGenericService` has always used.
     lines.push(...renderServiceGuidance(service.instructions));
 
     // A default is emitted ONLY for an optional parameter. Every parameter used to get one, which told the
-    // model that a mandatory value — kafka's `bootstrapServers`, grpc's `port`, websocket's `'listener` — had
-    // a default it could leave alone. The `optional` flag has always been on the wire (set from the init
-    // method's DEFAULTABLE/INCLUDED_RECORD parameter kind); it was simply not consulted. A required parameter
-    // with a type-derived placeholder value is the one case where saying less is strictly more correct.
+    // model that a mandatory value — kafka's `bootstrapServers`, grpc's `port` — had a default it could
+    // leave alone. The `optional` flag has always been on the wire (set from the init method's
+    // DEFAULTABLE/INCLUDED_RECORD parameter kind); it was simply not consulted.
     //
     // The type is module-qualified for the same reason a handler parameter's is: this argument list is part
     // of a `service ... on new ...` line the reader copies whole, and the library's own prefix was stripped
     // on the way out. Rendered raw it produced `ListenerConfiguration config = {}` for mcp, websocket,
-    // websub and grpc, and `ConsumerConfiguration config = {}` for kafka — none of which resolve in the
-    // reader's module. Note `renderGenericService` renders its own listener line and is deliberately left
-    // alone: it serves the curated http/graphql overlay, whose text is hand-written and already correct.
+    // websub and grpc, which resolves in no reader's module. `renderGenericService` renders its own listener
+    // line and is deliberately left alone: it serves the hand-written http/graphql overlay.
     const listenerParams = service.listener.parameters.map((p) => {
         const suffix = p.optional === true && p.default !== undefined ? ` = ${p.default}` : "";
         return `${qualifyDeclaredType(p.type, listenerAlias)} ${p.name}${suffix}`;
@@ -2248,14 +2226,11 @@ function renderAnnotationDeclarations(annotations: Annotation[]): string[] {
  * The claim is about the *set* of service types a document declares, so repeating it on each entry says
  * nothing extra; `ballerinax/trigger.github` would carry ten identical copies of it.
  *
- * The wording follows §3 literally: "multiple entries = each individually optional, choice left to
- * whatever supplied the generation intent". It deliberately does **not** say "pick exactly one" — §3
- * imposes no such rule, and `websocket` is the counter-example that makes the distinction load-bearing:
- * its `UpgradeService` handler *returns* its `Service`, so both are routinely declared together.
+ * The wording follows §3 literally and deliberately does **not** say "pick exactly one" — §3 imposes no
+ * such rule, and `websocket` is the counter-example: its `UpgradeService` handler *returns* its `Service`,
+ * so both are routinely declared together.
  *
- * `//` rather than `#`: a `#` line here would attach to the first service declaration as its
- * documentation, which is both semantically wrong for a library-level statement and would sit in front of
- * that service's own `#` notes and annotations.
+ * `//` rather than `#`: a `#` line here would attach to the first service declaration as its documentation.
  *
  * The count comes from the entries actually rendered, so a service type dropped by a veto can never make
  * this line promise something the reader cannot find below.
@@ -2276,18 +2251,16 @@ function renderServiceAlternativesNote(services: Service[]): string[] {
  * The curated `test.md` guidance a library's services carry — emitted **once per library**.
  *
  * The Java side attaches it to every service of the library, so the text is identical across them and
- * repeating it per service type would state one fact several times; `ballerinax/trigger.github` would carry
- * ten copies. Distinct texts are all emitted, in first-appearance order, because nothing guarantees a future
- * producer keeps them uniform and silently dropping the second would be the same class of defect this
- * function exists to fix.
+ * repeating it per service type would state one fact several times. Distinct texts are all emitted, in
+ * first-appearance order, because nothing guarantees a future producer keeps them uniform.
  *
  * Until now the field was declared nowhere in TypeScript and rendered nowhere, while the system prompt told
- * the model to "Respect … the testGenerationInstruction field in whatever library associated with the
+ * the model to respect "the testGenerationInstruction field in whatever library associated with the
  * service" — so the instruction pointed at text the model was never shown.
  *
  * `//` rather than `#`: this is a library-level statement, and a `#` line here would attach to whatever
- * declaration follows as its documentation. Emitted after the services, since it is about testing code the
- * reader has not written yet.
+ * declaration follows. Emitted after the services, since it is about testing code the reader has not
+ * written yet.
  */
 function renderTestGuidance(services: Service[]): string[] {
     const seen = new Set<string>();

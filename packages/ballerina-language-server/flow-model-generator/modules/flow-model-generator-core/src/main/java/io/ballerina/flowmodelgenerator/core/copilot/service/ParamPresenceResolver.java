@@ -25,10 +25,9 @@ import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
  *
  * <p>Its own component rather than a method on {@link ParamTypeResolver}, for the same reason
  * {@link ParamRepeatResolver} was split out of it: one spec key, one owner. A parameter slot carries three
- * independent modifiers — its type surface (§7 {@code type}), whether it may be omitted ({@code presence}),
- * and whether it repeats ({@code addMode}) — and the consumer treats all three differently. While
- * {@code presence} lived inside the type resolver, a change to what §7 says about optionality had two
- * plausible homes, which is exactly the ambiguity the one-owner rule exists to remove.
+ * independent modifiers — its type surface (§7 {@code type}), whether it may be omitted
+ * ({@code presence}), and whether it repeats ({@code addMode}) — and the consumer treats all three
+ * differently.
  *
  * <p><b>Both sources answer here.</b> A metadata slot states {@code presence}; a concrete service type's
  * declared parameter answers from the semantic model instead. Keeping both in one component means "is this

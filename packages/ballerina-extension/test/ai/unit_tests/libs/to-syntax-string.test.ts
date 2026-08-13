@@ -700,13 +700,10 @@ suite("toSyntaxString", () => {
             // Spec §2 declares `requiredImports` on the *listener*, so the requirement belongs to each
             // service that attaches to it — one `# Requires:` line per service, and never a bare
             // `import ...;` at the library header. Repetition is correct here, not duplication: each
-            // service states its own dependency, and a reader of one service must not have to look at
-            // another to discover it.
+            // service states its own dependency.
             //
             // This test previously asserted the opposite — that a single *hoisted* `import ...;` line
-            // appears — which directly contradicted its own sibling above ("must not be hoisted to the
-            // library header"). It had never passed: it was red in the same commit that introduced it
-            // (27f7eab8), so it pinned a design that was abandoned before it shipped.
+            // appears — which contradicted its own sibling above and had never passed.
             const service = (name: string) => ({
                 type: "fixed", name, listener, methods: [],
                 requiredImports: [{ module: "ballerinax/mssql.cdc.driver", alias: "_" }],
@@ -944,16 +941,14 @@ suite("toSyntaxString", () => {
         });
 
         test("§8: a home-module constraint takes the listener's alias, like any other declared type", () => {
-            // This test previously asserted the opposite — that the bare name survived — and described
-            // the mechanism ("the external mechanism does not re-qualify it") rather than the requirement.
-            // The mechanism was the defect: the constraint was resolved with `applyPrefixToTypeName`,
-            // which only consults EXTERNAL links, so a cross-module record came out qualified while a
-            // home-module one came out bare.
+            // This test previously asserted the opposite — that the bare name survived — and described the
+            // mechanism rather than the requirement. The mechanism was the defect: the constraint was
+            // resolved with `applyPrefixToTypeName`, which only consults EXTERNAL links, so a cross-module
+            // record came out qualified while a home-module one came out bare.
             //
-            // Bare is not a name the reader can use. This sentence tells them what to put inside `{...}`
-            // of an annotation they are writing in THEIR module, where the library's own records are
-            // reachable only through its alias — exactly the rule every handler parameter and return type
-            // in this file already follows.
+            // Bare is not a name the reader can use. This sentence tells them what to put inside `{...}` of
+            // an annotation they are writing in THEIR module, where the library's own records are reachable
+            // only through its alias.
             const result = renderService({
                 type: "fixed", name: "Service", listener: ftpListener, methods: [],
                 annotations: [annotation({
@@ -1161,14 +1156,12 @@ suite("toSyntaxString", () => {
         test("§5: a remote handler carrying an accessor constraint is still not labelled a resource", () => {
             // The label follows the handler's KIND, not the spec section its extras are filed under. §5 now
             // states the two slots are resource-only, so this shape is a document defect that
-            // `ResourceExtrasCheck` reports — but a report is not a guarantee, and labelling a handler
-            // "Resource:" directly above the `remote function` line describing it states the opposite of
-            // the signature the reader copies.
+            // `ResourceExtrasCheck` reports — but labelling a handler "Resource:" directly above the
+            // `remote function` line describing it states the opposite of the signature the reader copies.
             //
-            // `graphqlOperation` used to be tested here. It is gone, and deliberately not replaced: a
-            // query is `resource` + accessor `get`, a subscription is `resource` + accessor `subscribe`,
-            // and a mutation is `remote` — so the field restated what the other two already say, which is
-            // exactly what the spec's own omission rule forbids.
+            // `graphqlOperation` used to be tested here. It is gone and deliberately not replaced: a query
+            // is `resource` + `get`, a subscription `resource` + `subscribe`, and a mutation `remote`, so the
+            // field restated what the other two already say.
             const result = renderService({
                 type: "fixed", name: "Service", listener: wsListener,
                 methods: [method({ name: "onEvent", accessorValues: ["get"], accessorRequired: false })],
@@ -2650,19 +2643,17 @@ suite("toSyntaxString", () => {
     // Compile-correctness of what the reader copies.
     //
     // These pin two classes of defect that every previous suite missed for the same reason: the fixtures
-    // above declare types with NO `links`, and both defects only appear once a link is present. A test
-    // whose fixture cannot exhibit the bug passes for a broken implementation, which is exactly what
-    // happened — 126 tests were green while `mcp`'s rendered handler failed to compile.
+    // above declare types with NO `links`, and both defects only appear once a link is present. 126 tests
+    // were green while `mcp`'s rendered handler failed to compile.
     //
     // Every expected string here was verified with `bal build` (Ballerina 2201.13.4) before being asserted.
     // ----------------------------------------------------------------
     // ----------------------------------------------------------------
     // Curated `test.md` guidance — the third wire boundary, and the one that had no guard.
     //
-    // The Java side loads it, sets it on every service, and serializes it; the system prompt names it
-    // explicitly ("Respect ... the testGenerationInstruction field in whatever library associated with the
-    // service in the library API documentation"). It was declared on no TypeScript interface and rendered
-    // nowhere, so the prompt instructed the model to obey text it never received.
+    // The Java side loads it, sets it on every service and serializes it, and the system prompt names it
+    // explicitly. It was declared on no TypeScript interface and rendered nowhere, so the prompt instructed
+    // the model to obey text it never received.
     // ----------------------------------------------------------------
     // ----------------------------------------------------------------
     // Two latent renderer gaps: an identifier slot that admits more than one form, and a binding variant

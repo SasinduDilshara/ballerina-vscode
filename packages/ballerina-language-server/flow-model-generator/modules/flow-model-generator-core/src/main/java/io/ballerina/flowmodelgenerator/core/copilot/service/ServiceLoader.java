@@ -81,29 +81,23 @@ public class ServiceLoader {
     }
 
     /**
-     * Loads all services for a library, preferring the schema-driven path (trigger metadata +
-     * semantic model) whenever a metadata document resolves for the library. Setting the system
-     * property {@value #TRIGGER_SOURCE_PROPERTY} to {@code "index"} pins everything to the SQLite path.
+     * Loads all services for a library, preferring the schema-driven path (trigger metadata + semantic
+     * model) whenever a metadata document resolves for the library. Setting the system property
+     * {@value #TRIGGER_SOURCE_PROPERTY} to {@code "index"} pins everything to the SQLite path.
      *
-     * <p>The schema path is attempted for every library, not a fixed set: it returns empty for
-     * anything with no metadata document, which is the overwhelming majority and costs one
-     * {@code stat} against the already-resolved package. Falling through is therefore the normal case
-     * and is not logged.
+     * <p>The schema path is attempted for every library, not a fixed set: it returns empty for anything with
+     * no metadata document, which is the overwhelming majority and costs one {@code stat} against the
+     * already-resolved package. Falling through is therefore the normal case and is not logged.
      *
-     * <h2>Empty is two different outcomes, and only one of them falls back</h2>
-     *
-     * <p><b>No document</b> — the library is not schema-driven. The service index is its only source,
-     * so it is used, silently, exactly as before. This is the path all thirteen index-only libraries
-     * take, and nothing about it changed.
-     *
-     * <p><b>Document resolved, produced nothing</b> — the index is <i>not</i> consulted. Everything the
-     * index holds for a schema-driven library is a strict subset of what its document describes, with
-     * one exception (handler and parameter descriptions, which the schema path cannot produce and which
-     * it therefore already does not emit today). So the index cannot repair this outcome; it can only
-     * disguise it, substituting a thinner catalog for a real defect and leaving no trace that the
-     * document failed. Preferring an obvious absence over a confident-looking downgrade is what makes
-     * that class of failure findable — {@code ballerina/smb} 2.0.1 removing a type the document still
-     * referenced is exactly the shape of release that lands here.
+     * <p>Empty is two different outcomes, and only one of them falls back:
+     * <ul>
+     *   <li><b>No document</b> — the library is not schema-driven, so the service index is its only source
+     *       and is used silently, exactly as before.</li>
+     *   <li><b>Document resolved, produced nothing</b> — the index is <i>not</i> consulted. Everything it
+     *       holds for a schema-driven library is a subset of what the document describes, so it cannot repair
+     *       this outcome, only disguise it by substituting a thinner catalog for a real defect. An obvious
+     *       absence is preferred over a confident-looking downgrade.</li>
+     * </ul>
      *
      * @param libraryName   the library name (e.g., "ballerinax/kafka")
      * @param pkg           the resolved package the caller already compiled (may be null)
@@ -134,34 +128,27 @@ public class ServiceLoader {
     }
 
     /**
-     * Applies the generic-services overlay, and what a {@code name} collision means depends on where the
-     * fixed entry came from.
+     * Applies the generic-services overlay. What a {@code name} collision means depends on where the fixed
+     * entry came from.
      *
      * <p><b>Index-derived ({@code schemaDerived == false}) — replace.</b> The curated entry wins and the
-     * index entry is dropped, exactly as before. An index row carries a listener and a method list and
-     * nothing else; the curated prose was written precisely because that is too thin to generate against,
-     * so there is nothing in it worth preserving alongside.
+     * index entry is dropped, exactly as before: an index row carries a listener and a method list and
+     * nothing else, which is why the curated prose was written in the first place.
      *
      * <p><b>Schema-derived ({@code schemaDerived == true}) — <i>merge</i>.</b> The metadata-derived entry
-     * survives and absorbs the curated guidance. This is the case that was silently destroying work:
+     * survives and absorbs the curated guidance. This case was silently destroying work:
      * {@code ballerina/http} and {@code ballerina/graphql} both declare {@code type.name = "Service"} and
-     * both have a curated entry named {@code Service}, so their <b>entire trigger-metadata documents
-     * rendered nothing at all</b> — for http, 8 method values, 3 path forms, 6 parameter slots, 7
-     * annotation references (including the corpus's only {@code attachPoint: "return"} entry) and a
-     * {@code dataBindingRules} rule; for graphql, three handler shapes including subscriptions, which the
-     * curated prose never mentions.
+     * both have a curated entry named {@code Service}, so their entire trigger-metadata documents rendered
+     * nothing at all.
      *
-     * <p>The two sources are not substitutes and neither subsumes the other: the document states the
-     * <i>facts</i> (types, presence, annotations, binding), while the curated file states the
-     * <i>conventions</i> a document deliberately cannot carry — that an http listener belongs at module
-     * level, that {@code @http:Payload} is optional for a lone record parameter, that a graphql service
-     * defaults to {@code /graphql}. Merging keeps both; the old behaviour kept only the second.
+     * <p>The two sources are not substitutes: the document states the <i>facts</i> (types, presence,
+     * annotations, binding), while the curated file states the <i>conventions</i> a document deliberately
+     * cannot carry. Merging keeps both; the old behaviour kept only the second.
      *
      * <p>The instruction text is loaded here rather than left to
      * {@code CopilotLibraryManager.augmentServicesWithInstructions}, which applies it only to entries typed
      * {@code generic}. Doing it at the point of absorption keeps the change surgical: no service that did
-     * not previously carry curated guidance starts carrying it, so {@code ballerina/ai}'s never-yet-rendered
-     * {@code service.md} stays exactly as unrendered as it is today.
+     * not previously carry curated guidance starts carrying it.
      *
      * @param libraryName   the library being loaded
      * @param fixedServices the non-generic entries

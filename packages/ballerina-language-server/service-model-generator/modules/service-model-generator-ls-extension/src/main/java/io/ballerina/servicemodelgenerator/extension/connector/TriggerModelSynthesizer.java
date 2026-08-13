@@ -409,18 +409,15 @@ public final class TriggerModelSynthesizer {
      * True when an exclusivity rule on this service type prefers an annotation over the identifier, so the
      * identifier field is not offered in the form.
      *
-     * <h2>Migrated to spec §6's open rule registry</h2>
+     * <p>Migrated to spec §6's open rule registry: the closed {@code type: "oneOf"} enum with
+     * {@code members[].part} became {@code rule: "structure.exactlyOne"} over {@code subjects[].kind}, and
+     * the per-member {@code preferred: true} flag became a rule-level {@code prefer: "<role>"} naming one
+     * subject's {@link TriggerMetadataModel.Subject#role()}. Same question, same answer.
      *
-     * <p>The closed {@code type: "oneOf"} enum with {@code members[].part} became {@code rule:
-     * "structure.exactlyOne"} over {@code subjects[].kind}, and the per-member {@code preferred: true} flag
-     * became a rule-level {@code prefer: "<role>"} naming one subject's {@link
-     * TriggerMetadataModel.Subject#role()}. Same question, same answer: {@code rabbitmq}'s
-     * {@code $queueNameSource} still resolves to its {@code queueName} annotation field over the identifier.
-     *
-     * <p><b>Only {@code exactlyOne} supersedes.</b> It is the direct rename of {@code oneOf}, and it is the
-     * only entry that makes the alternatives <i>mutually</i> exclusive AND mandatory — so preferring one means
-     * the other must not be offered. {@code structure.atMostOne} deliberately does not qualify: it permits
-     * zero, so the identifier stays available even when an annotation is preferred.
+     * <p><b>Only {@code exactlyOne} supersedes.</b> It is the direct rename of {@code oneOf} and the only
+     * entry that makes the alternatives <i>mutually</i> exclusive AND mandatory.
+     * {@code structure.atMostOne} deliberately does not qualify: it permits zero, so the identifier stays
+     * available even when an annotation is preferred.
      */
     private static boolean isSupersededByPreferredAnnotation(TriggerMetadataModel.ServiceType serviceType) {
         if (serviceType.rules() == null) {

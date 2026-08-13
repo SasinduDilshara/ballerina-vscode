@@ -62,11 +62,9 @@ final class HandlerCatalogResolver {
         /**
          * A marker type: the metadata document's {@code options} are the only source of truth.
          *
-         * <p><b>One variant carrying two lists, because spec §5.1 lets them coexist.</b> {@code addMode}
-         * used to sit on the {@code handlers} block, so a service type was entirely fixed-name or entirely
-         * open-ended, and the two were modelled as separate catalog kinds. §5.1 moved the flag onto each
-         * option precisely so that "fixed lifecycle handlers alongside open user-named ones" is
-         * expressible, and a service type mixing them has one catalog rather than two.
+         * <p>One variant carrying two lists, because spec §5.1 lets them coexist: {@code addMode} moved from
+         * the {@code handlers} block onto each option so that fixed lifecycle handlers alongside open
+         * user-named ones is expressible, and a service type mixing them has one catalog rather than two.
          *
          * @param named     the {@code subset} options — real method names a reader writes verbatim, each
          *                  governed by its own {@code presence}
@@ -91,14 +89,11 @@ final class HandlerCatalogResolver {
     /**
      * A resolved catalog, plus every way the document had to be tolerated to reach it.
      *
-     * <p><b>Now always empty, and that is the headline of this spec revision.</b> It used to carry three
-     * kinds of degradation — {@code grpc} declaring {@code many} with four <i>named</i> options and no
-     * wildcard, {@code graphql} declaring three {@code "*"} entries where the block-level reading allowed
-     * one, and a wildcard mixed with named options. Every one was a document stating something true that
-     * the schema could not express, and every one cost real output: graphql lost its mutation and
-     * subscription shapes entirely. Spec §5.1 made all three legal, so they are no longer deviations to
-     * report — they are just documents. The field is kept because the shape of the contract should not
-     * change with the corpus, and a future deviation still needs somewhere to go.
+     * <p><b>Now always empty.</b> It used to carry three kinds of degradation, each a document stating
+     * something true that the schema could not express, and each costing real output — {@code graphql} lost
+     * its mutation and subscription shapes entirely. Spec §5.1 made all three legal. The field is kept
+     * because the shape of the contract should not change with the corpus, and a future deviation still
+     * needs somewhere to go.
      *
      * @param catalog      where this service type's handlers come from
      * @param degradations spec deviations that changed how the document was read or cost emitted output,

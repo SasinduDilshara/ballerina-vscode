@@ -372,23 +372,21 @@ public class TriggerModelSynthesizerTest {
     }
 
     /**
-     * Spec §1 makes a type reference a <b>tree</b>: {@code {"shape":"array","elementType":{"name":"byte"}}} is
-     * {@code byte[]}, and such a node carries no {@code name} at all.
+     * Spec §1 makes a type reference a <b>tree</b>: {@code {"shape":"array","elementType":{"name":"byte"}}}
+     * is {@code byte[]}, and such a node carries no {@code name} at all.
      *
-     * <p>This is the case the m2 migration left behind on this side. {@code qualifyTypeRef} read only
-     * {@code ref.name()}, so every composite resolved to {@code null} — and because the union join runs through
-     * {@code StringJoiner}, a {@code null} member is emitted as the four characters {@code null}. A parameter
-     * declared {@code byte[]} therefore reached the UI schema typed {@code "null"}, as did a
-     * {@code stream}-returning handler.
+     * <p>{@code qualifyTypeRef} read only {@code ref.name()}, so every composite resolved to {@code null} —
+     * and because the union join runs through {@code StringJoiner}, a {@code null} member is emitted as the
+     * four characters {@code null}. A parameter declared {@code byte[]} therefore reached the UI schema typed
+     * {@code "null"}, as did a {@code stream}-returning handler.
      *
-     * <p>Both shapes are real and both are in the shipped corpus: {@code websocket}'s
-     * {@code onBinaryMessage}/{@code onPing}/{@code onPong} take {@code {"shape":"array"}} of {@code byte}, and
-     * {@code graphql}'s subscription resource returns {@code {"shape":"stream"}}. The fixture below is those two,
-     * on one handler.
+     * <p>Both shapes are in the shipped corpus: {@code websocket}'s
+     * {@code onBinaryMessage}/{@code onPing}/{@code onPong} take an array of {@code byte}, and
+     * {@code graphql}'s subscription resource returns a {@code stream}. The fixture below is those two, on
+     * one handler.
      *
-     * <p>The third assertion is the guard on the fix rather than on the defect: a composite whose element is a
-     * home-module type must be qualified exactly as the same type is at the top level, so delegating the shape
-     * table to {@code TypeRefResolver} cannot change how leaves are prefixed.
+     * <p>The third assertion guards the fix rather than the defect: a composite whose element is a
+     * home-module type must be qualified exactly as the same type is at the top level.
      */
     @Test
     public void testCompositeTypeRefsRenderAsArraysAndStreams() {

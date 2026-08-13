@@ -27,25 +27,19 @@ import java.util.Optional;
  * Owns <b>spec §3 {@code serviceTypes[].identifier}</b>: the slot between {@code service} and
  * {@code on new …}, and whether the generated service must fill it.
  *
- * <p>Spec §3 is explicit that the key is present "only when genuinely consulted" — "Omit the whole key if
- * the identifier slot carries no meaning for this connector" — so an absent key means the connector ignores
- * whatever is written there, not that the slot defaults to something. An absent key therefore yields
+ * <p>Spec §3 keeps the key present "only when genuinely consulted", so an absent key means the connector
+ * ignores whatever is written there rather than that the slot defaults to something. It therefore yields
  * {@link Optional#empty()} and the renderer emits nothing at all, which is what {@code ftp}, {@code kafka},
  * {@code mssql.cdc} and the concrete-service-type libraries need.
  *
  * <p><b>Vocabulary.</b> Spec §10 enumerates exactly two forms for this slot: {@code basePath} and
- * {@code stringLiteral}. This is the one {@code form} slot the spec does constrain — contrast
- * {@link HttpResourceExtrasResolver} and {@link GraphqlResourceExtrasResolver}, whose {@code path.form} and
- * {@code fieldName.form} vocabularies the spec never defines and which are therefore passed through
- * unvalidated. An unrecognised form here maps to {@link IdentifierForm#UNKNOWN} rather than throwing: the
- * renderer then states that the slot is consulted without inventing a placeholder whose syntax it cannot
- * know. Losing the whole service over one unrecognised token would be far worse than describing it
- * imprecisely.
+ * {@code stringLiteral}. An unrecognised form maps to {@link IdentifierForm#UNKNOWN} rather than throwing:
+ * the renderer then states that the slot is consulted without inventing a placeholder whose syntax it
+ * cannot know.
  *
- * <p><b>Multiple forms.</b> A {@code form} array may in principle list several shapes, and
- * {@link IdentifierSlot#forms()} keeps all of them so the renderer can say which are legal. The rendered
- * placeholder follows the first, applying the same "first element is the codegen default" convention spec §1
- * sets for a type union. No corpus document lists more than one.
+ * <p><b>Multiple forms.</b> A {@code form} array may list several shapes, and {@link IdentifierSlot#forms()}
+ * keeps all of them so the renderer can say which are legal. The rendered placeholder follows the first, per
+ * spec §1's codegen-default convention. No corpus document lists more than one.
  *
  * @since 1.7.0
  */

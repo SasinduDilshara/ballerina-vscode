@@ -23,23 +23,19 @@ import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 /**
  * Owns <b>spec §7 {@code params[].addMode}</b>: whether a parameter slot repeats.
  *
- * <p>Spec §7 defines exactly one value — {@code "many"}, meaning the slot "repeats zero or more times,
- * each occurrence independently named/typed (HTTP query/header, MCP tool args)" — and "Absent = at most
- * one".
+ * <p>Spec §7 defines exactly one value — {@code "many"}, meaning the slot repeats zero or more times, each
+ * occurrence independently named and typed (HTTP query/header, MCP tool args) — with an absent key meaning
+ * "at most one".
  *
- * <p><b>This replaces {@code ParamTypeResolver.isRepeatable}</b>, which owned the same key while
- * {@code ParamTypeResolver} otherwise owns {@code type}/{@code presence}/{@code name}. Two owners for one
- * key is exactly what the one-construct-one-owner rule forbids, and the split matters here because the
- * renderer treats the two modifiers completely differently: {@code presence} keeps a slot in the signature
- * and adds a note, whereas {@code addMode} takes it <i>out</i> of the signature altogether.
+ * <p><b>Replaces {@code ParamTypeResolver.isRepeatable}</b>, which owned this key while
+ * {@code ParamTypeResolver} otherwise owns {@code type}/{@code presence}/{@code name}. The split matters
+ * because the renderer treats the two modifiers completely differently: {@code presence} keeps a slot in the
+ * signature and adds a note, whereas {@code addMode} takes it <i>out</i> of the signature altogether.
  *
- * <p><b>A repeatable slot is not a parameter.</b> Before this component
- * {@code HandlerCatalogAspect.buildOptionParams} skipped such a slot outright, so everything the document
- * said about it — its legal types, its {@code @http:Header} annotation — reached the prompt nowhere. But
- * emitting it as a parameter would be worse than skipping it: the document states no name (the author
- * picks one per occurrence), so a generated {@code anydata param2} would be an invented parameter in a
- * signature meant to be copied. The slot is therefore carried to the wire, marked, and rendered as a note
- * rather than as syntax.
+ * <p><b>A repeatable slot is not a parameter.</b> Skipping it outright lost everything the document said
+ * about it, but emitting it as a parameter would be worse: the document states no name, so a generated
+ * {@code anydata param2} would be an invented parameter in a signature meant to be copied. The slot is
+ * carried to the wire, marked, and rendered as a note rather than as syntax.
  *
  * @since 1.7.0
  */

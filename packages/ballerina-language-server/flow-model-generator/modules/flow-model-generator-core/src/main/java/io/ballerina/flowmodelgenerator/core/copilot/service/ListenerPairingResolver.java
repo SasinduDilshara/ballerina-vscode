@@ -125,7 +125,7 @@ final class ListenerPairingResolver {
      *
      * <p>This is the count spec §3's optionality rule has to be read against, and it is <b>not</b> the
      * size of {@code serviceTypes[]}. {@code websocket} separates the two: it declares two service types,
-     * but its listener lists only {@code upgradeService} (see {@link #anyListenerHosts}). Counting
+     * but its listener lists only {@code upgradeService} (see {@link #isHostedByAnyListener}). Counting
      * declarations rather than hostable types would call those two alternatives.
      *
      * <p>A listener that declares no {@code services} list constrains nothing, so the document's own

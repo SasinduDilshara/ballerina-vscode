@@ -24,14 +24,13 @@ import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
  * Owns <b>spec §5 {@code options[].kind}</b>: whether a handler is a remote method or a resource method.
  *
  * <p>Trivial and alone on purpose. This is the one field the renderer's keyword choice depends on —
- * {@code remote function} versus {@code resource function} — and getting it wrong emits source that does
- * not compile, which is exactly what happens today for {@code websocket}'s {@code get}. Keeping it
- * uncoupled from a protocol's resource extras means a change to HTTP's {@code method}/{@code path} or
- * GraphQL's {@code accessor}/{@code fieldName} can never perturb the keyword.
+ * {@code remote function} versus {@code resource function} — and getting it wrong emits source that does not
+ * compile. Keeping it uncoupled from a protocol's resource extras means a change there can never perturb the
+ * keyword.
  *
- * <p>An unrecognised or absent {@code kind} resolves to {@link Kind#REMOTE} rather than throwing: spec
- * §10 lists {@code remote} and {@code resource}, and remote is the shape every non-resource handler in the
- * corpus takes, so an unknown value degrades to the form that at least parses.
+ * <p>An unrecognised or absent {@code kind} resolves to {@link Kind#REMOTE} rather than throwing: remote is
+ * the shape every non-resource handler in the corpus takes, so an unknown value degrades to the form that at
+ * least parses.
  *
  * @since 1.7.0
  */

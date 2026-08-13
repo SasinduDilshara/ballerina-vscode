@@ -26,22 +26,19 @@ import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
  *
  * <p>The four differ only in where the id list is read from, which {@link AnnotationScopeResolver.Scope}
  * they select with, and which draft slot they write to; selection itself is one by-id lookup shared by all
- * of them. They are grouped here rather than split across eight files for that reason.
+ * of them, which is why they are grouped here rather than split across eight files.
  *
  * <p><b>What §8 adds over the library's own annotation list.</b> That list states which annotations a
- * library <i>declares</i> — a fact the compiler reports. These state which ones a construct is <i>obliged
- * to attach</i>: the obligation, its presence and its scope, none of which any symbol carries. Before this,
- * a required annotation reached the prompt only as one available declaration among dozens.
+ * library <i>declares</i>, a fact the compiler reports. These state which ones a construct is <i>obliged to
+ * attach</i> — the obligation, its presence and its scope, none of which any symbol carries.
  *
  * <p><b>Rejections {@code drop}, they do not {@code veto}.</b> An unresolvable obligation makes the
  * obligation unusable, not the construct carrying it.
  *
  * <p><b>Known coverage gap, owned elsewhere.</b> {@code ballerina/http} and {@code ballerina/graphql} both
- * declare an optional service-level {@code serviceConfig} and both have a curated
- * {@code generic-services.json} entry whose name collides with their service type, so
- * {@code ServiceLoader.mergeWithGenericServices} discards the synthesized entry in favour of the
- * hand-written instructions. That overlay is richer and must keep winning, but the drop happens after this
- * pipeline: it raises no {@link Veto} and logs nothing. Both are {@code optional}, so nothing miscompiles.
+ * declare an optional service-level {@code serviceConfig}, and
+ * {@code ServiceLoader.mergeWithGenericServices} discards their synthesized entry in favour of a richer
+ * curated overlay — silently, after this pipeline. Both are {@code optional}, so nothing miscompiles.
  *
  * @since 1.7.0
  */

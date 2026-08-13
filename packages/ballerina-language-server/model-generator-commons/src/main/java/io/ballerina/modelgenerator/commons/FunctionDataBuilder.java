@@ -1067,25 +1067,22 @@ public class FunctionDataBuilder {
      * Collects every leaf type reachable from a type, flattening unions, arrays, maps, tables, streams,
      * intersections and inline records into {@code typeMap}.
      *
-     * <p><b>Bounded, because the type graph is not a tree.</b> An anonymous structural type can reach
-     * itself — {@code ballerinax/sap.jco} pairs an inline union with an inline record that contains it,
-     * and the two mutually recurse. Unbounded recursion there is not a slow path but a
-     * {@link StackOverflowError}, and because it is an {@code Error} rather than an exception it escapes
-     * every {@code catch (RuntimeException)} on the way out and takes down the whole request. Left
-     * unguarded it makes such a library unloadable rather than merely slow.
+     * <p><b>Bounded, because the type graph is not a tree.</b> An anonymous structural type can reach itself
+     * — {@code ballerinax/sap.jco} pairs an inline union with an inline record that contains it. Unbounded
+     * recursion there is a {@link StackOverflowError}, which being an {@code Error} escapes every
+     * {@code catch (RuntimeException)} on the way out and takes down the whole request.
      *
-     * <p>Two independent guards, because either alone is insufficient here:
+     * <p>Two independent guards, because either alone is insufficient:
      * <ul>
-     *   <li><b>Depth.</b> A hard cap terminates regardless of what the type graph looks like and needs
-     *       nothing from the symbol API. {@value #MAX_MEMBER_DEPTH} is far past any hand-written type;
-     *       the deepest in the corpus this was measured against is under ten.</li>
-     *   <li><b>Repeat expansion.</b> A type already expanded contributes no new leaves the second time —
-     *       {@code typeMap} is keyed by name — so skipping it is free and keeps the common diamond-shaped
-     *       graph from being walked exponentially. Keyed by signature rather than identity because the
-     *       compiler API hands back a fresh symbol instance per traversal, so identity never matches.</li>
+     *   <li><b>Depth.</b> A hard cap terminates regardless of the graph's shape and needs nothing from the
+     *       symbol API. {@value #MAX_MEMBER_DEPTH} is far past any hand-written type.</li>
+     *   <li><b>Repeat expansion.</b> A type already expanded contributes no new leaves the second time, so
+     *       skipping it keeps the common diamond-shaped graph from being walked exponentially. Keyed by
+     *       signature rather than identity, because the compiler API hands back a fresh symbol instance per
+     *       traversal.</li>
      * </ul>
-     * The depth cap is what actually guarantees termination; the signature set is what keeps the walk
-     * cheap. A signature that cannot be computed degrades to depth-only rather than aborting.
+     * The depth cap is what guarantees termination; the signature set is what keeps the walk cheap. A
+     * signature that cannot be computed degrades to depth-only rather than aborting.
      *
      * @param typeMap    collects the reachable leaf types, keyed by name
      * @param typeSymbol the type to walk

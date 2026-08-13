@@ -30,30 +30,21 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
- * Owns <b>spec §9's {@code shapes[]} table</b>: how one {@code typedescs[]} variant's bound type is
- * embedded in the declared parameter type.
- *
- * <h2>One component for four forms, where there used to be three for three modes</h2>
+ * Owns <b>spec §9's {@code shapes[]} table</b>: how one {@code typedescs[]} variant's bound type is embedded
+ * in the declared parameter type.
  *
  * <p>Spec v1.0 replaced the {@code direct}/{@code includedRecord}/{@code streamable} modes with the
- * {@code bare}/{@code array}/{@code stream}/{@code included} forms, and in doing so changed what the unit
- * of variation <i>is</i>. Under the old modes each carried a different set of fields, which is why each got
- * its own resolver. Under the new forms three of the four carry nothing but wrapping — {@code bare} has no
- * fields at all — and the only substantive branch is whether the shape embeds an envelope. Splitting that
- * across four files would put three empty resolvers next to one real one, so §9's shape table gets a single
- * owner instead.
- *
- * <p>What the old {@code IncludedRecordModeResolver} genuinely owned <b>does</b> survive here intact: the
- * derivation of {@code fixedFields} as "the envelope's declared fields minus {@code bindableFields}", which
- * spec §9 requires be derived rather than restated.
- *
- * <h2>Included elements are the case the schema misses</h2>
+ * {@code bare}/{@code array}/{@code stream}/{@code included} forms. Three of the four carry nothing but
+ * wrapping ({@code bare} has no fields at all), and the only substantive branch is whether the shape embeds
+ * an envelope, so §9's shape table gets a single owner rather than four resolvers. What the old
+ * {@code IncludedRecordModeResolver} genuinely owned survives intact: the derivation of {@code fixedFields}
+ * as "the envelope's declared fields minus {@code bindableFields}", which spec §9 requires be derived.
  *
  * <p>An envelope is embedded not only by {@code form: "included"} but also by an {@code array} or
- * {@code stream} whose {@code element} is {@code included} — which is the corpus's actual batched-envelope
- * shape (kafka's). The published {@code spec.json} requires {@code envelope}/{@code bindableFields} only
- * for the former, so this component reads both and {@code BindingModeCheck} reports a shape that claims an
- * included element without naming what it includes.
+ * {@code stream} whose {@code element} is {@code included} — the corpus's actual batched-envelope shape
+ * (kafka's). The published {@code spec.json} requires {@code envelope}/{@code bindableFields} only for the
+ * former, so this component reads both and {@code BindingModeCheck} reports a shape that claims an included
+ * element without naming what it includes.
  *
  * @since 1.10.0
  */
