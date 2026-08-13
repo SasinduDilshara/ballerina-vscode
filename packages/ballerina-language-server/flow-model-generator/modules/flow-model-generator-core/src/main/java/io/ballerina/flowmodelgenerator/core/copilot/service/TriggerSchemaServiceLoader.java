@@ -31,7 +31,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.BiConsumer;
-import java.util.function.Supplier;
 import java.util.logging.Logger;
 
 /**
@@ -56,12 +55,15 @@ import java.util.logging.Logger;
  *   <li><b>Not a trigger library</b> — no document resolves at either tier, so an empty array is returned
  *       and the caller uses the SQLite service index. The majority of libraries; not logged.</li>
  *   <li><b>Library-level abort</b> — a document was found but nothing could be built from it: it declares
- *       an unimplemented spec major, it is malformed, or no listener resolves. An empty array is returned
- *       with {@code documentResolved == true}, which tells the caller <b>not</b> to substitute the index,
- *       since a poorer catalog presented as authoritative hides the defect. Always logged.</li>
+ *       no listener or service type, or no listener resolves against the package. An empty array is
+ *       returned with {@code documentResolved == true}, which tells the caller <b>not</b> to substitute the
+ *       index, since a poorer catalog presented as authoritative hides the defect. Always logged.</li>
  *   <li><b>Entry-level veto</b> — one service type or one handler is dropped with an attributable
  *       {@link Veto} while the rest of the library is served normally.</li>
  * </ul>
+ *
+ * <p>Note that a document's declared spec version is <b>not</b> gated on: every document this build can
+ * parse is served. See {@code TriggerMetadataModel#version}.
  *
  * <p>A marker service type declares no methods in the library source — its handler contract is enforced by
  * a compiler plugin at user-code compile time — so no symbol carries a doc comment for a handler or its
@@ -153,15 +155,12 @@ final class TriggerSchemaServiceLoader {
         // after that point is a failure to *process* a document that exists, not an absence of metadata.
         boolean documentResolved = false;
         try {
-            MetadataResolution resolution = resolveMetadata(libraryName, org, packageName, pkg);
-            // Set from whether a document was FOUND, not from whether one was usable: otherwise a package
-            // shipping a document this build refuses is reported as shipping none, the caller substitutes
-            // the service index, and the refusal disappears.
-            documentResolved = resolution.documentPresent();
-            if (resolution.document().isEmpty()) {
-                return empty(documentResolved);
+            Optional<TriggerMetadataModel> resolution = resolveMetadata(libraryName, org, packageName, pkg);
+            documentResolved = resolution.isPresent();
+            if (resolution.isEmpty()) {
+                return empty(false);
             }
-            TriggerMetadataModel metadata = resolution.document().get();
+            TriggerMetadataModel metadata = resolution.get();
             if (metadata.listeners() == null || metadata.listeners().isEmpty()
                     || metadata.serviceTypes() == null || metadata.serviceTypes().isEmpty()) {
                 return empty(true);
@@ -250,67 +249,25 @@ final class TriggerSchemaServiceLoader {
      *
      * <p>The connector's own document is versioned with the connector, so it can never describe a release
      * the resolved package predates, and a connector published after this LS is served without an LS
-     * release. The bundled tier covers the libraries that do not ship a document yet.
+     * release. The bundled tier covers the libraries that do not ship a document yet — which is all of them
+     * today.
      *
-     * <p>Reading the shipped document costs a single {@code stat} against the already-resolved package, so
-     * consulting it for every library is cheap.
+     * <p>The two tiers are ordered here rather than inside {@link LibraryMetadataReader}, so that the reader
+     * answers exactly one question ("does this root hold a readable document?") and the precedence stays
+     * with the consumer that has an opinion about it. {@code TriggerModelReader} orders its own tiers the
+     * same way, over different documents.
+     *
+     * <p>The shipped tier is read from the package the caller already compiled, so it costs a single
+     * {@code stat} rather than a {@code .bala} resolution — which is what makes consulting it for every
+     * library cheap enough to do unconditionally.
      */
-    private static MetadataResolution resolveMetadata(String libraryName, String org,
-                                                      String packageName, Package pkg) {
+    private static Optional<TriggerMetadataModel> resolveMetadata(String libraryName, String org,
+                                                                 String packageName, Package pkg) {
         LibraryMetadataReader reader = LibraryMetadataReader.getInstance();
         String metadataKey = BUNDLED_METADATA_KEYS.getOrDefault(libraryName, packageName);
-        return decideMetadata(libraryName, reader.readShippedTriggerMetadata(pkg),
-                () -> reader.getPackagedTriggerMetadataModel(
+        return reader.getTriggerMetadataModel(pkg)
+                .or(() -> reader.getPackagedTriggerMetadataModel(
                         new ModuleInfo(org, packageName, metadataKey, null)));
-    }
-
-    /**
-     * The two-tier precedence rule, as a pure function of what the connector shipped.
-     *
-     * <p>Split out from {@link #resolveMetadata} so it can be tested: reaching it through a
-     * {@link Package} would need a published connector that ships a document, and none exists yet.
-     *
-     * @param libraryName the library, for the log line
-     * @param shipped     what reading the connector's own document produced
-     * @param bundled     the LS-bundled document for this library, consulted only when the connector ships
-     *                    none at all
-     * @return the document to use, and whether one was present at either tier
-     */
-    static MetadataResolution decideMetadata(String libraryName,
-                                             LibraryMetadataReader.MetadataRead shipped,
-                                             Supplier<Optional<TriggerMetadataModel>> bundled) {
-        if (shipped.usable().isPresent()) {
-            return new MetadataResolution(shipped.usable(), true);
-        }
-        if (shipped.present()) {
-            // The connector ships a document this build cannot read — an unimplemented major version, or a
-            // malformed file. The LS's bundled copy is NOT a substitute for it: it is an OLDER description
-            // of the same connector, so serving it would answer a v2 package with a v1 contract and present
-            // the result as authoritative.
-            //
-            // `documentResolved` stays true, so the caller does not silently substitute the SQLite index
-            // either: the library renders its curated overlay and logs why, which is findable.
-            LOGGER.warning("Not falling back to the bundled trigger metadata for " + libraryName
-                    + ": the package ships its own document and it is " + shipped.outcome()
-                    + ". The bundled copy describes an earlier release, so serving it would state a"
-                    + " contract this package version does not honour.");
-            return new MetadataResolution(Optional.empty(), true);
-        }
-        Optional<TriggerMetadataModel> fromBundle = bundled.get();
-        return new MetadataResolution(fromBundle, fromBundle.isPresent());
-    }
-
-    /**
-     * A resolved document, and whether one was there at all.
-     *
-     * <p>{@code documentPresent} is not {@code document.isPresent()}: a connector shipping a document this
-     * build refuses is a library <i>with</i> metadata that yielded nothing, which the caller must not treat
-     * as a library without any.
-     *
-     * @param document        the usable document, or empty
-     * @param documentPresent whether a document was found, whatever came of reading it
-     */
-    record MetadataResolution(Optional<TriggerMetadataModel> document, boolean documentPresent) {
     }
 
 }

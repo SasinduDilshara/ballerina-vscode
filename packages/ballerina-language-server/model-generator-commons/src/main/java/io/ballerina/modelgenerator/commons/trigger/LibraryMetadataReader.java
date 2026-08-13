@@ -61,7 +61,14 @@ public final class LibraryMetadataReader {
     private static final String TRIGGER_UI_SCHEMA_RESOURCE_PATH = "resources/trigger-ui-schema.json";
     private static final String PACKAGED_TRIGGER_METADATA_ROOT = "trigger-metadata-models";
     private static final String PACKAGED_TRIGGER_METADATA_FILE = "trigger-metadata.json";
+    /** Sized for the designer, which resolves one connector at a time. */
     private static final int MAX_CACHE_SIZE = 2;
+
+    /**
+     * Sized for the Copilot, which walks every library in one request. At the designer's bound of 2, the
+     * corpus's 14 bundled documents evicted each other and nearly every request re-parsed the same JSON.
+     */
+    private static final int PACKAGED_METADATA_CACHE_SIZE = 20;
 
     private static final Duration PACKAGE_ROOT_CACHE_TTL = Duration.ofSeconds(60);
 
@@ -70,7 +77,7 @@ public final class LibraryMetadataReader {
     private final Cache<String, Optional<Path>> packageRootCache =
             Caffeine.newBuilder().maximumSize(MAX_CACHE_SIZE).expireAfterWrite(PACKAGE_ROOT_CACHE_TTL).build();
     private final Cache<String, Optional<TriggerMetadataModel>> packagedMetadataCache =
-            Caffeine.newBuilder().maximumSize(MAX_CACHE_SIZE).build();
+            Caffeine.newBuilder().maximumSize(PACKAGED_METADATA_CACHE_SIZE).build();
 
     private final Gson plainGson = new Gson();
 
@@ -82,107 +89,41 @@ public final class LibraryMetadataReader {
     }
 
     /**
-     * Why a read produced no usable document — three failures, not one absence.
+     * The connector's own {@code resources/trigger-metadata.json}, resolved from its {@code .bala} by name.
      *
-     * <p>Collapsing them into an empty {@link Optional} is what let two real defects hide. A caller that
-     * cannot tell "this package ships no metadata" from "this package ships metadata I must not read" will
-     * substitute something else for the latter, and the something else is always worse than nothing: a
-     * <b>stale bundled copy</b> describing a release the package no longer matches, or a poorer catalog
-     * presented with no hint that a richer one was rejected. Only the caller can decide what to do, so the
-     * distinction is reported rather than swallowed.
+     * <p>Resolving by name costs a package lookup against a throwaway sample project. A caller holding an
+     * already-compiled package should hand it over instead — {@link #getTriggerMetadataModel(Package)}.
      */
-    public enum MetadataOutcome {
-        /** The package ships no {@code resources/trigger-metadata.json} at all. */
-        ABSENT,
-        /** A document was read successfully. */
-        USABLE,
-        /** A document is present, but could not be parsed. */
-        MALFORMED
-    }
-
-    /**
-     * One document read, with the reason when there is nothing usable.
-     *
-     * @param document the parsed document, or {@code null} unless {@code outcome} is
-     *                 {@link MetadataOutcome#USABLE}
-     * @param outcome  what happened
-     */
-    public record MetadataRead(TriggerMetadataModel document, MetadataOutcome outcome) {
-
-        private static final MetadataRead ABSENT = new MetadataRead(null, MetadataOutcome.ABSENT);
-
-        static MetadataRead absent() {
-            return ABSENT;
-        }
-
-        static MetadataRead of(TriggerMetadataModel document) {
-            return new MetadataRead(document, MetadataOutcome.USABLE);
-        }
-
-        static MetadataRead failed(MetadataOutcome outcome) {
-            return new MetadataRead(null, outcome);
-        }
-
-        /** The document when it may be used, so an indifferent caller keeps its one-liner. */
-        public Optional<TriggerMetadataModel> usable() {
-            return Optional.ofNullable(document);
-        }
-
-        /**
-         * Whether a document was <b>there</b>, whatever came of reading it.
-         *
-         * <p>This is the question a fallback has to ask: a package that ships a document it cannot serve
-         * must not be quietly served someone else's.
-         *
-         * @return whether the package ships a document
-         */
-        public boolean present() {
-            return outcome != MetadataOutcome.ABSENT;
-        }
-    }
-
-    /** The connector's own {@code resources/trigger-metadata.json}, resolved from its {@code .bala}. */
     public Optional<TriggerMetadataModel> getTriggerMetadataModel(ModuleInfo moduleInfo) {
-        return packageRoot(moduleInfo).map(this::readTriggerMetadataModel).flatMap(MetadataRead::usable);
+        return packageRoot(moduleInfo).flatMap(this::readTriggerMetadataModel);
     }
 
     /**
-     * The connector's own {@code resources/trigger-metadata.json}, read from a package the caller has
-     * already resolved, so no second — and potentially network-bound — resolution is paid.
+     * The same document, read from a package the caller has already resolved.
+     *
+     * <p>Only the <i>root</i> differs from {@link #getTriggerMetadataModel(ModuleInfo)} — both end in
+     * {@link #readTriggerMetadataModel(Path)}, so this is a different way in, never a different answer. It
+     * exists because the name-keyed path resolves a {@code .bala} per library and returns whatever release
+     * the sample project picks, neither of which suits a caller walking every library against a release it
+     * already compiled.
+     *
+     * <p>Empty means "no readable document here" and nothing more; where to look next is the caller's
+     * policy, composable with {@link Optional#or}.
      *
      * @param pkg the already-resolved package (may be {@code null})
-     * @return the parsed document, or empty when the package ships none
+     * @return the parsed document, or empty when the package ships none that can be read
      */
-    public Optional<TriggerMetadataModel> getShippedTriggerMetadataModel(Package pkg) {
-        return readShippedTriggerMetadata(pkg).usable();
-    }
-
-    /**
-     * {@link #getShippedTriggerMetadataModel(Package)} plus <i>why</i> there is no usable document.
-     *
-     * <p>Use this wherever an empty result would otherwise be answered by substituting a different document.
-     * A connector shipping its own metadata is versioned with itself and therefore authoritative: if its
-     * document cannot be read, no other document describes the release the caller actually resolved, and
-     * quietly serving the LS's bundled copy states a contract the package no longer honours.
-     *
-     * @param pkg the already-resolved package (may be {@code null})
-     * @return the read, never {@code null}
-     */
-    public MetadataRead readShippedTriggerMetadata(Package pkg) {
+    public Optional<TriggerMetadataModel> getTriggerMetadataModel(Package pkg) {
         if (pkg == null) {
-            return MetadataRead.absent();
+            return Optional.empty();
         }
         try {
             return readTriggerMetadataModel(pkg.project().sourceRoot());
         } catch (Throwable e) {
-            // ABSENT, not MALFORMED: readTriggerMetadataModel already classifies the two outcomes that
-            // describe the document itself, so anything reaching here failed BEFORE the content was ever in
-            // question. Getting that wrong is expensive — MALFORMED makes present() true, which tells the
-            // caller to suppress both the bundled document and the service index.
             LOGGER.warning("Could not read " + TRIGGER_METADATA_RESOURCE_PATH + " from "
                     + pkg.packageOrg().value() + "/" + pkg.packageName().value()
                     + "; treating the package as shipping no metadata: " + e);
-            return MetadataRead.absent();
+            return Optional.empty();
         }
     }
 
@@ -212,8 +153,7 @@ public final class LibraryMetadataReader {
      * <b>local</b> repository rather than Central.
      */
     public Optional<TriggerMetadataModel> getTriggerMetadataModelFromLocalRepository(ModuleInfo moduleInfo) {
-        return localPackageRoot(moduleInfo).map(this::readTriggerMetadataModel)
-                .flatMap(MetadataRead::usable);
+        return localPackageRoot(moduleInfo).flatMap(this::readTriggerMetadataModel);
     }
 
     /** The connector's own {@code resources/trigger-ui-schema.json}, resolved from the local repository. */
@@ -287,8 +227,8 @@ public final class LibraryMetadataReader {
                 return Optional.empty();
             }
             String json = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            return gated(TriggerMetadataGson.instance().fromJson(json, TriggerMetadataModel.class),
-                    resourcePath).usable();
+            return parsed(TriggerMetadataGson.instance().fromJson(json, TriggerMetadataModel.class),
+                    resourcePath);
         } catch (IOException | JsonParseException e) {
             // A bundled document is this repo's own, so a failure here is a build defect. Logged all the
             // same: silence is what made the shipped-document equivalent undiagnosable.
@@ -298,45 +238,43 @@ public final class LibraryMetadataReader {
     }
 
     /**
-     * Wraps a freshly-parsed document in a read outcome.
+     * A freshly-parsed document, or empty with a log line when the JSON parsed to nothing.
      *
-     * <p>A document that parsed to nothing reports {@link MetadataOutcome#MALFORMED} rather than an
-     * absence, because those two demand opposite things of a caller: an absence may be filled from
-     * elsewhere, a malformed document may not. The log line deliberately does not claim what the caller
-     * will do.
+     * <p>Valid JSON yielding no document is a defect in a file that exists, so it is logged rather than
+     * dropped silently — that log line is the only signal a connector author gets that their file is wrong.
      *
      * @param document the parsed document; may be {@code null}
      * @param source   what was read, for the log line
-     * @return the read outcome
+     * @return the document, or empty
      */
-    private MetadataRead gated(TriggerMetadataModel document, String source) {
+    private Optional<TriggerMetadataModel> parsed(TriggerMetadataModel document, String source) {
         if (document == null) {
             LOGGER.warning("Ignoring " + source + ": it parsed to no document.");
-            return MetadataRead.failed(MetadataOutcome.MALFORMED);
+            return Optional.empty();
         }
-        return MetadataRead.of(document);
+        return Optional.of(document);
     }
 
     /**
-     * Resolves and parses {@code resources/trigger-metadata.json} relative to {@code packageRoot}.
+     * Resolves and parses {@code resources/trigger-metadata.json} relative to {@code packageRoot} — the one
+     * point every metadata read passes through, whichever way the root was obtained.
      *
-     * <p>Package-private rather than private, purely as a test seam: no package published to Central ships
-     * this file yet, so a test going in through {@link Package} would have nothing to read — which is why
-     * the shipped-document path had no test at all before.
+     * <p>Package-private purely as a test seam: no package published to Central ships this file yet, so a
+     * test going in through {@link Package} would have nothing to read.
      */
-    MetadataRead readTriggerMetadataModel(Path packageRoot) {
+    Optional<TriggerMetadataModel> readTriggerMetadataModel(Path packageRoot) {
         Optional<String> json = readResourceFile(packageRoot, TRIGGER_METADATA_RESOURCE_PATH);
         if (json.isEmpty()) {
-            return MetadataRead.absent();
+            return Optional.empty();
         }
         String source = packageRoot.resolve(TRIGGER_METADATA_RESOURCE_PATH).toString();
         try {
-            return gated(TriggerMetadataGson.instance().fromJson(json.get(), TriggerMetadataModel.class),
+            return parsed(TriggerMetadataGson.instance().fromJson(json.get(), TriggerMetadataModel.class),
                     source);
         } catch (JsonParseException e) {
             // Logged, not silent: this is the one signal a connector author gets that their file has a typo.
             LOGGER.warning("Ignoring " + source + ": it is not valid trigger metadata: " + e.getMessage());
-            return MetadataRead.failed(MetadataOutcome.MALFORMED);
+            return Optional.empty();
         }
     }
 
