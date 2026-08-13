@@ -81,9 +81,6 @@ final class TriggerSchemaServiceLoader {
 
     private static final String DEFAULT_ORG = "ballerinax";
 
-    /** The alias a side-effect-only import is written with: {@code import org/pkg as _;}. */
-    static final String SIDE_EFFECT_IMPORT_ALIAS = RequiredImportResolver.SIDE_EFFECT_IMPORT_ALIAS;
-
     /**
      * Module keys for the LS-bundled {@code trigger-metadata-models/<key>/trigger-metadata.json}
      * documents, keyed by library name. This is <em>not</em> an allowlist — any library whose package
@@ -331,87 +328,4 @@ final class TriggerSchemaServiceLoader {
     record MetadataResolution(Optional<TriggerMetadataModel> document, boolean documentPresent) {
     }
 
-    // ---- spec §1 delegates -------------------------------------------------------------
-    // Spec §1 has one implementation, in commons. These forward to it so the loader stays the single
-    // entry point its tests address, without owning a second copy of the rule.
-
-    /** Spec §1: the import prefix Ballerina binds for a module — its last dot-segment. */
-    static String getAlias(String moduleName) {
-        return TypeRefResolver.moduleAlias(moduleName);
-    }
-
-    /** Spec §1: the leading identifier of a type name, or {@code null} for a non-identifier shape. */
-    static String baseIdentifier(String typeName) {
-        return TypeRefResolver.baseIdentifier(typeName);
-    }
-
-    /** Spec §1: the codegen default of a union, which is its first element. */
-    static TypeRef firstTypeRef(List<TypeRef> refs) {
-        return TypeRefResolver.first(refs);
-    }
-
-    /** Spec §1: a {@code TypeRef} rendered as module-prefixed signature text. */
-    static String renderTypeRef(TypeRef ref, String packageName, Predicate<String> declaresType) {
-        return TypeRefResolver.render(ref, packageName, declaresType);
-    }
-
-    /** Spec §5: a return union joined with {@code |}, ready for canonicalization. */
-    static String renderReturns(List<TypeRef> returns, String packageName, Predicate<String> declaresType) {
-        return TypeRefResolver.renderUnion(returns, packageName, declaresType);
-    }
-
-    // ---- component delegates -----------------------------------------------------------
-
-    /** Spec §1: the document's home module — the module its listener belongs to. */
-    static String homeModule(TriggerMetadataModel.Listener listener, String packageName) {
-        return ServiceIdentityResolver.homeModule(listener, packageName);
-    }
-
-    /** Spec §1: whether a service type belongs to a module other than home. */
-    static boolean isForeignServiceType(TriggerMetadataModel.ServiceType serviceType, String homeModule) {
-        return ServiceIdentityResolver.isForeign(serviceType, homeModule);
-    }
-
-    /** Spec §1: the {@code org/module} a cross-module service type belongs to. */
-    static Optional<String> serviceTypeModule(TriggerMetadataModel.ServiceType serviceType,
-                                              String homeModule) {
-        return ServiceIdentityResolver.serviceTypeModule(serviceType, homeModule);
-    }
-
-    /** Spec §2: a listener's side-effect-only imports, as wire-shaped entries. */
-    static JsonArray requiredImports(TriggerMetadataModel.Listener listener) {
-        JsonArray imports = new JsonArray();
-        for (RequiredImportResolver.ImportDirective directive : RequiredImportResolver.resolve(listener)) {
-            JsonObject entry = new JsonObject();
-            entry.addProperty("module", directive.module());
-            entry.addProperty("alias", directive.alias());
-            imports.add(entry);
-        }
-        return imports;
-    }
-
-    /**
-     * Spec §4/§5: the handlers of a marker service type, built through the real component pipeline.
-     *
-     * <p>Takes only what the metadata path needs — the options, the type name, a type-existence predicate
-     * and the package name — so a caller can exercise the handler and parameter tiers without a compiled
-     * package behind them.
-     */
-    static JsonArray buildOptionMethods(List<TriggerMetadataModel.ServiceType.HandlerOption> options,
-                                        String typeName, Predicate<String> declaresType,
-                                        String packageName) {
-        TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType(
-                null, new TypeRef(typeName, null), false, null, null, null, null,
-                new TriggerMetadataModel.ServiceType.Handlers(false, options),
-                null);
-        TriggerScope scope = new TriggerScope(packageName, null, packageName, packageName, null,
-                AnnotationRegistry.of(null), serviceType, null, null, null, declaresType);
-
-        ServiceDraft draft = new ServiceDraft();
-        new HandlerCatalogAspect(AspectRegistry.forVersion(AspectRegistry.VERSION_V1))
-                .contribute(scope, draft);
-
-        JsonObject json = draft.toJson();
-        return json.has("methods") ? json.getAsJsonArray("methods") : new JsonArray();
-    }
 }

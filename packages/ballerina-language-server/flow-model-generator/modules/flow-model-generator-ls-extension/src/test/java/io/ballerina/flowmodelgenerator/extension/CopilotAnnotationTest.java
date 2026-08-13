@@ -18,7 +18,6 @@
 
 package io.ballerina.flowmodelgenerator.extension;
 
-import com.google.gson.GsonBuilder;
 import io.ballerina.flowmodelgenerator.core.copilot.CopilotLibraryManager;
 import io.ballerina.flowmodelgenerator.core.copilot.model.Annotation;
 import io.ballerina.flowmodelgenerator.core.copilot.model.AnnotationAttachment;
@@ -26,7 +25,6 @@ import io.ballerina.flowmodelgenerator.core.copilot.model.Client;
 import io.ballerina.flowmodelgenerator.core.copilot.model.Field;
 import io.ballerina.flowmodelgenerator.core.copilot.model.Library;
 import io.ballerina.flowmodelgenerator.core.copilot.model.LibraryFunction;
-import io.ballerina.flowmodelgenerator.core.copilot.model.ModelToJsonConverter;
 import io.ballerina.flowmodelgenerator.core.copilot.model.Parameter;
 import io.ballerina.flowmodelgenerator.core.copilot.model.TypeDef;
 import org.testng.Assert;
@@ -111,18 +109,6 @@ public class CopilotAnnotationTest {
         // Soft assertion: connectors are generated with @display, so we expect at least one.
         Assert.assertTrue(count[0] > 0,
                 "Expected at least one per-symbol annotation attachment on the salesforce connector");
-    }
-
-    /**
-     * Prints the FULL Copilot JSON for a library so you can see end-to-end exactly what is sent.
-     * Never fails — it is a visibility aid. Change the library name to inspect any package.
-     */
-    @Test
-    public void dumpCopilotJsonForHttp() {
-        Library http = loadOne("ballerina/http");
-        String json = new GsonBuilder().setPrettyPrinting().create()
-                .toJson(ModelToJsonConverter.libraryToJson(http));
-        LOG.info("\n===== FULL Copilot JSON for ballerina/http =====\n" + json);
     }
 
     private static void dumpAttachments(String owner, List<AnnotationAttachment> annotations, int[] count) {

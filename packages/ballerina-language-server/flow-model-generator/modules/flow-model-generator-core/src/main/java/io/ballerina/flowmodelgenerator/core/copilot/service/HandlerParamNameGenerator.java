@@ -19,6 +19,7 @@
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
 import io.ballerina.modelgenerator.commons.trigger.models.TypeRef;
+import io.ballerina.modelgenerator.commons.trigger.utils.TypeRefResolver;
 
 import java.util.List;
 import java.util.Set;
@@ -34,9 +35,8 @@ import java.util.Set;
  * name must be synthesized, and it must be deterministic, idiomatic, and valid Ballerina.
  *
  * <p><b>SCOPE — handler parameters only.</b> This generator is called from exactly one place:
- * {@link TriggerSchemaServiceLoader}'s marker-service-type handler path, for a slot whose metadata
- * {@code name} is absent. It is deliberately <b>not</b> used for anything whose name is already
- * fixed and available:
+ * {@link ParamTypeResolver}, for a slot whose metadata {@code name} is absent. It is deliberately
+ * <b>not</b> used for anything whose name is already fixed and available:
  * <ul>
  *   <li><b>listener init parameters</b> — real names come from the listener class's {@code init}
  *       signature via the semantic model;</li>
@@ -165,7 +165,7 @@ final class HandlerParamNameGenerator {
         }
         String typeName = ref.name();
         boolean isArray = typeName.endsWith("[]");
-        String base = TriggerSchemaServiceLoader.baseIdentifier(typeName);
+        String base = TypeRefResolver.baseIdentifier(typeName);
         if (base == null || base.isEmpty() || !Character.isUpperCase(base.charAt(0))) {
             // Built-ins (json, string, byte[], ...) and anonymous shapes (record {}) start lowercase
             // or yield a keyword; they name no domain concept.

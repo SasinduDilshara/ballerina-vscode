@@ -19,7 +19,6 @@
 package io.ballerina.flowmodelgenerator.extension;
 
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -39,9 +38,6 @@ import org.testng.Assert;
 import org.testng.SkipException;
 import org.testng.annotations.Test;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -66,8 +62,6 @@ import java.util.TreeSet;
  */
 public class CopilotSchemaServicesTest {
 
-    private static final Gson PRETTY = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path OUTPUT_DIR = Path.of("build", "services-comparison");
     private static final String MCP = "ballerina/mcp";
     private static final String MCP_PREFIX = "mcp:";
 
@@ -182,27 +176,19 @@ public class CopilotSchemaServicesTest {
             SemanticModel semanticModel = PackageUtil.getCompilation(pkg)
                     .getSemanticModel(pkg.getDefaultModule().moduleId());
             semanticModels.put(lib, semanticModel);
-            JsonArray services = ServiceLoader.loadAllServices(lib, pkg, semanticModel);
-            dump(lib, services);
-            return services;
+            return ServiceLoader.loadAllServices(lib, pkg, semanticModel);
         });
     }
-
-    // `loadPinned` lived here, to load one library at a version other than the corpus pin. Its only caller
-    // was the second-mcp-release test removed below; every remaining test resolves through `load`, which
-    // takes its version from the build. Reinstate it alongside that test if the dropped coverage is wanted.
 
     /**
      * What an unresolvable package means, and why it is a <b>failure</b> rather than a skip.
      *
-     * <p>Every corpus library is pre-fetched by a {@code pullBallerinaModule} task this test task depends
-     * on, at the version {@code gradle.properties} pins — so by the time a test runs, the package is either
-     * present or the build is broken. A skip would report the second as the first: the suite stayed green
-     * while asserting nothing, which is how a mis-wired pin survives review.
+     * <p>The build provisions every corpus library into a build-owned Ballerina home before the tests run,
+     * so by the time a test runs the package is either present or the build is broken. A skip would report
+     * the second as the first: the suite stays green while asserting nothing.
      *
      * <p>{@value #ALLOW_UNRESOLVED_PROPERTY} restores the skip for a run with no build behind it — an IDE
-     * invocation on a machine that has never fetched the corpus, where failing would be noise rather than
-     * signal. CI leaves it unset.
+     * invocation on a machine that has never fetched the corpus. CI leaves it unset.
      */
     private static RuntimeException unresolved(String libraryName, String version) {
         String coordinates = libraryName + (version == null ? "" : ":" + version);
@@ -210,9 +196,9 @@ public class CopilotSchemaServicesTest {
             throw new SkipException("Could not resolve package for " + coordinates);
         }
         throw new AssertionError("Could not resolve " + coordinates + ", which the build is supposed to have"
-                + " pre-fetched. Check that a pullBallerinaModule task covers it in"
-                + " flow-model-generator-ls-extension/build.gradle, and that its version property in"
-                + " gradle.properties names a release that exists. Set -D" + ALLOW_UNRESOLVED_PROPERTY
+                + " provisioned. Check that it is listed in copilotCorpusLibraries in"
+                + " flow-model-generator-ls-extension/build.gradle and locked in"
+                + " build-config/ballerina_dependencies/Dependencies.toml. Set -D" + ALLOW_UNRESOLVED_PROPERTY
                 + "=true to skip instead, for a run with no build behind it.");
     }
 
@@ -232,16 +218,6 @@ public class CopilotSchemaServicesTest {
             }
         }
         return names;
-    }
-
-    private void dump(String label, JsonArray services) {
-        try {
-            Path dir = OUTPUT_DIR.resolve(label.replaceAll("[^A-Za-z0-9]", "_") + "_schema");
-            Files.createDirectories(dir);
-            Files.writeString(dir.resolve("services.json"), PRETTY.toJson(services));
-        } catch (IOException e) {
-            // Dumps are for manual review only; never fail the test on IO.
-        }
     }
 
     // ---- helpers -------------------------------------------------------------------
@@ -576,18 +552,6 @@ public class CopilotSchemaServicesTest {
                 "Listener " + listenerName + " is not a class the resolved package declares: " + declared);
     }
 
-    // A second mcp release used to be loaded here — the last one before StreamableHttpService,
-    // StreamableHttpAdvancedService and StreamableHttpListener existed — to prove the loader actually
-    // DROPS a metadata-declared symbol the resolved package does not ship, and falls back to the
-    // conventional listener class. Only the pinned corpus version is exercised now, so that test is gone.
-    //
-    // What survives: testMcpSchemaServices asserts the same guards as invariants — every emitted service
-    // type and every listener must be a name the resolved package declares. What is lost: proof that a
-    // symbol the document over-declares is dropped rather than merely absent, which needs a release where
-    // the document genuinely over-declares. Reinstating it is two lines — a second version property plus
-    // its pullBallerinaModule call, which no longer collides now that the pull task name carries the
-    // version.
-
     // ---- trigger.github ---------------------------------------------------------------
 
     @Test
@@ -811,22 +775,6 @@ public class CopilotSchemaServicesTest {
     }
 
     // ---- fallback & pinning --------------------------------------------------------------
-
-    // A drift guard lived here: it asked Central for each library's latest version and failed when a pin no
-    // longer matched, so that nobody could unknowingly test against a release the trigger-metadata document
-    // had never been checked against.
-    //
-    // Removed because it contradicts the policy it was written before. The corpus now deliberately adopts
-    // the versions the rest of the language-server suite already pins — `stdlibHttpVersion`,
-    // `ballerinaFtpVersion`, `ballerinaxKafkaVersion` and the rest — and those lag Central by design, so
-    // this assertion could never pass again: it reported five libraries behind on the first run after the
-    // switch. It was also the one test here that required network.
-    //
-    // What is lost is the notification, not a correctness check — it never asserted a document was still
-    // right, only that its pin was current. The bump is now a visible edit to `gradle.properties`, which is
-    // the same signal by a different route, and it is expected to come with re-verifying the affected
-    // document. If the automated nudge is wanted back, it belongs in the daily build rather than the PR
-    // suite: a scheduled job comparing those properties against Central, failing nothing.
 
     @Test
     public void testNonSchemaDrivenLibraryStaysOnServiceIndex() {
