@@ -24,6 +24,7 @@ import io.ballerina.modelgenerator.commons.trigger.models.TriggerLibraryFacts;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerUISchemaModel;
 import io.ballerina.modelgenerator.commons.trigger.models.TypeRef;
+import io.ballerina.modelgenerator.commons.trigger.utils.TypeRefResolver;
 import io.ballerina.servicemodelgenerator.extension.model.Listener;
 import io.ballerina.servicemodelgenerator.extension.model.Value;
 import io.ballerina.servicemodelgenerator.extension.util.ModuleAliasResolver;
@@ -802,16 +803,18 @@ public final class TriggerModelSynthesizer {
      */
     private record Embedding(TriggerMetadataModel.TypedescVariant variant, TriggerMetadataModel.Shape shape) {
 
-        /** Whether this embedding splices the bound type into an envelope record. */
+        /**
+         * @see TriggerMetadataModel.Shape#embedsEnvelope()
+         */
         boolean embedsEnvelope() {
-            return TriggerMetadataModel.Shape.FORM_INCLUDED.equals(shape.form())
-                    || TriggerMetadataModel.Shape.FORM_INCLUDED.equals(shape.element());
+            return shape.embedsEnvelope();
         }
 
-        /** Whether the declared type is a batch of the bound type. */
+        /**
+         * @see TriggerMetadataModel.Shape#isBatched()
+         */
         boolean isBatched() {
-            return TriggerMetadataModel.Shape.FORM_ARRAY.equals(shape.form())
-                    || TriggerMetadataModel.Shape.FORM_STREAM.equals(shape.form());
+            return shape.isBatched();
         }
     }
 
@@ -875,10 +878,13 @@ public final class TriggerModelSynthesizer {
     }
 
     private static TriggerUISchemaModel.ReturnType buildReturnTypeFromRefs(List<TypeRef> refs, String moduleName) {
-        if (refs == null || refs.isEmpty()) {
+        // Shares `renderUnion` with the parameter path, so a composite return -- graphql's subscription
+        // `{"shape":"stream", ...}` is the corpus instance -- renders as `stream<anydata, error?>` rather than
+        // as the text `null`, and an unrenderable member is dropped instead of joined.
+        String joined = renderUnion(refs, moduleName);
+        if (joined.isEmpty()) {
             return buildReturnType(null, false);
         }
-        String joined = refs.stream().map(r -> qualifyTypeRef(r, moduleName)).collect(Collectors.joining("|"));
         boolean hasError = joined.contains("error");
         return buildReturnType(joined, hasError);
     }
@@ -1000,23 +1006,75 @@ public final class TriggerModelSynthesizer {
                 cdAnnotation(codedataType, annotationName, pkgModule, pkgOrg, pkgName, optional), null);
     }
 
-    /** Joins a union of {@link TypeRef}s into one type-signature string, qualifying each member. */
+    /**
+     * Joins a union of {@link TypeRef}s into one type-signature string, qualifying each member.
+     *
+     * <p>Members that render to nothing are dropped rather than joined. A {@link TypeRef} the renderer cannot
+     * describe used to reach {@link Collectors#joining} as {@code null}, and {@code StringJoiner} appends the
+     * four characters {@code null} for one — so an unrenderable member became a type literally named
+     * {@code null} in the emitted schema. Dropping it degrades to the members that ARE renderable, and the
+     * {@code anydata} fallback covers a slot where none is.
+     */
     private static String typeRefName(List<TypeRef> refs, String moduleName) {
+        String joined = renderUnion(refs, moduleName);
+        return joined.isEmpty() ? "anydata" : joined;
+    }
+
+    /** {@link #typeRefName} without the {@code anydata} fallback, for a slot where empty is meaningful. */
+    private static String renderUnion(List<TypeRef> refs, String moduleName) {
         if (refs == null || refs.isEmpty()) {
-            return "anydata";
+            return "";
         }
-        return refs.stream().map(r -> qualifyTypeRef(r, moduleName))
+        return refs.stream()
+                .map(ref -> qualifyTypeRef(ref, moduleName))
+                .filter(name -> name != null && !name.isEmpty())
                 .collect(Collectors.joining("|"));
     }
+
+    /**
+     * The home module's qualification rule, as the predicate {@link TypeRefResolver} takes.
+     *
+     * <p>This class judges "is this a type the home module declares, and therefore one needing a prefix" by
+     * the convention that a user-defined name starts uppercase while a builtin does not
+     * ({@code string}, {@code ()}). Handing that same rule to the shared renderer is what makes delegating
+     * composites below behaviour-preserving for their leaves: {@code AnydataConsumerRecord} inside
+     * {@code {"shape":"array"}} is qualified exactly as it would be at the top level.
+     */
+    private static final java.util.function.Predicate<String> DECLARED_BY_HOME_MODULE =
+            name -> name != null && !name.isEmpty() && Character.isUpperCase(name.charAt(0));
 
     /**
      * Qualifies a {@link TypeRef} for emission into the user's file, since even a same-module reference
      * needs a module prefix there. Relies on the convention that a user-defined type name starts
      * uppercase, unlike a builtin/composite signature (e.g. {@code string}, {@code ()}).
+     *
+     * <p><b>A composite node is delegated to {@link TypeRefResolver}</b>, which owns spec §1's shape table.
+     * Spec §1 made a type reference a <i>tree</i> — {@code {"shape":"array","elementType":{"name":"byte"}}} is
+     * {@code byte[]} — and a composite node carries no {@code name} at all, so the named-node rule below
+     * returned {@code null} for every one of them. Three positions in the shipped corpus are composites
+     * ({@code websocket}'s {@code byte[]} frame parameters, {@code graphql}'s {@code stream} subscription
+     * return, {@code grpc}'s streaming signatures), so the alternative to delegating is a second
+     * implementation of the array/stream/union/nilable rules this repo already has one of.
+     *
+     * <p>One divergence is worth naming: for a leaf carrying {@code packageInfo} whose {@code packageName}
+     * equals the home package but whose {@code moduleName} is a submodule, the shared renderer prefixes with
+     * the home alias where the branch below would use the submodule alias. No corpus document nests such a
+     * reference inside a composite; a top-level one still takes the branch below and is unaffected.
      */
     private static String qualifyTypeRef(TypeRef ref, String moduleName) {
+        if (ref == null) {
+            return "";
+        }
+        if (ref.isComposite()) {
+            return TypeRefResolver.render(ref, moduleName, DECLARED_BY_HOME_MODULE);
+        }
         String name = ref.name();
-        if (name == null || name.isEmpty() || name.indexOf(':') >= 0 || !Character.isUpperCase(name.charAt(0))) {
+        if (name == null || name.isEmpty()) {
+            // "" rather than null: this value is joined into a union signature, and a null member is
+            // rendered by StringJoiner as the text "null".
+            return "";
+        }
+        if (name.indexOf(':') >= 0 || !Character.isUpperCase(name.charAt(0))) {
             return name;
         }
         String prefixModule = ref.packageInfo() != null ? ref.packageInfo().moduleName() : moduleName;

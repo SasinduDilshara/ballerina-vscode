@@ -48,15 +48,12 @@ import io.ballerina.compiler.syntax.tree.SimpleNameReferenceNode;
 import io.ballerina.compiler.syntax.tree.SyntaxKind;
 import io.ballerina.modelgenerator.commons.CommonUtils;
 import io.ballerina.modelgenerator.commons.DefaultValueGeneratorUtil;
+import io.ballerina.modelgenerator.commons.trigger.utils.TypeRefResolver;
 import io.ballerina.projects.Document;
-import io.ballerina.projects.DocumentId;
-import io.ballerina.projects.Module;
 import io.ballerina.projects.Package;
-import io.ballerina.projects.Project;
 import io.ballerina.tools.diagnostics.Location;
 import io.ballerina.tools.text.TextRange;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -439,7 +436,10 @@ final class TriggerSemanticFacts {
         if (location.isEmpty() || modulePackage == null) {
             return null;
         }
-        Document document = findDocument(modulePackage, location.get().lineRange().fileName());
+        // CommonUtils owns the package-relative document lookup, including the `modules/<pkg>/<file>` layout
+        // and the guard for a path the project does not know. It was reimplemented here line-for-line.
+        Document document = CommonUtils.findDocument(modulePackage,
+                location.get().lineRange().fileName());
         if (document == null) {
             return null;
         }
@@ -451,8 +451,8 @@ final class TriggerSemanticFacts {
                 return null;
             }
             ExpressionNode expression = (ExpressionNode) ((DefaultableParameterNode) node).expression();
-            String module = modulePackage.packageName().value();
-            String alias = module.contains(".") ? module.substring(module.lastIndexOf('.') + 1) : module;
+            // Spec §1's alias rule -- a module's last dot-segment -- has one implementation, in commons.
+            String alias = TypeRefResolver.moduleAlias(modulePackage.packageName().value());
             if (expression instanceof SimpleNameReferenceNode simpleRef) {
                 return alias + ":" + simpleRef.name().text();
             }
@@ -461,19 +461,6 @@ final class TriggerSemanticFacts {
             }
             return expression.toSourceCode();
         } catch (RuntimeException e) {
-            return null;
-        }
-    }
-
-    private static Document findDocument(Package pkg, String fileName) {
-        try {
-            Project project = pkg.project();
-            Module defaultModule = pkg.getDefaultModule();
-            String module = pkg.packageName().value();
-            Path docPath = project.sourceRoot().resolve("modules").resolve(module).resolve(fileName);
-            DocumentId documentId = project.documentId(docPath);
-            return defaultModule.document(documentId);
-        } catch (RuntimeException ex) {
             return null;
         }
     }

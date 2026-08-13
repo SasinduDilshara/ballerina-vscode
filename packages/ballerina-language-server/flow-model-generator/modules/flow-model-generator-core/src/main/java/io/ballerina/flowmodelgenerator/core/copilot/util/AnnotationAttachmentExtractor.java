@@ -28,13 +28,12 @@ import io.ballerina.compiler.syntax.tree.ModulePartNode;
 import io.ballerina.compiler.syntax.tree.Node;
 import io.ballerina.compiler.syntax.tree.NonTerminalNode;
 import io.ballerina.flowmodelgenerator.core.copilot.model.AnnotationAttachment;
+import io.ballerina.modelgenerator.commons.CommonUtils;
 import io.ballerina.projects.Document;
 import io.ballerina.projects.Package;
-import io.ballerina.projects.Project;
 import io.ballerina.tools.diagnostics.Location;
 import io.ballerina.tools.text.TextRange;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -142,7 +141,7 @@ public final class AnnotationAttachmentExtractor {
             if (location.isEmpty()) {
                 return Optional.empty();
             }
-            Document document = findDocument(pkg, location.get().lineRange().fileName());
+            Document document = CommonUtils.findDocument(pkg, location.get().lineRange().fileName());
             if (document == null) {
                 return Optional.empty();
             }
@@ -194,18 +193,6 @@ public final class AnnotationAttachmentExtractor {
             }
         }
         return null;
-    }
-
-    /** Resolves a package-relative source file to its {@link Document}. */
-    private static Document findDocument(Package pkg, String fileName) {
-        try {
-            Project project = pkg.project();
-            String moduleName = pkg.packageName().value();
-            Path documentPath = project.sourceRoot().resolve("modules").resolve(moduleName).resolve(fileName);
-            return pkg.getDefaultModule().document(project.documentId(documentPath));
-        } catch (RuntimeException e) {
-            return null;
-        }
     }
 
     /**

@@ -18,6 +18,7 @@
 
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
+import io.ballerina.compiler.syntax.tree.SyntaxInfo;
 import io.ballerina.modelgenerator.commons.trigger.models.TypeRef;
 import io.ballerina.modelgenerator.commons.trigger.utils.TypeRefResolver;
 
@@ -69,16 +70,23 @@ import java.util.Set;
  *       back to the positional {@code paramN} (1-based), which is always valid and never collides.</li>
  * </ol>
  *
- * <p>Worked examples against the current documents (all verified by unit test):
+ * <p>Worked examples of the rules above, as illustrations rather than as observed output:
  * <pre>
- *   kafka    onConsumerRecord  AnydataConsumerRecord[]|BytesConsumerRecord[]  → consumerRecords
- *   kafka    onConsumerRecord  Caller                                        → caller
- *   kafka    onError           Error                                         → kafkaError
- *   rabbitmq onMessage         AnydataMessage|BytesMessage                    → message
- *   rabbitmq onError           Error                                         → rabbitmqError
- *   websub   onEventNotification  ContentDistributionMessage                 → contentDistributionMessage
- *   ftp      onFileChange      WatchEvent                                    → watchEvent
+ *   AnydataConsumerRecord[]|BytesConsumerRecord[]  → consumerRecords
+ *   Caller                                        → caller
+ *   Error            (moduleAlias "kafka")        → kafkaError
+ *   AnydataMessage|BytesMessage                    → message
+ *   ContentDistributionMessage                     → contentDistributionMessage
  * </pre>
+ *
+ * <p><b>No document in the shipped corpus currently reaches this generator</b>, and the examples above are
+ * therefore not drawn from one. Two conditions must both hold for it to be called — the slot states no
+ * {@code name}, and it is not {@code addMode: "many"} — and every nameless slot in all fourteen documents is
+ * {@code many}, which {@link ParamTypeAspect} routes to the authored name (absent) instead of here. The
+ * earlier version of this list named real handlers ({@code kafka onConsumerRecord}, {@code ftp onFileChange})
+ * and claimed each was "verified by unit test"; under spec v2 those slots carry authored names, so the
+ * generator never sees them, and the test that had covered this class is gone. The rules are kept because the
+ * first document to declare a fixed nameless slot needs them; the claim of coverage is not.
  *
  * @since 1.7.0
  */
@@ -96,25 +104,6 @@ final class HandlerParamNameGenerator {
     private static final String PAYLOAD_NAME = "payload";
 
     private static final String ERROR_TYPE = "Error";
-
-    /**
-     * Ballerina keywords and built-in type names: a generated identifier must never be one of these,
-     * or the emitted signature would not compile. (Ballerina can quote such identifiers with a
-     * leading {@code '}, but a quoted parameter name is not idiomatic in generated code, so the
-     * positional fallback is preferred.)
-     */
-    private static final Set<String> RESERVED_WORDS = Set.of(
-            "error", "service", "client", "listener", "type", "function", "record", "object", "table",
-            "map", "stream", "string", "int", "float", "decimal", "boolean", "byte", "json", "xml",
-            "anydata", "any", "never", "readonly", "distinct", "worker", "fork", "transaction", "retry",
-            "new", "isolated", "final", "const", "var", "if", "else", "while", "foreach", "in", "return",
-            "returns", "break", "continue", "fail", "panic", "trap", "from", "where", "select", "let",
-            "on", "do", "is", "null", "true", "false", "import", "public", "private", "remote",
-            "resource", "abstract", "class", "enum", "annotation", "external", "check", "checkpanic",
-            "future", "typedesc", "handle", "match", "source", "field", "start", "wait", "flush",
-            "lock", "commit", "rollback", "version", "key", "limit", "order", "group", "join", "outer",
-            "equals", "conflict", "collect", "configurable", "xmlns", "as", "default", "parameter",
-            "transactional", "typeof", "ascending", "descending", "base16", "base64");
 
     private HandlerParamNameGenerator() {
         // Prevent instantiation
@@ -136,7 +125,16 @@ final class HandlerParamNameGenerator {
         if (candidate == null && hasDataBinding) {
             candidate = PAYLOAD_NAME;
         }
-        if (candidate == null || RESERVED_WORDS.contains(candidate) || usedNames.contains(candidate)) {
+        // `SyntaxInfo.isKeyword` is the compiler's own answer, and it replaces a hand-listed set of ~100
+        // words this class used to carry. That list was wrong in both directions: it included names that are
+        // not keywords at all (`string`, `int`, `json`, `anydata`, `field`, `key`, `order`, `limit`, `group`),
+        // so a perfectly legal identifier was rejected into the positional fallback, and it could only ever
+        // drift from the language. `TypeDefDataBuilder` in this same package already reads the compiler for
+        // the same question.
+        //
+        // A keyword IS still refused rather than quoted: Ballerina admits `'string` as an identifier, but a
+        // quoted parameter name is not what generated code should read like, so the positional fallback wins.
+        if (candidate == null || SyntaxInfo.isKeyword(candidate) || usedNames.contains(candidate)) {
             return positionalName(index, usedNames);
         }
         return candidate;

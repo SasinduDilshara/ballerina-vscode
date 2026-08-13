@@ -372,6 +372,76 @@ public class TriggerModelSynthesizerTest {
     }
 
     /**
+     * Spec §1 makes a type reference a <b>tree</b>: {@code {"shape":"array","elementType":{"name":"byte"}}} is
+     * {@code byte[]}, and such a node carries no {@code name} at all.
+     *
+     * <p>This is the case the m2 migration left behind on this side. {@code qualifyTypeRef} read only
+     * {@code ref.name()}, so every composite resolved to {@code null} — and because the union join runs through
+     * {@code StringJoiner}, a {@code null} member is emitted as the four characters {@code null}. A parameter
+     * declared {@code byte[]} therefore reached the UI schema typed {@code "null"}, as did a
+     * {@code stream}-returning handler.
+     *
+     * <p>Both shapes are real and both are in the shipped corpus: {@code websocket}'s
+     * {@code onBinaryMessage}/{@code onPing}/{@code onPong} take {@code {"shape":"array"}} of {@code byte}, and
+     * {@code graphql}'s subscription resource returns {@code {"shape":"stream"}}. The fixture below is those two,
+     * on one handler.
+     *
+     * <p>The third assertion is the guard on the fix rather than on the defect: a composite whose element is a
+     * home-module type must be qualified exactly as the same type is at the top level, so delegating the shape
+     * table to {@code TypeRefResolver} cannot change how leaves are prefixed.
+     */
+    @Test
+    public void testCompositeTypeRefsRenderAsArraysAndStreams() {
+        TypeRef listenerType = new TypeRef("Listener", null);
+        TriggerMetadataModel.Listener listener = new TriggerMetadataModel.Listener(
+                listenerType, null, List.of("service"), null, null, null, null);
+
+        // websocket's binary-frame parameter: {"shape":"array","elementType":{"name":"byte"}}
+        TypeRef byteArray = new TypeRef(null, null, TypeRef.SHAPE_ARRAY,
+                List.of(new TypeRef("byte", null)), null);
+        // A home-module element, to pin that leaf qualification is unchanged by the delegation.
+        TypeRef recordArray = new TypeRef(null, null, TypeRef.SHAPE_ARRAY,
+                List.of(new TypeRef("AnydataConsumerRecord", null)), null);
+        // graphql's subscription return: stream<anydata, error?>, the nilable member written as an explicit ().
+        TypeRef anydataStream = new TypeRef(null, null, TypeRef.SHAPE_STREAM,
+                List.of(new TypeRef("anydata", null)),
+                List.of(new TypeRef("error", null), new TypeRef("()", null)));
+
+        TriggerMetadataModel.ServiceType.Param dataParam = new TriggerMetadataModel.ServiceType.Param(
+                "data", null, null, List.of(byteArray), "required", null, null, null);
+        TriggerMetadataModel.ServiceType.Param recordsParam = new TriggerMetadataModel.ServiceType.Param(
+                "records", null, null, List.of(recordArray), "required", null, null, null);
+        TriggerMetadataModel.ServiceType.HandlerOption option = new TriggerMetadataModel.ServiceType.HandlerOption(
+                "onBinaryMessage", TriggerMetadataModel.ServiceType.HandlerOption.KIND_REMOTE, null, null, null,
+                "required", null, null, List.of(dataParam, recordsParam),
+                List.of(anydataStream), null, null);
+        TriggerMetadataModel.ServiceType.Handlers handlers = new TriggerMetadataModel.ServiceType.Handlers(
+                false, List.of(option));
+        TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType(
+                "service", new TypeRef("Service", null), false, false, null, null, null, handlers, null);
+
+        TriggerMetadataModel authoring = new TriggerMetadataModel(null,
+                List.of(listener), List.of(serviceType), null, null);
+
+        TriggerLibraryFacts.Listener listenerFacts = new TriggerLibraryFacts.Listener("Listener", List.of());
+        TriggerLibraryFacts facts = new TriggerLibraryFacts(List.of(listenerFacts), List.of(), List.of());
+
+        TriggerUISchemaModel model = TriggerModelSynthesizer.synthesize(authoring, facts, listenerModel(Map.of()),
+                "1", "Kafka", null, "event", "ballerinax", "kafka", "kafka", "4.5.0").orElseThrow();
+
+        TriggerUISchemaModel.FunctionModel fn = model.serviceTypes().get(0).schemaFunctions().get(0);
+
+        Assert.assertEquals(fn.parameters().get(0).type().value(), "byte[]",
+                "a composite array TypeRef must render as `byte[]`, never as the text `null`");
+        Assert.assertEquals(fn.parameters().get(1).type().value(), "kafka:AnydataConsumerRecord[]",
+                "a composite's home-module element keeps the module alias it has at the top level");
+        Assert.assertEquals(fn.returnType().type(), "stream<anydata, error?>",
+                "a composite stream return renders its element and its nilable completion type");
+        Assert.assertTrue(fn.returnType().hasError(),
+                "the completion type carries `error`, so the handler still reports it can fail");
+    }
+
+    /**
      * Per direct product feedback ("for the onCSVFile handler data binding part we need a similar UX
      * to what we have with the FTP csv method"): when a parameter's spec §9 binding admits both an
      * {@code array} and a {@code stream} embedding of its bound type (i.e. the value may be read either as

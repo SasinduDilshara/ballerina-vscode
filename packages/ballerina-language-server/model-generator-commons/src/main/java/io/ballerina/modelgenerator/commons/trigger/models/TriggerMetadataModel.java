@@ -569,5 +569,34 @@ public record TriggerMetadataModel(
         public static final String FORM_STREAM = "stream";
         /** The user record does {@code *envelope;} and retypes only {@code bindableFields}. */
         public static final String FORM_INCLUDED = "included";
+
+        /**
+         * Whether this shape splices the bound type into an envelope record — either directly
+         * ({@code form: "included"}) or per element of a batch ({@code element: "included"}).
+         *
+         * <p>Declared here rather than at each consumer for the reason {@link
+         * ServiceType.HandlerOption#isMany()} already is: the reading of a {@code form} value is a property of
+         * the shape, and every consumer that re-derives it is a place for the two to disagree. Both the
+         * Copilot catalog and the service-model synthesizer ask this question, and asked it with their own
+         * copies of the same two comparisons.
+         *
+         * @return whether an envelope is embedded
+         */
+        public boolean embedsEnvelope() {
+            return FORM_INCLUDED.equals(form) || FORM_INCLUDED.equals(element);
+        }
+
+        /**
+         * Whether the declared type is a batch of the bound type rather than a single value.
+         *
+         * <p>Batching combines with either embedding, which is why it is a separate question from
+         * {@link #embedsEnvelope()}: kafka batches both of its variants, one as an array of bare values and
+         * one as an array of envelope-including records.
+         *
+         * @return whether the shape wraps its bound in an array or a stream
+         */
+        public boolean isBatched() {
+            return FORM_ARRAY.equals(form) || FORM_STREAM.equals(form);
+        }
     }
 }

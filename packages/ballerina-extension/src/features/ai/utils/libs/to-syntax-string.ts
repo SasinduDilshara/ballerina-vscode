@@ -1431,23 +1431,21 @@ function renderIdentifierSlot(identifier: ServiceIdentifier | undefined): {
         ? ` It may instead be ${alternatives.join(", or ")}.`
         : "";
 
-    if (form === "basePath") {
-        const note = `# The service identifier ${requirement} a base path, e.g. \`/orders\``;
-        return required
-            ? { fragment: "/basePath ", notes: [`${note} — replace \`/basePath\`.${alsoLegal}`] }
-            : { fragment: "", notes: [`${note}; it may be omitted.${alsoLegal}`] };
+    // The prose for each form comes from `describeIdentifierForm`, which the `alsoLegal` clause above already
+    // uses. The two were separate copies of the same basePath/stringLiteral wording and example values, so a
+    // reworded example landed in one branch and not the other — and the primary form and the "may instead be"
+    // list would then describe the same shape in two different ways, one line apart.
+    const note = `# The service identifier ${requirement} ${describeIdentifierForm(form)}`;
+    // The placeholder is the one thing that does not follow from the description: only a form whose syntax
+    // spec §10 fixes has one to write.
+    const placeholder = form === "basePath" ? "/basePath "
+        : form === "stringLiteral" ? `"identifier" ` : "";
+    if (!required || placeholder === "") {
+        return { fragment: "", notes: [`${note}${required ? "." : "; it may be omitted."}${alsoLegal}`] };
     }
-    if (form === "stringLiteral") {
-        const note = `# The service identifier ${requirement} a quoted string literal, e.g. \`"orders"\``;
-        return required
-            ? { fragment: `"identifier" `, notes: [`${note} — replace \`"identifier"\`.${alsoLegal}`] }
-            : { fragment: "", notes: [`${note}; it may be omitted.${alsoLegal}`] };
-    }
-    // A form outside spec §10's vocabulary. Named verbatim so the reader can look it up, rather than
-    // flattened into "unknown".
     return {
-        fragment: "",
-        notes: [`# The service identifier ${requirement} a value of form \`${form}\`.${alsoLegal}`],
+        fragment: placeholder,
+        notes: [`${note} — replace \`${placeholder.trim()}\`.${alsoLegal}`],
     };
 }
 
@@ -1795,13 +1793,13 @@ function renderHandlerTemplateBody(template: ServiceRemoteFunction,
                                    indent: string): string[] {
     const lines: string[] = [];
 
-    const fixedParams = (template.parameters ?? []).filter((param) => !param.repeatable);
-    const params = fixedParams
-        .map((param) => {
-            const attachments = renderRequirementAttachments(param.annotationRefs, listenerAlias);
-            const typeName = qualifyDeclaredType(param.type, listenerAlias);
-            return `${attachments}${typeName}${param.name ? " " + param.name : ""}`;
-        })
+    // `renderParamDef` is the same expression this built inline — required-annotation attachments, then the
+    // qualified type, then the name when the document states one. A template's parameter list is a handler's
+    // parameter list, so rendering it twice meant a change to either (spec §7's presence rule, §8's inline
+    // attachments) had to be made in both or the commented template would drift from the real signature.
+    const params = (template.parameters ?? [])
+        .filter((param) => !param.repeatable)
+        .map((param) => renderParamDef(param, listenerAlias))
         .join(", ");
     const returnType = qualifyDeclaredType(template.return?.type, listenerAlias);
     const returnStr = returnType ? ` returns ${returnType}` : "";
