@@ -32,6 +32,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Schema-driven Copilot service loader: builds a library's {@code services} JSON from two read-only
@@ -62,8 +64,8 @@ import java.util.logging.Logger;
  *       reason while the rest of the library is served normally.</li>
  * </ul>
  *
- * <p>Note that a document's declared spec version is <b>not</b> gated on: every document this build can
- * parse is served. See {@code TriggerMetadataModel#version}.
+ * <p>A document declaring a spec <b>major</b> this build does not implement is refused rather than
+ * misread — see {@link #supportsSpecMajor}.
  *
  * <p>A marker service type declares no methods in the library source — its handler contract is enforced by
  * a compiler plugin at user-code compile time — so no symbol carries a doc comment for a handler or its
@@ -99,8 +101,36 @@ final class TriggerSchemaServiceLoader {
             "ballerina/websub", "websub",
             "ballerinax/trigger.google.calendar", "trigger.google.calendar");
 
+    /** The spec major this build implements. A new major is structural, so it cannot be read as this one. */
+    private static final int SUPPORTED_SPEC_MAJOR = 1;
+
+    private static final Pattern SPEC_VERSION = Pattern.compile("^v(\\d+)\\.\\d+$");
+
     private TriggerSchemaServiceLoader() {
         // Prevent instantiation
+    }
+
+    /**
+     * Whether this build can read a document declaring {@code version}.
+     *
+     * <p>Only a <b>recognised</b> major it does not implement is refused. A minor is additive, so any
+     * {@code v1.x} is read; an absent or unparseable version is also read, because it says nothing about
+     * structure and refusing on it would invent a failure mode for documents that are otherwise fine — the
+     * gate exists to stop a <i>known</i> newer structure being parsed as this one, not to enforce the
+     * schema.
+     *
+     * @param version the document's declared spec version; may be {@code null}
+     * @return whether the document may be read
+     */
+    static boolean supportsSpecMajor(String version) {
+        if (version == null) {
+            return true;
+        }
+        Matcher matcher = SPEC_VERSION.matcher(version.trim());
+        if (!matcher.matches()) {
+            return true;
+        }
+        return Integer.parseInt(matcher.group(1)) == SUPPORTED_SPEC_MAJOR;
     }
 
     /**
@@ -147,6 +177,16 @@ final class TriggerSchemaServiceLoader {
                 return empty(false);
             }
             TriggerMetadataModel metadata = resolution.get();
+            if (!supportsSpecMajor(metadata.version())) {
+                // documentResolved stays true: the library HAS metadata, this build just cannot read it.
+                // Falling back to the service index would answer a structurally newer document with an
+                // older, thinner catalog and present it as authoritative.
+                LOGGER.warning("Ignoring trigger metadata for " + libraryName + ": it declares spec version "
+                        + metadata.version() + ", and this build implements major v" + SUPPORTED_SPEC_MAJOR
+                        + ". A new major is structural, so the document cannot be read as v"
+                        + SUPPORTED_SPEC_MAJOR + ".");
+                return empty(true);
+            }
             if (metadata.listeners() == null || metadata.listeners().isEmpty()
                     || metadata.serviceTypes() == null || metadata.serviceTypes().isEmpty()) {
                 return empty(true);

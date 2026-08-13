@@ -89,12 +89,6 @@ final class HandlerCatalogResolver {
     /**
      * A resolved catalog, plus every way the document had to be tolerated to reach it.
      *
-     * <p><b>Now always empty.</b> It used to carry three kinds of degradation, each a document stating
-     * something true that the schema could not express, and each costing real output — {@code graphql} lost
-     * its mutation and subscription shapes entirely. The spec made all three legal. The field is kept
-     * because the shape of the contract should not change with the corpus, and a future deviation still
-     * needs somewhere to go.
-     *
      * @param catalog      where this service type's handlers come from
      * @param degradations spec deviations that changed how the document was read or cost emitted output,
      *                     phrased in terms a document author can act on; empty for a conformant document

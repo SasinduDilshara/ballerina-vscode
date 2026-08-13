@@ -75,9 +75,9 @@ final class HandlerAspects {
      * construct a single {@code accessor} slot, so there is no precedence question left here.
      */
     static void kind(HandlerScope scope, HandlerDraft draft) {
-        HandlerKindResolver.Kind resolved = scope.isConcrete()
-                ? HandlerKindResolver.resolveDeclared(scope.declared().kind())
-                : HandlerKindResolver.resolve(scope.option().kind());
+        HandlerRules.Kind resolved = scope.isConcrete()
+                ? HandlerRules.resolveDeclared(scope.declared().kind())
+                : HandlerRules.resolveKind(scope.option().kind());
         draft.setKind(resolved.wireValue());
     }
 
@@ -113,7 +113,7 @@ final class HandlerAspects {
         if (scope.isConcrete()) {
             return;
         }
-        HandlerPresenceResolver.resolveOptional(scope.option().presence(), scope.option().addMode())
+        PresenceRules.resolveOptional(scope.option().presence(), scope.option().addMode())
                 .ifPresent(draft::setOptional);
     }
 
@@ -130,7 +130,7 @@ final class HandlerAspects {
         if (scope.isConcrete()) {
             return;
         }
-        ResourceExtrasResolver.resolve(scope.option()).ifPresent(extras -> {
+        HandlerRules.resolveResourceExtras(scope.option()).ifPresent(extras -> {
             draft.setAccessor(extras.accessor());
             draft.setAccessorConstraint(extras.accessorValues(), extras.accessorRequired(),
                     extras.accessorOpen());
@@ -150,8 +150,8 @@ final class HandlerAspects {
         TriggerScope service = scope.service();
         String signature = scope.isConcrete()
                 ? scope.declared().returnTypeSignature()
-                : ReturnResolver.signature(scope.option().returns(), service.packageName(),
+                : TypeShapeRules.signature(scope.option().returns(), service.packageName(),
                         service.declaresType());
-        ReturnResolver.resolve(signature, service.packageName()).ifPresent(draft::setReturn);
+        TypeShapeRules.resolveReturn(signature, service.packageName()).ifPresent(draft::setReturn);
     }
 }

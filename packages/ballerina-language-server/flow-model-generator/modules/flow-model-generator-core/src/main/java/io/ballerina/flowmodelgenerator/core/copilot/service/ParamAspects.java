@@ -72,9 +72,9 @@ final class ParamAspects {
         }
 
         TriggerMetadataModel.ServiceType.Param param = scope.param();
-        // Reading ParamRepeatResolver's predicate rather than the raw key leaves the spec's `addMode` with
+        // Reading PresenceRules's predicate rather than the raw key leaves the spec's `addMode` with
         // exactly one owner.
-        String name = ParamRepeatResolver.isRepeatable(param)
+        String name = PresenceRules.isRepeatable(param)
                 ? param.name()
                 : ParamTypeResolver.resolveName(param, scope.position(),
                         TypeRefResolver.moduleAlias(packageName), scope.siblingNames());
@@ -113,8 +113,8 @@ final class ParamAspects {
      */
     static void presence(ParamScope scope, ParamDraft draft) {
         draft.setOptional(scope.declared() != null
-                ? ParamPresenceResolver.isOptional(scope.declared())
-                : ParamPresenceResolver.isOptional(scope.param()));
+                ? PresenceRules.isOptional(scope.declared())
+                : PresenceRules.isOptional(scope.param()));
     }
 
     /**
@@ -124,7 +124,7 @@ final class ParamAspects {
      * notion of one that repeats.
      */
     static void repeat(ParamScope scope, ParamDraft draft) {
-        if (ParamRepeatResolver.isRepeatable(scope.param())) {
+        if (PresenceRules.isRepeatable(scope.param())) {
             draft.setRepeatable(true);
         }
     }
@@ -150,7 +150,7 @@ final class ParamAspects {
         }
         TriggerScope service = scope.handler().service();
         String packageName = service.packageName();
-        Optional<DataBindingResolver.BindingSpec> spec = DataBindingResolver.resolve(
+        Optional<TypeShapeRules.BindingSpec> spec = TypeShapeRules.resolveBinding(
                 param.dataBinding(), packageName, service.declaresType(), envelopeFields(service));
 
         if (spec.isEmpty()) {
@@ -175,29 +175,29 @@ final class ParamAspects {
         return facts == null ? name -> List.of() : facts::recordFieldNames;
     }
 
-    private static JsonObject toJson(DataBindingResolver.BindingSpec spec, String packageName) {
+    private static JsonObject toJson(TypeShapeRules.BindingSpec spec, String packageName) {
         JsonObject json = new JsonObject();
         JsonArray variants = new JsonArray();
-        for (DataBindingResolver.Variant variant : spec.variants()) {
+        for (TypeShapeRules.Variant variant : spec.variants()) {
             variants.add(variantToJson(variant, packageName));
         }
         json.add("typedescs", variants);
         return json;
     }
 
-    private static JsonObject variantToJson(DataBindingResolver.Variant variant, String packageName) {
+    private static JsonObject variantToJson(TypeShapeRules.Variant variant, String packageName) {
         JsonObject json = new JsonObject();
         json.add("constraint", TypeResolver.resolveTypeWithLinks(variant.constraint(), packageName));
         addTypes(json, "excludes", variant.excludes(), packageName);
         JsonArray shapes = new JsonArray();
-        for (ShapeResolver.ResolvedShape shape : variant.shapes()) {
+        for (TypeShapeRules.ResolvedShape shape : variant.shapes()) {
             shapes.add(shapeToJson(shape, packageName));
         }
         json.add("shapes", shapes);
         return json;
     }
 
-    private static JsonObject shapeToJson(ShapeResolver.ResolvedShape shape, String packageName) {
+    private static JsonObject shapeToJson(TypeShapeRules.ResolvedShape shape, String packageName) {
         JsonObject json = new JsonObject();
         json.addProperty("form", shape.form());
         if (shape.element() != null) {

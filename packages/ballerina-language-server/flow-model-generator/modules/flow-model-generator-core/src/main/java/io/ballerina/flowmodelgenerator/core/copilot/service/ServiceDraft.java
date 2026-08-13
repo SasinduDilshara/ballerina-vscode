@@ -260,10 +260,6 @@ final class ServiceDraft {
     /**
      * Records that a contribution was dropped, without dropping the entry.
      *
-     * <p>Introduced because the fatal channel was being used for a non-fatal case: an annotation the
-     * resolved package does not declare went through {@link #veto}, which made
-     * {@link TriggerSchemaServiceLoader} skip the <i>entire service</i>, contradicting
-     * {@link ServiceAnnotationResolver}'s own contract that a dropped annotation never drops its service.
      */
     void drop(String reason) {
         nonFatal.add(reason);

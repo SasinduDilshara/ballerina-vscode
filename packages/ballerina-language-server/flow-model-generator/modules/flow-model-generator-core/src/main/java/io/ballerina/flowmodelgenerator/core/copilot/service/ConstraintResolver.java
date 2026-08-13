@@ -187,9 +187,7 @@ final class ConstraintResolver {
 
     /**
      * What a rule's subjects may be attributed to: the document's service types, by id.
-     *
-     * <p>A narrow seam rather than the whole document, which keeps the resolver unit-testable.
-     */
+     *     */
     interface ServiceTypeIndex {
 
         /**

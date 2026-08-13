@@ -23,14 +23,12 @@ import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 import java.util.Set;
 
 /**
- * The immutable inputs a parameter-level component reads — one instance per parameter slot.
+ * The immutable inputs a parameter-level component reads — one per parameter slot.
  *
- * <p>As with {@link HandlerScope}, exactly one of {@code param}/{@code declared} is populated,
- * distinguishing a metadata-described slot from a real declared parameter.
+ * <p>As with {@link HandlerScope}, exactly one of {@code param}/{@code declared} is populated.
  *
- * <p>{@code position} and {@code siblingNames} exist for one reason: The spec leaves a handler
- * parameter's name to the service author, so a name-less slot needs a synthesized one that is
- * deterministic and cannot collide with a sibling's authored name.
+ * <p>{@code position} and {@code siblingNames} support name synthesis: a slot whose name the document
+ * leaves to the author needs a deterministic one that cannot collide with a sibling's.
  *
  * @param handler      the enclosing handler scope
  * @param param        the metadata parameter slot, or {@code null} for a declared parameter

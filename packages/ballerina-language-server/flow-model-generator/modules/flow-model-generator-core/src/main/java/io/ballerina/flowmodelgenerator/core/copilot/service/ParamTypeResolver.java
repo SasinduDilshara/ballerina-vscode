@@ -33,7 +33,7 @@ import java.util.function.Predicate;
  * <p>{@code type} is a {@code TypeRef} or array whose first element is the codegen default (the spec), so the
  * emitted signature is that member; {@code presence} is {@code required}/{@code optional}.
  *
- * <p>{@code addMode} is <b>not</b> owned here — see {@link ParamRepeatResolver}. The renderer treats
+ * <p>{@code addMode} is <b>not</b> owned here — see {@link PresenceRules}. The renderer treats
  * {@code presence} and {@code addMode} completely differently, so they are genuinely separate constructs.
  *
  * <p>{@code name} is the interesting one: The spec calls it an "optional domain-meaningful name … added only where

@@ -21,17 +21,11 @@ package io.ballerina.flowmodelgenerator.core.copilot.service;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 
 /**
- * The immutable inputs a handler-level component reads — one instance per handler being built.
+ * The immutable inputs a handler-level component reads — one per handler being built.
  *
- * <p>Exactly one of {@code option}/{@code declared} is populated, and that is the whole point of the
- * record: it names the two provenances a handler can have, so a component states which it handles
- * instead of re-deriving it from the service type's flags.
- * <ul>
- *   <li>{@code declared} — a <b>concrete</b> service type's own method, read from the semantic model.
- *       Names, parameter names and doc comments are all real.</li>
- *   <li>{@code option} — a <b>marker</b> service type's handler, read from the metadata document,
- *       because the library declares no method to introspect.</li>
- * </ul>
+ * <p>Exactly one of {@code option}/{@code declared} is populated: {@code declared} is a concrete service
+ * type's own method read from the semantic model, {@code option} is a marker service type's handler read
+ * from the document, because the library declares no method to introspect.
  *
  * @param service  the enclosing service scope
  * @param option   the metadata handler option, or {@code null} for a concrete method

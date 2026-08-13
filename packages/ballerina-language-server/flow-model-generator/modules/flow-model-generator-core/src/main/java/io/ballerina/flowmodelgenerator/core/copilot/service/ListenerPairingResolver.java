@@ -154,10 +154,6 @@ final class ListenerPairingResolver {
     /**
      * The pairings that resolved, and an attributable reason for every service type that did not.
      *
-     * <p>The vetoes exist because the alternative was a bare {@code continue}: when <i>some</i> listeners
-     * resolved and others did not, the affected service types vanished from the catalog with no veto, no
-     * log line and nothing a test could assert.
-     *
      * @param pairings one pairing per service type whose listener resolved, in document order
      * @param vetoes   one veto per service type dropped because its listener did not resolve
      */
@@ -189,11 +185,6 @@ final class ListenerPairingResolver {
     /**
      * {@link #resolveWithDiagnostics(List, List, TriggerSemanticFacts)} against a bare listener-class
      * lookup instead of a whole compiled package.
-     *
-     * <p>The same narrow seam {@link TriggerScope}'s {@code declaresType} predicate and
-     * {@link AnnotationScopeResolver.AnnotationFacts} already are: resolving a listener class is the only
-     * capability this component needs from the semantic model, so depending on the lookup rather than the
-     * package is what lets the <i>drop</i> path be exercised in a unit test.
      *
      * @param listeners       the document's listeners
      * @param serviceTypes    the document's service types

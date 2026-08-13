@@ -167,9 +167,6 @@ final class HandlerCatalogAspect {
      * fallback uses the slot's index in the full list, which keeps a generated name stable when an unrelated
      * slot is added or removed.
      *
-     * <p><b>A repeatable slot is no longer skipped.</b> Dropping it here cost the prompt everything the spec says
-     * about it. It is now built like any other slot, marked by {@link ParamRepeatAspect}, and left out of the
-     * rendered signature by the consumer rather than by this loop.
      */
     private void buildOptionParams(HandlerScope handlerScope, HandlerDraft handlerDraft,
                                    List<TriggerMetadataModel.ServiceType.Param> params) {

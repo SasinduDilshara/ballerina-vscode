@@ -145,11 +145,6 @@ public class ServiceLoader {
      * annotations, binding), while the curated file states the <i>conventions</i> a document deliberately
      * cannot carry. Merging keeps both; the old behaviour kept only the second.
      *
-     * <p>The instruction text is loaded here rather than left to
-     * {@code CopilotLibraryManager.augmentServicesWithInstructions}, which applies it only to entries typed
-     * {@code generic}. Doing it at the point of absorption keeps the change surgical: no service that did
-     * not previously carry curated guidance starts carrying it.
-     *
      * @param libraryName   the library being loaded
      * @param fixedServices the non-generic entries
      * @param schemaDerived whether {@code fixedServices} came from the trigger-metadata pipeline

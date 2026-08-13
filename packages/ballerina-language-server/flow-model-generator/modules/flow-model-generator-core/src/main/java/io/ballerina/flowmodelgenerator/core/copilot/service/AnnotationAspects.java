@@ -90,7 +90,7 @@ final class AnnotationAspects {
             return;
         }
         TriggerScope service = scope.service();
-        boolean resource = HandlerKindResolver.resolve(option.kind()).isResource();
+        boolean resource = HandlerRules.resolveKind(option.kind()).isResource();
         AnnotationScopeResolver.Resolution resolution = AnnotationScopeResolver.byIds(
                 service.annotations(), option.annotations(),
                 resource ? AnnotationScopeResolver.Scope.RESOURCE_HANDLER

@@ -26,25 +26,64 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Owns <b>the spec's resource extras</b>: the two positions of {@code resource function <accessor> <path>()}.
+ * Handler-tier resolution: what kind of handler an option describes, and the accessor/path pair a
+ * resource handler carries. Pure functions of the document, read by {@link HandlerAspects}.
  *
- * <p>Replaces {@code HttpResourceExtrasResolver}, {@code GraphqlResourceExtrasResolver} and
- * {@code AccessorPrecedencePolicy}. The first two existed only because the schema named the same two
- * syntactic slots differently per protocol; the third carried an explicitly-flagged guess at which key
- * supplied the accessor. The spec removed the question by giving the construct one {@code accessor} slot and
- * stating the rule symmetrically: both slots are required for {@code kind: "resource"} and neither applies
- * to {@code kind: "remote"}.
- *
- * <p>{@code graphqlOperation} went too, and is not lost: a query is {@code resource} with accessor
- * {@code get}, a subscription is {@code resource} with accessor {@code subscribe}, and a mutation is
- * {@code remote}.
- *
- * @since 1.10.0
+ * @since 1.7.0
  */
-final class ResourceExtrasResolver {
+final class HandlerRules {
 
-    private ResourceExtrasResolver() {
+
+    /** The two handler shapes the spec's {@code kind} vocabulary admits. */
+    enum Kind {
+        REMOTE(TriggerMetadataModel.ServiceType.HandlerOption.KIND_REMOTE),
+        RESOURCE(TriggerMetadataModel.ServiceType.HandlerOption.KIND_RESOURCE);
+
+        private final String wireValue;
+
+        Kind(String wireValue) {
+            this.wireValue = wireValue;
+        }
+
+        /** The value written to the wire, and the discriminator the renderer dispatches on. */
+        String wireValue() {
+            return wireValue;
+        }
+
+        /** Whether this handler renders as a resource method, which needs an accessor and a path. */
+        boolean isResource() {
+            return this == RESOURCE;
+        }
+    }
+
+    private HandlerRules() {
         // Prevent instantiation
+    }
+
+    /**
+     * Resolves a document's {@code kind} string.
+     *
+     * @param kind the declared kind; may be {@code null}
+     * @return the resolved kind, defaulting to {@link Kind#REMOTE}
+     */
+    static Kind resolveKind(String kind) {
+        return TriggerMetadataModel.ServiceType.HandlerOption.KIND_RESOURCE.equals(kind)
+                ? Kind.RESOURCE : Kind.REMOTE;
+    }
+
+    /**
+     * Resolves the kind of a concrete service type's declared method, whose provenance is the semantic
+     * model rather than the document.
+     *
+     * <p>{@link TriggerSemanticFacts#declaredMethods} already reports {@code "remote"}/{@code "resource"}
+     * from the method's own qualifiers, so this reads the same vocabulary from a different source — which
+     * is why it belongs here rather than being re-derived at the aspect.
+     *
+     * @param declaredKind the kind reported for a declared method; may be {@code null}
+     * @return the resolved kind, defaulting to {@link Kind#REMOTE}
+     */
+    static Kind resolveDeclared(String declaredKind) {
+        return resolveKind(declaredKind);
     }
 
     /**
@@ -83,7 +122,8 @@ final class ResourceExtrasResolver {
      * @return the extras, or empty for a handler that declares neither slot — which for a {@code remote}
      *         handler is the correct and expected state
      */
-    static Optional<ResourceExtras> resolve(TriggerMetadataModel.ServiceType.HandlerOption option) {
+    static Optional<ResourceExtras> resolveResourceExtras(
+            TriggerMetadataModel.ServiceType.HandlerOption option) {
         if (option == null) {
             return Optional.empty();
         }

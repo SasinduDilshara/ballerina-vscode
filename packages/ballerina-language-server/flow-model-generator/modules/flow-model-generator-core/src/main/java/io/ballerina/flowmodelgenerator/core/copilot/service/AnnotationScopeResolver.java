@@ -106,9 +106,6 @@ final class AnnotationScopeResolver {
      * The three compiler-backed facts the spec needs about an annotation, as a narrow seam rather than the whole
      * {@link TriggerSemanticFacts}.
      *
-     * <p>Same reasoning {@link TriggerScope} applies to its {@code declaresType} predicate: depending on
-     * these three questions rather than on a compiled package is what lets the attach-point guard be
-     * exercised in a unit test.
      */
     interface AnnotationFacts {
 

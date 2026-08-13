@@ -19,20 +19,11 @@
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
 /**
- * One annotation a metadata document says the generated code must (or may) attach — the spec.
+ * One annotation a document requires generated code to attach.
  *
- * <p><b>Deliberately not {@code AnnotationAttachment}</b>, the semantic-model POJO for an annotation the
- * compiler reports as <i>already present</i> on a library symbol. The two look alike and behave oppositely:
- * <ul>
- *   <li>an <b>attachment</b> is a fact about the library, and renders verbatim with its real value —
- *       {@code @display {label: "Kafka"}};</li>
- *   <li>a <b>reference</b> is a requirement on code that does not exist yet, and renders as one: a
- *       placeholder value the model has to fill, plus a presence marker stating whether omitting it is
- *       legal.</li>
- * </ul>
- *
- * <p>{@code recordFields} is deliberately absent: the annotation record's field shape is fully derivable
- * from {@code typeConstraint}, whose links carry the definition into the prompt as a real type declaration.
+ * <p>Not {@code AnnotationAttachment}: that is an annotation the compiler reports as already present on a
+ * library symbol, and renders verbatim with its real value. This is a requirement on code that does not
+ * exist yet, and renders as a placeholder plus a presence marker.
  *
  * @param name           the annotation's name, unqualified, e.g. {@code "ServiceConfig"}
  * @param module         the {@code org/module} a cross-module annotation belongs to, e.g.

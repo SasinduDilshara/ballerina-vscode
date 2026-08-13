@@ -53,7 +53,7 @@ final class HandlerDraft {
     // A concrete type's declared `isolated` qualifier. Emitted only when true; see HandlerQualifierAspect.
     private Boolean isolated;
     // The spec `presence`, tri-state on purpose: TRUE optional, FALSE required, null "the document is not
-    // answering the question" (addMode: many). See HandlerPresenceResolver.
+    // answering the question" (addMode: many). See PresenceRules.
     private Boolean optional;
     private String accessor;
     private JsonArray accessorValues;
@@ -106,7 +106,7 @@ final class HandlerDraft {
         this.optional = optional;
     }
 
-    /** The accessor a resource handler is written with, per {@link ResourceExtrasResolver}. */
+    /** The accessor a resource handler is written with, per {@link HandlerRules}. */
     void setAccessor(String accessor) {
         if (accessor != null && !accessor.isEmpty()) {
             this.accessor = accessor;

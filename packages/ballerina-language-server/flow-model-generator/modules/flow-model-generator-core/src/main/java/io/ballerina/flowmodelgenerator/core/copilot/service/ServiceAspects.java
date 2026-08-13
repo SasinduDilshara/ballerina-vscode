@@ -115,8 +115,8 @@ final class ServiceAspects {
      * wrong for {@code trigger.google.calendar}.
      */
     void cardinality(TriggerScope scope, ServiceDraft draft) {
-        CardinalityResolver.Cardinality cardinality =
-                CardinalityResolver.resolve(scope.serviceType(), scope.listener());
+        ServiceRules.Cardinality cardinality =
+                ServiceRules.resolveCardinality(scope.serviceType(), scope.listener());
         if (!cardinality.multipleListeners()) {
             draft.setSingleListenerOnly();
         }
@@ -137,13 +137,13 @@ final class ServiceAspects {
      * listener, so only code that actually uses that listener needs them.
      */
     void requiredImports(TriggerScope scope, ServiceDraft draft) {
-        List<RequiredImportResolver.ImportDirective> directives =
-                RequiredImportResolver.resolve(scope.listener());
+        List<ServiceRules.ImportDirective> directives =
+                ServiceRules.resolveRequiredImports(scope.listener());
         if (directives.isEmpty()) {
             return;
         }
         JsonArray imports = new JsonArray();
-        for (RequiredImportResolver.ImportDirective directive : directives) {
+        for (ServiceRules.ImportDirective directive : directives) {
             JsonObject entry = new JsonObject();
             entry.addProperty("module", directive.module());
             entry.addProperty("alias", directive.alias());
@@ -157,13 +157,13 @@ final class ServiceAspects {
      * on the service for the same reason {@link #requiredImports} is.
      */
     void platformDependencies(TriggerScope scope, ServiceDraft draft) {
-        List<PlatformDependencyResolver.PlatformDependency> dependencies =
-                PlatformDependencyResolver.resolve(scope.listener());
+        List<ServiceRules.PlatformDependency> dependencies =
+                ServiceRules.resolvePlatformDependencies(scope.listener());
         if (dependencies.isEmpty()) {
             return;
         }
         JsonArray json = new JsonArray();
-        for (PlatformDependencyResolver.PlatformDependency dependency : dependencies) {
+        for (ServiceRules.PlatformDependency dependency : dependencies) {
             JsonObject entry = new JsonObject();
             entry.addProperty("coordinate", dependency.coordinate());
             if (dependency.provided()) {
@@ -179,7 +179,7 @@ final class ServiceAspects {
             }
             if (!dependency.nativeLibraries().isEmpty()) {
                 JsonArray libraries = new JsonArray();
-                for (PlatformDependencyResolver.NativeLibrary library : dependency.nativeLibraries()) {
+                for (ServiceRules.NativeLibrary library : dependency.nativeLibraries()) {
                     JsonObject entryJson = new JsonObject();
                     entryJson.addProperty("os", library.os());
                     entryJson.addProperty("file", library.file());
@@ -207,7 +207,7 @@ final class ServiceAspects {
         if (scope.serviceType() == null) {
             return;
         }
-        IdentifierResolver.resolve(scope.serviceType().identifier()).ifPresent(slot -> {
+        ServiceRules.resolveIdentifier(scope.serviceType().identifier()).ifPresent(slot -> {
             JsonObject json = new JsonObject();
             json.addProperty("presence", slot.required()
                     ? PresenceForm.PRESENCE_REQUIRED : PresenceForm.PRESENCE_OPTIONAL);
