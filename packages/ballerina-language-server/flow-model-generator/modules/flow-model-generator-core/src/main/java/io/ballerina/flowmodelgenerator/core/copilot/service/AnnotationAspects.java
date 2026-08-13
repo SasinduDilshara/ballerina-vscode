@@ -73,7 +73,7 @@ final class AnnotationAspects {
                 AnnotationScopeResolver.factsOf(scope.facts()));
 
         report(resolution, draft, "serviceAnnotation");
-        draft.setAnnotations(AnnotationRefWriter.toJson(resolution.refs(), scope.packageName()));
+        draft.setAnnotations(AnnotationRefWriter.write(resolution.refs(), scope.packageName()));
     }
 
     /**
@@ -98,7 +98,7 @@ final class AnnotationAspects {
                 service.homeModule(), AnnotationScopeResolver.factsOf(service.facts()));
 
         report(resolution, draft, "handlerAnnotation");
-        draft.setAnnotationRefs(AnnotationRefWriter.toJson(resolution.refs(), service.packageName()));
+        draft.setAnnotationRefs(AnnotationRefWriter.write(resolution.refs(), service.packageName()));
     }
 
     /**
@@ -120,7 +120,7 @@ final class AnnotationAspects {
                 service.homeModule(), AnnotationScopeResolver.factsOf(service.facts()));
 
         report(resolution, draft, "paramAnnotation");
-        draft.setAnnotationRefs(AnnotationRefWriter.toJson(resolution.refs(), service.packageName()));
+        draft.setAnnotationRefs(AnnotationRefWriter.write(resolution.refs(), service.packageName()));
     }
 
     /**
@@ -148,7 +148,7 @@ final class AnnotationAspects {
             return;
         }
         report(resolution, draft, "returnAnnotation");
-        draft.setReturnAnnotationRefs(AnnotationRefWriter.toJson(resolution.refs(), service.packageName()));
+        draft.setReturnAnnotationRefs(AnnotationRefWriter.write(resolution.refs(), service.packageName()));
     }
 
     private static void report(AnnotationScopeResolver.Resolution resolution, ServiceDraft draft, String id) {

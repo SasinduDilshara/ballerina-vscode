@@ -18,12 +18,17 @@
 
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
 import io.ballerina.compiler.api.symbols.ClassSymbol;
+import io.ballerina.flowmodelgenerator.core.copilot.model.Listener;
+import io.ballerina.flowmodelgenerator.core.copilot.model.NativeLibrary;
+import io.ballerina.flowmodelgenerator.core.copilot.model.Parameter;
+import io.ballerina.flowmodelgenerator.core.copilot.model.PlatformDependency;
+import io.ballerina.flowmodelgenerator.core.copilot.model.RequiredImport;
+import io.ballerina.flowmodelgenerator.core.copilot.model.ServiceIdentifier;
 import io.ballerina.modelgenerator.commons.trigger.models.PresenceForm;
 import io.ballerina.modelgenerator.commons.trigger.utils.TypeRefResolver;
 
+import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -45,7 +50,7 @@ final class ServiceAspects {
 
     private static final String DEFAULT_LISTENER_NAME = "Listener";
 
-    private final Map<Object, JsonObject> builtListeners = new IdentityHashMap<>();
+    private final Map<Object, Listener> builtListeners = new IdentityHashMap<>();
 
     /**
      * The spec/the spec — the service entry's identity: its type name and, when cross-module, the module that
@@ -142,12 +147,9 @@ final class ServiceAspects {
         if (directives.isEmpty()) {
             return;
         }
-        JsonArray imports = new JsonArray();
+        List<RequiredImport> imports = new ArrayList<>();
         for (ServiceRules.ImportDirective directive : directives) {
-            JsonObject entry = new JsonObject();
-            entry.addProperty("module", directive.module());
-            entry.addProperty("alias", directive.alias());
-            imports.add(entry);
+            imports.add(new RequiredImport(directive.module(), directive.alias()));
         }
         draft.setRequiredImports(imports);
     }
@@ -162,37 +164,31 @@ final class ServiceAspects {
         if (dependencies.isEmpty()) {
             return;
         }
-        JsonArray json = new JsonArray();
+        List<PlatformDependency> resolved = new ArrayList<>();
         for (ServiceRules.PlatformDependency dependency : dependencies) {
-            JsonObject entry = new JsonObject();
-            entry.addProperty("coordinate", dependency.coordinate());
+            PlatformDependency entry = new PlatformDependency();
+            entry.setCoordinate(dependency.coordinate());
             if (dependency.provided()) {
-                // Emitted only when true, per the omission rule: absent means bundled, which is the case
+                // Set only when true, per the omission rule: absent means bundled, which is the case
                 // that needs no action from the reader.
-                entry.addProperty("provided", true);
+                entry.setProvided(true);
             }
-            if (dependency.acquisitionUrl() != null) {
-                entry.addProperty("acquisitionUrl", dependency.acquisitionUrl());
-            }
-            if (dependency.acquisitionNote() != null) {
-                entry.addProperty("acquisitionNote", dependency.acquisitionNote());
-            }
+            entry.setAcquisitionUrl(dependency.acquisitionUrl());
+            entry.setAcquisitionNote(dependency.acquisitionNote());
             if (!dependency.nativeLibraries().isEmpty()) {
-                JsonArray libraries = new JsonArray();
+                List<NativeLibrary> libraries = new ArrayList<>();
                 for (ServiceRules.NativeLibrary library : dependency.nativeLibraries()) {
-                    JsonObject entryJson = new JsonObject();
-                    entryJson.addProperty("os", library.os());
-                    entryJson.addProperty("file", library.file());
-                    if (library.variable() != null) {
-                        entryJson.addProperty("variable", library.variable());
-                    }
-                    libraries.add(entryJson);
+                    NativeLibrary resolvedLibrary = new NativeLibrary();
+                    resolvedLibrary.setOs(library.os());
+                    resolvedLibrary.setFile(library.file());
+                    resolvedLibrary.setVariable(library.variable());
+                    libraries.add(resolvedLibrary);
                 }
-                entry.add("nativeLibraries", libraries);
+                entry.setNativeLibraries(libraries);
             }
-            json.add(entry);
+            resolved.add(entry);
         }
-        draft.setPlatformDependencies(json);
+        draft.setPlatformDependencies(resolved);
     }
 
     /**
@@ -208,13 +204,11 @@ final class ServiceAspects {
             return;
         }
         ServiceRules.resolveIdentifier(scope.serviceType().identifier()).ifPresent(slot -> {
-            JsonObject json = new JsonObject();
-            json.addProperty("presence", slot.required()
+            ServiceIdentifier identifier = new ServiceIdentifier();
+            identifier.setPresence(slot.required()
                     ? PresenceForm.PRESENCE_REQUIRED : PresenceForm.PRESENCE_OPTIONAL);
-            JsonArray forms = new JsonArray();
-            slot.forms().forEach(forms::add);
-            json.add("form", forms);
-            draft.setIdentifier(json);
+            identifier.setForm(List.copyOf(slot.forms()));
+            draft.setIdentifier(identifier);
         });
     }
 
@@ -247,36 +241,38 @@ final class ServiceAspects {
         }
     }
 
-    private static JsonObject buildListener(TriggerScope scope) {
+    private static Listener buildListener(TriggerScope scope) {
         ClassSymbol listenerClass = scope.listenerClass();
         String packageName = scope.packageName();
         String className = listenerClass.getName().orElse(DEFAULT_LISTENER_NAME);
 
-        JsonObject listenerObj = new JsonObject();
-        listenerObj.addProperty("name", TypeRefResolver.moduleAlias(packageName) + ":" + className);
+        Listener listener = new Listener();
+        listener.setName(TypeRefResolver.moduleAlias(packageName) + ":" + className);
         // The spec `deprecated`: prose, not a flag. The document says *why* the listener is superseded, and
         // that sentence is the only thing that tells a reader what to use instead.
         if (scope.listener() != null && scope.listener().deprecated() != null
                 && !scope.listener().deprecated().isBlank()) {
-            listenerObj.addProperty("deprecated", scope.listener().deprecated());
+            listener.setDeprecationNote(scope.listener().deprecated());
         }
 
-        JsonArray parameters = new JsonArray();
+        List<Parameter> parameters = new ArrayList<>();
         for (TriggerSemanticFacts.InitParam param : scope.facts().listenerInitParams(listenerClass)) {
-            JsonObject paramObj = new JsonObject();
-            paramObj.addProperty("name", param.name());
-            paramObj.addProperty("description", param.description() != null ? param.description() : "");
-            paramObj.add("type", TypeResolver.resolveTypeWithLinks(
+            Parameter parameter = new Parameter();
+            parameter.setName(param.name());
+            // Always stated, empty string included: a listener parameter's description is part of the shape
+            // the wire has always carried, so an absent doc comment renders as "" rather than dropping it.
+            parameter.setDescription(param.description() != null ? param.description() : "");
+            parameter.setType(TypeResolver.resolveTypeWithLinks(
                     param.typeSignature() != null ? param.typeSignature() : "", packageName));
             if (param.optional()) {
-                paramObj.addProperty("optional", true);
+                parameter.setOptional(true);
             }
             if (param.defaultValue() != null && !param.defaultValue().isEmpty()) {
-                paramObj.addProperty("default", param.defaultValue());
+                parameter.setDefaultValue(param.defaultValue());
             }
-            parameters.add(paramObj);
+            parameters.add(parameter);
         }
-        listenerObj.add("parameters", parameters);
-        return listenerObj;
+        listener.setParameters(parameters);
+        return listener;
     }
 }

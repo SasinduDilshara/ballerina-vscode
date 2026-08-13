@@ -18,8 +18,8 @@
 
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
-import com.google.gson.JsonArray;
 import io.ballerina.compiler.api.SemanticModel;
+import io.ballerina.flowmodelgenerator.core.copilot.model.Service;
 import io.ballerina.modelgenerator.commons.ModuleInfo;
 import io.ballerina.modelgenerator.commons.trigger.LibraryMetadataReader;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
@@ -141,15 +141,15 @@ final class TriggerSchemaServiceLoader {
      *                         from whether it produced anything. Empty-with-no-document means "not a
      *                         trigger library"; empty-with-a-document means the document is there and
      *                         yielded nothing, which is a defect. Only the caller can act on the
-     *                         distinction, so it is reported rather than collapsed into an empty array
+     *                         distinction, so it is reported rather than collapsed into an empty list
      */
-    record LoadResult(JsonArray services, boolean documentResolved) {
+    record LoadResult(List<Service> services, boolean documentResolved) {
     }
 
     /**
      * Loads services for a trigger library.
      *
-     * <p>Returns an empty array when inputs are missing, no metadata document resolves for the library, or
+     * <p>Returns an empty list when inputs are missing, no metadata document resolves for the library, or
      * anything throws. Reasons an entry was dropped are logged, naming the library and the subject.
      *
      * @param libraryName   the library name, e.g. {@code "ballerinax/kafka"}
@@ -204,14 +204,14 @@ final class TriggerSchemaServiceLoader {
                 LOGGER.warning("No listener class resolvable for " + libraryName
                         + " (metadata declared: " + (declared == null ? null : declared.name()) + ")");
                 paired.vetoes().forEach(v -> LOGGER.warning("Dropped for " + libraryName + ": " + v));
-                return new LoadResult(new JsonArray(), true);
+                return new LoadResult(List.of(), true);
             }
 
             AspectRegistry registry = new AspectRegistry();
             // The spec's registry is built once per library: it is shared by every service type, and by
             // every attach point once the later phases land.
             AnnotationRegistry annotations = AnnotationRegistry.of(metadata);
-            JsonArray services = new JsonArray();
+            List<Service> services = new ArrayList<>();
             // Seeded with the pairing tier's own drops: a service type whose listener did not resolve never
             // reaches `buildService`, and the log line above fires only when every pairing fails.
             List<String> vetoes = new ArrayList<>(paired.vetoes());
@@ -223,7 +223,7 @@ final class TriggerSchemaServiceLoader {
                 if (draft.isVetoed()) {
                     continue;
                 }
-                services.add(draft.toJson());
+                services.add(draft.toModel());
             }
 
             for (String veto : vetoes) {
@@ -267,7 +267,7 @@ final class TriggerSchemaServiceLoader {
     }
 
     private static LoadResult empty(boolean documentResolved) {
-        return new LoadResult(new JsonArray(), documentResolved);
+        return new LoadResult(List.of(), documentResolved);
     }
 
     /**

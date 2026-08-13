@@ -18,8 +18,14 @@
 
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
+import io.ballerina.flowmodelgenerator.core.copilot.model.Listener;
+import io.ballerina.flowmodelgenerator.core.copilot.model.PlatformDependency;
+import io.ballerina.flowmodelgenerator.core.copilot.model.RequiredImport;
+import io.ballerina.flowmodelgenerator.core.copilot.model.Service;
+import io.ballerina.flowmodelgenerator.core.copilot.model.ServiceAnnotationRef;
+import io.ballerina.flowmodelgenerator.core.copilot.model.ServiceConstraint;
+import io.ballerina.flowmodelgenerator.core.copilot.model.ServiceIdentifier;
+import io.ballerina.flowmodelgenerator.core.copilot.model.ServiceRemoteFunction;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,23 +34,23 @@ import java.util.List;
  * The accumulating output of one service entry, written by the service-level components in registry
  * order and read once at the end.
  *
- * <p>Wraps a {@link JsonObject} rather than a POJO deliberately: the two enrichers and the
- * generic-services merge that run after this loader all consume a {@code JsonArray}, so the pipeline
- * must produce one. Conversion to the {@code Service} POJO still happens once, further downstream.
+ * <p>Accumulates straight onto a {@link Service}: this is the only representation of a service the
+ * pipeline builds, and {@code ModelToJsonConverter} is the single place one becomes JSON.
  *
  * <p>Every setter is a no-op for absent input, which is how the spec's general rule — "a field that
  * would be empty, unused, or fully derivable from other fields is left out" — is enforced in one place
- * rather than at each call site.
+ * rather than at each call site. A slot left unwritten stays null, and a null field is omitted from the
+ * wire; that is what makes the omission rule hold without any key-by-key checks at emit time.
  *
  * @since 1.7.0
  */
 final class ServiceDraft {
 
-    private final JsonObject json = new JsonObject();
-    private final JsonArray methods = new JsonArray();
+    private final Service service = new Service();
+    private final List<ServiceRemoteFunction> methods = new ArrayList<>();
     // The spec's open-ended shapes. Held as a field rather than written eagerly for the same reason
     // `methods` is: the catalog contributes them one at a time, and an empty list must not be emitted.
-    private final JsonArray handlerTemplates = new JsonArray();
+    private final List<ServiceRemoteFunction> handlerTemplates = new ArrayList<>();
     // Vetoes raised against this entry — any one of them drops it.
     private final List<String> vetoes = new ArrayList<>();
     // Non-fatal drops: a handler that could not be built, an annotation obligation that could not be
@@ -54,12 +60,12 @@ final class ServiceDraft {
 
     /** The spec: the wire contract's fixed discriminator for a metadata-derived service. */
     void setKind(String kind) {
-        json.addProperty("type", kind);
+        service.setType(kind);
     }
 
     /** The spec {@code serviceTypes[].type}: the service object type's name. */
     void setName(String name) {
-        json.addProperty("name", name);
+        service.setName(name);
     }
 
     /**
@@ -71,7 +77,7 @@ final class ServiceDraft {
      */
     void setDeprecated(String deprecated) {
         if (deprecated != null && !deprecated.isBlank()) {
-            json.addProperty("deprecated", deprecated);
+            service.setDeprecationNote(deprecated);
         }
     }
 
@@ -84,7 +90,7 @@ final class ServiceDraft {
      */
     void setAlternatives(boolean alternatives) {
         if (alternatives) {
-            json.addProperty("alternatives", true);
+            service.setAlternatives(true);
         }
     }
 
@@ -97,7 +103,7 @@ final class ServiceDraft {
      * {@code multipleListeners: false} would instead force every consumer to tell {@code false} from absent.
      */
     void setSingleListenerOnly() {
-        json.addProperty("singleListenerOnly", true);
+        service.setSingleListenerOnly(true);
     }
 
     /**
@@ -105,7 +111,7 @@ final class ServiceDraft {
      * <i>this type</i>, though it may host others. Same naming rule as {@link #setSingleListenerOnly()}.
      */
     void setSingleServicePerListenerOnly() {
-        json.addProperty("singleServicePerListenerOnly", true);
+        service.setSingleServicePerListenerOnly(true);
     }
 
     /**
@@ -116,7 +122,7 @@ final class ServiceDraft {
      * stating both would present one restriction as two.
      */
     void setSingleServiceOnly() {
-        json.addProperty("singleServiceOnly", true);
+        service.setSingleServiceOnly(true);
     }
 
     /**
@@ -125,14 +131,14 @@ final class ServiceDraft {
      */
     void setServiceTypeModule(String module) {
         if (module != null && !module.isEmpty()) {
-            json.addProperty("serviceTypeModule", module);
+            service.setServiceTypeModule(module);
         }
     }
 
     /** The spec {@code listeners[].requiredImports}: side-effect-only imports the generated code needs. */
-    void setRequiredImports(JsonArray imports) {
+    void setRequiredImports(List<RequiredImport> imports) {
         if (imports != null && !imports.isEmpty()) {
-            json.add("requiredImports", imports);
+            service.setRequiredImports(List.copyOf(imports));
         }
     }
 
@@ -140,9 +146,9 @@ final class ServiceDraft {
      * The spec {@code listeners[].platformDependencies}: native artifacts the build cannot fetch. Omitted
      * when the connector needs none, which is every library but {@code sap.jco}.
      */
-    void setPlatformDependencies(JsonArray dependencies) {
+    void setPlatformDependencies(List<PlatformDependency> dependencies) {
         if (dependencies != null && !dependencies.isEmpty()) {
-            json.add("platformDependencies", dependencies);
+            service.setPlatformDependencies(List.copyOf(dependencies));
         }
     }
 
@@ -151,9 +157,9 @@ final class ServiceDraft {
      * must or may carry. Omitted when it carries none, so a service with no obligation says nothing
      * rather than carrying an empty array.
      */
-    void setAnnotations(JsonArray annotations) {
+    void setAnnotations(List<ServiceAnnotationRef> annotations) {
         if (annotations != null && !annotations.isEmpty()) {
-            json.add("annotations", annotations);
+            service.setAnnotations(List.copyOf(annotations));
         }
     }
 
@@ -162,9 +168,9 @@ final class ServiceDraft {
      * Omitted when the connector does not consult it — the spec: "Omit the whole key if the identifier slot
      * carries no meaning for this connector."
      */
-    void setIdentifier(JsonObject identifier) {
+    void setIdentifier(ServiceIdentifier identifier) {
         if (identifier != null) {
-            json.add("identifier", identifier);
+            service.setIdentifier(identifier);
         }
     }
 
@@ -172,16 +178,16 @@ final class ServiceDraft {
      * The spec {@code rules[]}: the exclusivity constraints this service type declares. Omitted when it
      * declares none, which is 8 of the 13 corpus documents.
      */
-    void setConstraints(JsonArray constraints) {
+    void setConstraints(List<ServiceConstraint> constraints) {
         if (constraints != null && !constraints.isEmpty()) {
-            json.add("constraints", constraints);
+            service.setConstraints(List.copyOf(constraints));
         }
     }
 
     /** The spec {@code listeners[].type}: the listener the service attaches to, with its init params. */
-    void setListener(JsonObject listener) {
+    void setListener(Listener listener) {
         if (listener != null) {
-            json.add("listener", listener);
+            service.setListener(listener);
         }
     }
 
@@ -199,7 +205,7 @@ final class ServiceDraft {
      * upgrade resource — so it is still worth rendering, just never as a listener attachment.
      */
     void setNotListenerAttachable() {
-        json.addProperty("notListenerAttachable", true);
+        service.setNotListenerAttachable(true);
     }
 
     /**
@@ -226,7 +232,7 @@ final class ServiceDraft {
             nonFatal.addAll(template.vetoes());
             return;
         }
-        handlerTemplates.add(template.toJson());
+        handlerTemplates.add(template.toModel());
     }
 
     /**
@@ -242,7 +248,7 @@ final class ServiceDraft {
             nonFatal.addAll(handler.vetoes());
             return;
         }
-        methods.add(handler.toJson());
+        methods.add(handler.toModel());
     }
 
     /**
@@ -282,16 +288,16 @@ final class ServiceDraft {
      * declares no methods (mcp's marker {@code Service}) is legitimate and must not render an empty
      * array.
      */
-    JsonObject toJson() {
+    Service toModel() {
         // Templates precede methods, mirroring the order a consumer renders them: the rule for writing a
         // handler comes before any fixed vocabulary. The spec made the two coexist -- `websocket` declares
         // nine named handlers beside two open-ended shapes -- so this is an ordering, not a choice.
         if (!handlerTemplates.isEmpty()) {
-            json.add("handlerTemplates", handlerTemplates);
+            service.setHandlerTemplates(List.copyOf(handlerTemplates));
         }
         if (!methods.isEmpty()) {
-            json.add("methods", methods);
+            service.setMethods(List.copyOf(methods));
         }
-        return json;
+        return service;
     }
 }

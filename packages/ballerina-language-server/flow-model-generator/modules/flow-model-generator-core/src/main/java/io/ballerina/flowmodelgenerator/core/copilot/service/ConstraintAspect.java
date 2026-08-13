@@ -18,8 +18,8 @@
 
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
+import io.ballerina.flowmodelgenerator.core.copilot.model.ConstraintSubject;
+import io.ballerina.flowmodelgenerator.core.copilot.model.ServiceConstraint;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 
 import java.util.ArrayList;
@@ -76,9 +76,9 @@ final class ConstraintAspect {
         if (constraints.isEmpty()) {
             return;
         }
-        JsonArray json = new JsonArray();
-        constraints.forEach(constraint -> json.add(toJson(constraint)));
-        draft.setConstraints(json);
+        List<ServiceConstraint> resolved = new ArrayList<>();
+        constraints.forEach(constraint -> resolved.add(toModel(constraint)));
+        draft.setConstraints(resolved);
     }
 
     /**
@@ -245,73 +245,63 @@ final class ConstraintAspect {
      * the document states. {@code message} is carried because the document's own sentence says <i>why</i> a
      * constraint exists, which a renderer should prefer over anything it can synthesize from the subjects.
      */
-    private static JsonObject toJson(ConstraintResolver.Constraint constraint) {
-        JsonObject json = new JsonObject();
+    private static ServiceConstraint toModel(ConstraintResolver.Constraint constraint) {
+        ServiceConstraint resolved = new ServiceConstraint();
         if (constraint.id() != null && !constraint.id().isEmpty()) {
-            json.addProperty("id", constraint.id());
+            resolved.setId(constraint.id());
         }
-        json.addProperty("rule", constraint.kind().registryId());
-        JsonArray subjects = new JsonArray();
+        resolved.setRule(constraint.kind().registryId());
+        List<ConstraintSubject> subjects = new ArrayList<>();
         for (ConstraintResolver.Subject subject : constraint.subjects()) {
-            subjects.add(subjectToJson(subject));
+            subjects.add(subjectToModel(subject));
         }
-        json.add("subjects", subjects);
-        if (constraint.message() != null) {
-            json.addProperty("message", constraint.message());
-        }
+        resolved.setSubjects(subjects);
+        resolved.setMessage(constraint.message());
         // Emitted only when the document downgrades the rule; `error` is the default and stating it would
         // break the omission rule.
         if (TriggerMetadataModel.Rule.SEVERITY_WARNING.equals(constraint.severity())) {
-            json.addProperty("severity", constraint.severity());
+            resolved.setSeverity(constraint.severity());
         }
-        if (constraint.prefer() != null) {
-            json.addProperty("prefer", constraint.prefer());
-        }
-        return json;
+        resolved.setPrefer(constraint.prefer());
+        return resolved;
     }
 
-    private static JsonObject subjectToJson(ConstraintResolver.Subject subject) {
-        JsonObject json = new JsonObject();
+    private static ConstraintSubject subjectToModel(ConstraintResolver.Subject subject) {
+        ConstraintSubject resolved = new ConstraintSubject();
         switch (subject) {
             case ConstraintResolver.Subject.Identifier ignored ->
-                    json.addProperty("kind", TriggerMetadataModel.Subject.KIND_IDENTIFIER);
+                    resolved.setKind(TriggerMetadataModel.Subject.KIND_IDENTIFIER);
             case ConstraintResolver.Subject.Annotation annotation -> {
-                json.addProperty("kind", TriggerMetadataModel.Subject.KIND_ANNOTATION);
+                resolved.setKind(TriggerMetadataModel.Subject.KIND_ANNOTATION);
                 // The resolved name is what a reader must write; the id is kept so the wire still says
                 // which registry entry the rule referenced.
-                json.addProperty("annotation", annotation.annotationName());
-                json.addProperty("annotationId", annotation.annotationId());
+                resolved.setAnnotation(annotation.annotationName());
+                resolved.setAnnotationId(annotation.annotationId());
             }
             case ConstraintResolver.Subject.AnnotationField field -> {
-                json.addProperty("kind", TriggerMetadataModel.Subject.KIND_ANNOTATION_FIELD);
-                json.addProperty("annotation", field.annotationName());
-                json.addProperty("annotationId", field.annotationId());
-                JsonArray path = new JsonArray();
-                field.path().forEach(path::add);
-                json.add("path", path);
+                resolved.setKind(TriggerMetadataModel.Subject.KIND_ANNOTATION_FIELD);
+                resolved.setAnnotation(field.annotationName());
+                resolved.setAnnotationId(field.annotationId());
+                resolved.setPath(List.copyOf(field.path()));
             }
             case ConstraintResolver.Subject.Handler handler -> {
-                json.addProperty("kind", TriggerMetadataModel.Subject.KIND_HANDLER);
-                json.addProperty("name", handler.name());
+                resolved.setKind(TriggerMetadataModel.Subject.KIND_HANDLER);
+                resolved.setName(handler.name());
             }
             case ConstraintResolver.Subject.Param param -> {
-                json.addProperty("kind", TriggerMetadataModel.Subject.KIND_PARAM);
-                json.addProperty("handler", param.handler());
-                json.addProperty("name", param.name());
+                resolved.setKind(TriggerMetadataModel.Subject.KIND_PARAM);
+                resolved.setHandler(param.handler());
+                resolved.setName(param.name());
             }
         }
-        if (subject.role() != null) {
-            json.addProperty("role", subject.role());
-        }
+        resolved.setRole(subject.role());
         // The spec: emitted only for a subject belonging to a DIFFERENT service type than the entry being
         // rendered, so a service-type-scoped rule — every rule in the corpus — is byte-identical to before.
         // The resolved type name is what a reader recognises; the id follows it for traceability.
         if (subject.serviceType() != null) {
-            json.addProperty("serviceType", subject.serviceType());
-            if (subject.serviceTypeId() != null) {
-                json.addProperty("serviceTypeId", subject.serviceTypeId());
-            }
+            resolved.setServiceType(subject.serviceType());
+            resolved.setServiceTypeId(subject.serviceTypeId());
         }
-        return json;
+        return resolved;
     }
 }

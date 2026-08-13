@@ -18,8 +18,10 @@
 
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
+import io.ballerina.flowmodelgenerator.core.copilot.model.Parameter;
+import io.ballerina.flowmodelgenerator.core.copilot.model.Return;
+import io.ballerina.flowmodelgenerator.core.copilot.model.ServiceAnnotationRef;
+import io.ballerina.flowmodelgenerator.core.copilot.model.ServiceRemoteFunction;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,9 +29,9 @@ import java.util.List;
 /**
  * The accumulating output of one handler, written by the handler-level components.
  *
- * <p>Every slot is <b>held as a field and emitted once in {@link #toJson()}</b> rather than written straight
- * into a {@link JsonObject} as each component runs, so the wire contract's key order is a property of this
- * class rather than of {@link AspectRegistry}'s ordering.
+ * <p>Every slot is <b>held as a field and set once in {@link #toModel()}</b> rather than written straight
+ * onto the {@link ServiceRemoteFunction} as each component runs, so the result is a property of this class
+ * rather than of {@link AspectRegistry}'s ordering.
  *
  * <p>A {@code description} is emitted only when one genuinely exists. For a marker service type neither
  * source has one — the metadata document does not model descriptions, and the library declares no method to
@@ -39,14 +41,14 @@ import java.util.List;
  */
 final class HandlerDraft {
 
-    private final JsonArray parameters = new JsonArray();
+    private final List<Parameter> parameters = new ArrayList<>();
     private final List<String> vetoes = new ArrayList<>();
     // Non-fatal: a dropped annotation reference, or one dropped from a parameter. Reported, but the handler
     // still renders — the same policy a dropped handler follows towards its service.
     private final List<String> diagnostics = new ArrayList<>();
 
-    private JsonArray annotationRefs;
-    private JsonArray returnAnnotationRefs;
+    private List<ServiceAnnotationRef> annotationRefs;
+    private List<ServiceAnnotationRef> returnAnnotationRefs;
     private String name;
     private String kind;
     private String description;
@@ -56,7 +58,7 @@ final class HandlerDraft {
     // answering the question" (addMode: many). See PresenceRules.
     private Boolean optional;
     private String accessor;
-    private JsonArray accessorValues;
+    private List<String> accessorValues;
     private boolean accessorRequired;
     // The spec `values: ["*"]` -- any accessor the language accepts. Kept apart from an enumerated list so a
     // consumer can word the two cases differently; see setAccessorConstraint.
@@ -65,10 +67,10 @@ final class HandlerDraft {
     // The spec's `path` is the same `valueSpec` as `accessor`, so it carries the same three facts. Only
     // `pathRequired` was kept, which silently discarded a document's path vocabulary.
     private String path;
-    private JsonArray pathValues;
+    private List<String> pathValues;
     private boolean pathOpen;
     private String deprecated;
-    private JsonObject returnObj;
+    private Return returnValue;
 
     /** The spec {@code options[].name}, or a concrete type's declared method name. */
     void setName(String name) {
@@ -126,7 +128,7 @@ final class HandlerDraft {
         this.accessorRequired = required;
         this.accessorOpen = open;
         if (values != null && !values.isEmpty()) {
-            this.accessorValues = toArray(values);
+            this.accessorValues = List.copyOf(values);
         }
     }
 
@@ -146,7 +148,7 @@ final class HandlerDraft {
             this.path = path;
         }
         if (values != null && !values.isEmpty()) {
-            this.pathValues = toArray(values);
+            this.pathValues = List.copyOf(values);
         }
     }
 
@@ -164,8 +166,8 @@ final class HandlerDraft {
     }
 
     /** The spec {@code options[].returns}; omitted when the return carries no information. */
-    void setReturn(JsonObject value) {
-        this.returnObj = value;
+    void setReturn(Return value) {
+        this.returnValue = value;
     }
 
     /**
@@ -175,7 +177,7 @@ final class HandlerDraft {
      * name used at parameter scope where {@code annotations} is already taken by the semantic model's own
      * attachments. Consistency across the three new scopes beats saving a word at the one that is free.
      */
-    void setAnnotationRefs(JsonArray refs) {
+    void setAnnotationRefs(List<ServiceAnnotationRef> refs) {
         if (refs != null && !refs.isEmpty()) {
             this.annotationRefs = refs;
         }
@@ -189,7 +191,7 @@ final class HandlerDraft {
      * the return. Dropped when the handler has no return object at all: there is no slot to attach to, and
      * a return that carries no type carries no annotation either.
      */
-    void setReturnAnnotationRefs(JsonArray refs) {
+    void setReturnAnnotationRefs(List<ServiceAnnotationRef> refs) {
         if (refs != null && !refs.isEmpty()) {
             this.returnAnnotationRefs = refs;
         }
@@ -199,7 +201,7 @@ final class HandlerDraft {
     void addParam(ParamDraft param) {
         if (param != null) {
             diagnostics.addAll(param.diagnostics());
-            parameters.add(param.toJson());
+            parameters.add(param.toModel());
         }
     }
 
@@ -233,67 +235,51 @@ final class HandlerDraft {
     }
 
     /**
-     * The finished handler, in the wire contract's key order.
+     * The finished handler.
      *
-     * <p>{@code parameters} is omitted when empty, which covers both a genuinely param-less handler and one
-     * whose every slot was skipped as repeatable.
+     * <p>The four {@code boolean} slots are set only when true, so a permissive value stays absent from the
+     * wire instead of stating the default. {@code optional} is handed over as-is, nulls included, because its
+     * {@code false} is a real claim — see {@link #setOptional}.
+     *
+     * <p>{@code parameters} is always set, empty list included: it is the one collection the wire carries
+     * even when empty, which covers both a genuinely param-less handler and one whose every slot was skipped
+     * as repeatable.
      */
-    JsonObject toJson() {
-        JsonObject json = new JsonObject();
-        addIfPresent(json, "name", name);
-        addIfPresent(json, "type", kind);
-        if (isolated != null) {
-            json.addProperty("isolated", isolated);
-        }
-        addIfPresent(json, "description", description);
-        addIfPresent(json, "deprecated", deprecated);
-        if (optional != null) {
-            json.addProperty("optional", optional);
-        }
-        addIfPresent(json, "accessor", accessor);
-        if (accessorValues != null) {
-            json.add("accessorValues", accessorValues);
-        }
+    ServiceRemoteFunction toModel() {
+        ServiceRemoteFunction function = new ServiceRemoteFunction();
+        function.setName(name);
+        function.setType(kind);
+        function.setIsolated(isolated);
+        function.setDescription(description);
+        function.setDeprecationNote(deprecated);
+        function.setOptional(optional);
+        function.setAccessor(accessor);
+        function.setAccessorValues(accessorValues);
         if (accessorRequired) {
-            json.addProperty("accessorRequired", true);
+            function.setAccessorRequired(true);
         }
         if (accessorOpen) {
-            json.addProperty("accessorOpen", true);
+            function.setAccessorOpen(true);
         }
-        addIfPresent(json, "path", path);
-        if (pathValues != null) {
-            json.add("pathValues", pathValues);
-        }
+        function.setPath(path);
+        function.setPathValues(pathValues);
         if (pathRequired) {
-            json.addProperty("pathRequired", true);
+            function.setPathRequired(true);
         }
         if (pathOpen) {
-            json.addProperty("pathOpen", true);
+            function.setPathOpen(true);
         }
-        if (annotationRefs != null) {
-            json.add("annotationRefs", annotationRefs);
-        }
-        if (!parameters.isEmpty()) {
-            json.add("parameters", parameters);
-        }
-        if (returnObj != null) {
+        function.setAnnotationRefs(annotationRefs);
+        function.setParameters(List.copyOf(parameters));
+        if (returnValue != null) {
+            // Merged here rather than by the component that resolves them, so that component carries no
+            // ordering dependency on the one that builds the return. Dropped when there is no return object
+            // at all: there is no slot to attach to.
             if (returnAnnotationRefs != null) {
-                returnObj.add("annotationRefs", returnAnnotationRefs);
+                returnValue.setAnnotationRefs(returnAnnotationRefs);
             }
-            json.add("return", returnObj);
+            function.setReturnInfo(returnValue);
         }
-        return json;
-    }
-
-    private static void addIfPresent(JsonObject json, String key, String value) {
-        if (value != null) {
-            json.addProperty(key, value);
-        }
-    }
-
-    private static JsonArray toArray(List<String> values) {
-        JsonArray array = new JsonArray();
-        values.forEach(array::add);
-        return array;
+        return function;
     }
 }

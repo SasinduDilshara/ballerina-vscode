@@ -18,7 +18,11 @@
 
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
-import com.google.gson.JsonObject;
+import io.ballerina.flowmodelgenerator.core.copilot.model.BindingShape;
+import io.ballerina.flowmodelgenerator.core.copilot.model.ParamBinding;
+import io.ballerina.flowmodelgenerator.core.copilot.model.Return;
+import io.ballerina.flowmodelgenerator.core.copilot.model.Type;
+import io.ballerina.flowmodelgenerator.core.copilot.model.TypedescVariant;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 import io.ballerina.modelgenerator.commons.trigger.models.TypeRef;
 import io.ballerina.modelgenerator.commons.trigger.utils.TypeRefResolver;
@@ -56,9 +60,9 @@ final class TypeShapeRules {
      *
      * @param returnSignature the joined signature, or the declared method's own return signature
      * @param packageName     the resolved package name, for link resolution
-     * @return the {@code {type: {...}}} object, or empty when the return carries no information
+     * @return the return carrying only its type, or empty when the return carries no information
      */
-    static Optional<JsonObject> resolveReturn(String returnSignature, String packageName) {
+    static Optional<Return> resolveReturn(String returnSignature, String packageName) {
         if (returnSignature == null || returnSignature.isEmpty()) {
             return Optional.empty();
         }
@@ -66,37 +70,18 @@ final class TypeShapeRules {
         if (canonical.isEmpty() || NIL.equals(canonical)) {
             return Optional.empty();
         }
-        JsonObject returnObj = new JsonObject();
-        returnObj.add("type", TypeResolver.resolveTypeWithLinks(canonical, packageName));
-        return Optional.of(returnObj);
+        Return returnValue = new Return();
+        returnValue.setType(TypeResolver.resolveTypeWithLinks(canonical, packageName));
+        return Optional.of(returnValue);
     }
 
     /**
-     * One resolved embedding of a variant's bound type.
+     * Resolves one embedding of a variant's bound type.
      *
-     * @param form           the spec's {@code form}, carried verbatim so the renderer decides the wording
-     * @param element        for {@code array}/{@code stream}, whether each item is bare or included;
-     *                       {@code null} otherwise
-     * @param envelope       the record a user type includes with {@code *Envelope;}, as module-prefixed
-     *                       signature text; {@code null} for a shape that embeds none
-     * @param bindableFields the envelope's fields this variant may retype, in document order; never
-     *                       truncated
-     * @param fixedFields    the envelope's remaining fields, derived rather than restated (the spec). Empty
-     *                       when the envelope is not an introspectable record of the resolved package — in
-     *                       which case a consumer must not claim to know which fields are pinned
-     * @param completionType for {@code stream}, the stream's completion type as signature text;
-     *                       {@code null} otherwise
-     */
-    record ResolvedShape(String form,
-                         String element,
-                         String envelope,
-                         List<String> bindableFields,
-                         List<String> fixedFields,
-                         String completionType) {
-    }
-
-    /**
-     * Resolves one shape.
+     * <p>Every slot but {@code form} is left null when it states nothing, so the wire omits the key rather
+     * than carrying an empty value. {@code fixedFields} in particular is absent — not empty — when the
+     * envelope is not an introspectable record of the resolved package, because a consumer must not claim to
+     * know which fields are pinned when nothing was read.
      *
      * @param shape          the {@code shapes[]} entry
      * @param packageName    the resolved package name, for rendering type references per the spec
@@ -104,7 +89,7 @@ final class TypeShapeRules {
      * @param envelopeFields the declared field names of a record, by bare type name
      * @return the resolved shape, or {@code null} when the entry names no form and so states nothing
      */
-    static ResolvedShape resolveShape(TriggerMetadataModel.Shape shape, String packageName,
+    static BindingShape resolveShape(TriggerMetadataModel.Shape shape, String packageName,
                                  Predicate<String> declaresType,
                                  Function<String, List<String>> envelopeFields) {
         if (shape == null || shape.form() == null || shape.form().isBlank()) {
@@ -112,13 +97,31 @@ final class TypeShapeRules {
         }
         String envelope = render(shape.envelope(), packageName, declaresType);
         List<String> bindable = nonBlank(shape.bindableFields());
-        return new ResolvedShape(
-                shape.form(),
-                blankToNull(shape.element()),
-                envelope,
-                bindable,
-                fixedFields(shape.envelope(), bindable, envelopeFields),
-                renderUnion(shape.completionType(), packageName, declaresType));
+        String completionType = renderUnion(shape.completionType(), packageName, declaresType);
+
+        BindingShape resolved = new BindingShape();
+        // The spec's `form`, carried verbatim so the renderer decides the wording.
+        resolved.setForm(shape.form());
+        // For `array`/`stream`, whether each item is bare or included.
+        resolved.setElement(blankToNull(shape.element()));
+        if (envelope != null) {
+            // The record a user type includes with `*Envelope;`.
+            resolved.setEnvelope(TypeResolver.resolveTypeWithLinks(envelope, packageName));
+        }
+        // The envelope's fields this variant may retype, in document order; never truncated.
+        resolved.setBindableFields(emptyToNull(bindable));
+        // The envelope's remaining fields, derived rather than restated (the spec).
+        resolved.setFixedFields(emptyToNull(fixedFields(shape.envelope(), bindable, envelopeFields)));
+        if (completionType != null) {
+            // For `stream`, the stream's completion type.
+            resolved.setCompletionType(TypeResolver.resolveTypeWithLinks(completionType, packageName));
+        }
+        return resolved;
+    }
+
+    /** Keeps the omission rule in one place: an empty list is "nothing to state", so it becomes absent. */
+    private static <T> List<T> emptyToNull(List<T> values) {
+        return values == null || values.isEmpty() ? null : List.copyOf(values);
     }
 
     /**
@@ -178,27 +181,16 @@ final class TypeShapeRules {
     }
 
     /**
-     * One resolved {@code typedescs[]} variant.
-     *
-     * @param constraint this variant's upper bound, as module-prefixed signature text
-     * @param excludes   instantiations a sibling variant owns, which this one must not claim. A negative
-     *                   constraint, derivable from nothing else, so a consumer states it even when every
-     *                   positive type is already visible
-     * @param shapes     the legal embeddings of this variant's bound, in document order; never empty
-     */
-    record Variant(String constraint, List<String> excludes, List<ResolvedShape> shapes) {
-    }
-
-    /**
-     * A resolved {@code params[].dataBinding}.
-     *
-     * @param variants the independent variants, in document order; never empty
-     */
-    record BindingSpec(List<Variant> variants) {
-    }
-
-    /**
      * Resolves a parameter's inline binding.
+     *
+     * <p>Every type name becomes a {@link Type} rather than bare text, because the type closure that decides
+     * which definitions reach the prompt walks links. A binding note naming {@code AnydataConsumerRecord}
+     * with no way to reach its declaration would tell the model to include a record the file never defines.
+     *
+     * <p><b>The wire shape mirrors the document's</b> — variants, each with a bound, its exclusions and its
+     * shapes — rather than flattening to a single {@code modes} array. Flattening would have to pick one
+     * bound per binding, and the spec's whole point is that two variants can share shapes while differing in
+     * bound (ftp's CSV rows) or share a bound while differing in shape (kafka's bare-vs-included).
      *
      * @param binding        the parameter's {@code dataBinding}; may be {@code null}
      * @param packageName    the resolved package name, for rendering type references per the spec
@@ -206,13 +198,13 @@ final class TypeShapeRules {
      * @param envelopeFields the declared field names of a record, by bare type name
      * @return the resolved binding, or empty when it states nothing a consumer can act on
      */
-    static Optional<BindingSpec> resolveBinding(TriggerMetadataModel.DataBinding binding, String packageName,
+    static Optional<ParamBinding> resolveBinding(TriggerMetadataModel.DataBinding binding, String packageName,
                                          Predicate<String> declaresType,
                                          Function<String, List<String>> envelopeFields) {
         if (binding == null || binding.typedescs() == null || binding.typedescs().isEmpty()) {
             return Optional.empty();
         }
-        List<Variant> variants = new ArrayList<>();
+        List<TypedescVariant> variants = new ArrayList<>();
         for (TriggerMetadataModel.TypedescVariant variant : binding.typedescs()) {
             if (variant == null) {
                 continue;
@@ -222,9 +214,9 @@ final class TypeShapeRules {
                 // A variant with no bound constrains nothing, so there is no type for a consumer to offer.
                 continue;
             }
-            List<ResolvedShape> shapes = new ArrayList<>();
+            List<BindingShape> shapes = new ArrayList<>();
             for (TriggerMetadataModel.Shape shape : safeShapes(variant)) {
-                ResolvedShape resolved =
+                BindingShape resolved =
                         resolveShape(shape, packageName, declaresType, envelopeFields);
                 if (resolved != null) {
                     shapes.add(resolved);
@@ -234,26 +226,40 @@ final class TypeShapeRules {
                 // The bound is known but no way of embedding it is, which describes no declarable type.
                 continue;
             }
-            variants.add(new Variant(constraint, renderAll(variant.excludes(), packageName, declaresType),
-                    List.copyOf(shapes)));
+            TypedescVariant resolvedVariant = new TypedescVariant();
+            // This variant's upper bound.
+            resolvedVariant.setConstraint(TypeResolver.resolveTypeWithLinks(constraint, packageName));
+            // Instantiations a sibling variant owns, which this one must not claim. A negative constraint,
+            // derivable from nothing else, so a consumer states it even when every positive type is visible.
+            resolvedVariant.setExcludes(emptyToNull(
+                    renderAllAsTypes(variant.excludes(), packageName, declaresType)));
+            // The legal embeddings of this variant's bound, in document order; never empty.
+            resolvedVariant.setShapes(List.copyOf(shapes));
+            variants.add(resolvedVariant);
         }
-        return variants.isEmpty() ? Optional.empty() : Optional.of(new BindingSpec(List.copyOf(variants)));
+        if (variants.isEmpty()) {
+            return Optional.empty();
+        }
+        ParamBinding resolved = new ParamBinding();
+        // The independent variants, in document order; never empty.
+        resolved.setTypedescs(List.copyOf(variants));
+        return Optional.of(resolved);
     }
 
     private static List<TriggerMetadataModel.Shape> safeShapes(TriggerMetadataModel.TypedescVariant variant) {
         return variant.shapes() == null ? List.of() : variant.shapes();
     }
 
-    private static List<String> renderAll(List<TypeRef> refs, String packageName,
-                                          Predicate<String> declaresType) {
+    private static List<Type> renderAllAsTypes(List<TypeRef> refs, String packageName,
+                                               Predicate<String> declaresType) {
         if (refs == null || refs.isEmpty()) {
             return List.of();
         }
-        List<String> rendered = new ArrayList<>();
+        List<Type> rendered = new ArrayList<>();
         for (TypeRef ref : refs) {
             String value = render(ref, packageName, declaresType);
             if (value != null) {
-                rendered.add(value);
+                rendered.add(TypeResolver.resolveTypeWithLinks(value, packageName));
             }
         }
         return rendered;

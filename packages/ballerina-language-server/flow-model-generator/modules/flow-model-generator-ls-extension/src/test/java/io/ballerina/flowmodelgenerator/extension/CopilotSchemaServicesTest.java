@@ -29,6 +29,8 @@ import io.ballerina.compiler.api.symbols.TypeDefinitionSymbol;
 import io.ballerina.flowmodelgenerator.core.copilot.CopilotLibraryManager;
 import io.ballerina.flowmodelgenerator.core.copilot.model.Annotation;
 import io.ballerina.flowmodelgenerator.core.copilot.model.Library;
+import io.ballerina.flowmodelgenerator.core.copilot.model.ModelToJsonConverter;
+import io.ballerina.flowmodelgenerator.core.copilot.model.Service;
 import io.ballerina.flowmodelgenerator.core.copilot.model.Type;
 import io.ballerina.flowmodelgenerator.core.copilot.model.TypeLink;
 import io.ballerina.flowmodelgenerator.core.copilot.service.ServiceLoader;
@@ -169,7 +171,7 @@ public class CopilotSchemaServicesTest {
             SemanticModel semanticModel = PackageUtil.getCompilation(pkg)
                     .getSemanticModel(pkg.getDefaultModule().moduleId());
             semanticModels.put(lib, semanticModel);
-            return ServiceLoader.loadAllServices(lib, pkg, semanticModel);
+            return wireJson(ServiceLoader.loadAllServices(lib, pkg, semanticModel));
         });
     }
 
@@ -214,6 +216,20 @@ public class CopilotSchemaServicesTest {
     }
 
     // ---- helpers -------------------------------------------------------------------
+
+    /**
+     * The services as they go on the wire.
+     *
+     * <p>Routed through {@link ModelToJsonConverter} rather than a bare {@code Gson}, because that is the
+     * one place a Copilot service becomes JSON in production. Asserting on this output keeps these tests a
+     * check on the <b>wire contract</b> — a wrong {@code @SerializedName} or a collection that stopped being
+     * omitted when empty fails here, which reading the POJOs directly would not catch.
+     */
+    private static JsonArray wireJson(List<Service> services) {
+        Library library = new Library("test", "test");
+        library.setServices(services);
+        return ModelToJsonConverter.libraryToJson(library).getAsJsonObject().getAsJsonArray("services");
+    }
 
     private static JsonObject serviceNamed(JsonArray services, String name) {
         for (JsonElement element : services) {
@@ -770,7 +786,7 @@ public class CopilotSchemaServicesTest {
         // asb is not schema-driven: the overload must produce exactly the SQLite-path output.
         String library = "ballerinax/asb";
         JsonArray viaOverload = load(library);
-        JsonArray viaIndex = ServiceLoader.loadAllServices(library);
+        JsonArray viaIndex = wireJson(ServiceLoader.loadAllServices(library));
         Assert.assertEquals(viaOverload, viaIndex);
     }
 
@@ -790,7 +806,7 @@ public class CopilotSchemaServicesTest {
     public void testSchemaDrivenLibraryIsNeverSubstitutedByTheIndex() {
         String library = "ballerina/ftp";
         JsonArray viaOverload = load(library);
-        JsonArray viaIndex = ServiceLoader.loadAllServices(library);
+        JsonArray viaIndex = wireJson(ServiceLoader.loadAllServices(library));
         Assert.assertNotEquals(viaOverload, viaIndex,
                 "ftp is schema-driven; the index catalog must not be what the overload returns");
 
@@ -824,8 +840,8 @@ public class CopilotSchemaServicesTest {
             Package pkg = pkgOpt.get();
             SemanticModel semanticModel = PackageUtil.getCompilation(pkg)
                     .getSemanticModel(pkg.getDefaultModule().moduleId());
-            JsonArray pinned = ServiceLoader.loadAllServices(library, pkg, semanticModel);
-            JsonArray viaIndex = ServiceLoader.loadAllServices(library);
+            JsonArray pinned = wireJson(ServiceLoader.loadAllServices(library, pkg, semanticModel));
+            JsonArray viaIndex = wireJson(ServiceLoader.loadAllServices(library));
             Assert.assertEquals(pinned, viaIndex,
                     "triggerSource=index must force the SQLite path even for schema-driven libraries");
         } finally {
@@ -892,7 +908,7 @@ public class CopilotSchemaServicesTest {
         // method list and nothing else — which is precisely why the curated prose was written — so there is
         // nothing in it worth preserving alongside, and the SQLite path keeps its replace semantics.
         for (String library : new String[]{"ballerina/http", "ballerina/graphql"}) {
-            JsonArray viaIndex = ServiceLoader.loadAllServices(library);
+            JsonArray viaIndex = wireJson(ServiceLoader.loadAllServices(library));
             boolean hasGeneric = false;
             for (JsonElement element : viaIndex) {
                 JsonObject svc = element.getAsJsonObject();

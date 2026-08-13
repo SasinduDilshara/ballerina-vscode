@@ -18,8 +18,10 @@
 
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
+import io.ballerina.flowmodelgenerator.core.copilot.model.ParamBinding;
+import io.ballerina.flowmodelgenerator.core.copilot.model.Parameter;
+import io.ballerina.flowmodelgenerator.core.copilot.model.ServiceAnnotationRef;
+import io.ballerina.flowmodelgenerator.core.copilot.model.Type;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,13 +29,13 @@ import java.util.List;
 /**
  * The accumulating output of one handler parameter.
  *
- * <p>Every slot is <b>held as a field and emitted once in {@link #toJson()}</b>, the same treatment
- * {@link HandlerDraft} already had. With three components now writing here, wire key order would otherwise
- * become a property of {@link AspectRegistry}'s ordering, and inserting a component would silently reshuffle
- * every parameter object.
+ * <p>Every slot is <b>held as a field and set once in {@link #toModel()}</b>, the same treatment
+ * {@link HandlerDraft} already had. With three components writing here, leaving each to write straight onto
+ * the {@link Parameter} would make the result a property of {@link AspectRegistry}'s ordering.
  *
- * <p>{@code optional} is emitted only when true — the spec's {@code presence: "required"} is the
- * default and stating it would violate the general omission rule.
+ * <p>{@code optional} and {@code repeatable} are left <b>null</b> rather than {@code false} when they do not
+ * apply — the spec's {@code presence: "required"} is the default, and a boxed {@code false} would serialize
+ * the key rather than omit it, which is what the general omission rule forbids.
  *
  * @since 1.7.0
  */
@@ -46,12 +48,12 @@ final class ParamDraft {
 
     private String name;
     private String description;
-    private JsonObject type;
+    private Type type;
     private boolean optional;
     private boolean repeatable;
-    private JsonArray alternatives;
-    private JsonArray annotationRefs;
-    private JsonObject binding;
+    private List<Type> alternatives;
+    private List<ServiceAnnotationRef> annotationRefs;
+    private ParamBinding binding;
     private String deprecated;
 
     /** The slot's name: authored where the document states one, generated where it does not. */
@@ -78,8 +80,8 @@ final class ParamDraft {
         }
     }
 
-    /** The spec {@code params[].type}, resolved to a {@code {name, links}} pair. */
-    void setType(JsonObject type) {
+    /** The spec {@code params[].type}, resolved to a name plus its links. */
+    void setType(Type type) {
         this.type = type;
     }
 
@@ -104,7 +106,7 @@ final class ParamDraft {
      * The spec — the slot's other legal types, as {@code {name, links}} pairs so the type closure can reach
      * their definitions. Emitted as an array and never joined: see {@link ParamTypeResolver.ParamType}.
      */
-    void setAlternatives(JsonArray alternatives) {
+    void setAlternatives(List<Type> alternatives) {
         if (alternatives != null && !alternatives.isEmpty()) {
             this.alternatives = alternatives;
         }
@@ -119,14 +121,14 @@ final class ParamDraft {
      * with their real value. These are requirements on code that does not exist yet, and collapsing the two
      * onto one key would make "the library has this" indistinguishable from "your code needs this".
      */
-    void setAnnotationRefs(JsonArray refs) {
+    void setAnnotationRefs(List<ServiceAnnotationRef> refs) {
         if (refs != null && !refs.isEmpty()) {
             this.annotationRefs = refs;
         }
     }
 
     /** The spec — the data-binding rule this slot's {@code dataBinding} id names. */
-    void setBinding(JsonObject binding) {
+    void setBinding(ParamBinding binding) {
         this.binding = binding;
     }
 
@@ -143,36 +145,27 @@ final class ParamDraft {
         return diagnostics;
     }
 
-    /** The finished parameter, in the wire contract's key order. */
-    JsonObject toJson() {
-        JsonObject json = new JsonObject();
-        if (name != null) {
-            json.addProperty("name", name);
-        }
-        if (description != null) {
-            json.addProperty("description", description);
-        }
-        if (deprecated != null) {
-            json.addProperty("deprecated", deprecated);
-        }
-        if (type != null) {
-            json.add("type", type);
-        }
+    /**
+     * The finished parameter.
+     *
+     * <p>The two booleans are set only when true. Everything else is handed over as-is, including nulls: a
+     * slot that was never written stays absent from the wire rather than carrying an empty value.
+     */
+    Parameter toModel() {
+        Parameter parameter = new Parameter();
+        parameter.setName(name);
+        parameter.setDescription(description);
+        parameter.setDeprecationNote(deprecated);
+        parameter.setType(type);
         if (optional) {
-            json.addProperty("optional", true);
+            parameter.setOptional(true);
         }
         if (repeatable) {
-            json.addProperty("repeatable", true);
+            parameter.setRepeatable(true);
         }
-        if (alternatives != null) {
-            json.add("alternatives", alternatives);
-        }
-        if (annotationRefs != null) {
-            json.add("annotationRefs", annotationRefs);
-        }
-        if (binding != null) {
-            json.add("binding", binding);
-        }
-        return json;
+        parameter.setAlternatives(alternatives);
+        parameter.setAnnotationRefs(annotationRefs);
+        parameter.setBinding(binding);
+        return parameter;
     }
 }

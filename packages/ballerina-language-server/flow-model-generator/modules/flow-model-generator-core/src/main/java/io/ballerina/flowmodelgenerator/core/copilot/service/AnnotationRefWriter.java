@@ -18,10 +18,10 @@
 
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
+import io.ballerina.flowmodelgenerator.core.copilot.model.ServiceAnnotationRef;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -44,14 +44,14 @@ final class AnnotationRefWriter {
      *
      * @param refs        the references, in document order
      * @param packageName the library being rendered, for resolving the constraint's links
-     * @return the array to write onto a draft; empty when there is nothing to state
+     * @return the list to write onto a draft; empty when there is nothing to state
      */
-    static JsonArray toJson(List<AnnotationRef> refs, String packageName) {
-        JsonArray array = new JsonArray();
+    static List<ServiceAnnotationRef> write(List<AnnotationRef> refs, String packageName) {
+        List<ServiceAnnotationRef> written = new ArrayList<>();
         for (AnnotationRef ref : refs) {
-            array.add(toJson(ref, packageName));
+            written.add(write(ref, packageName));
         }
-        return array;
+        return written;
     }
 
     /**
@@ -62,20 +62,18 @@ final class AnnotationRefWriter {
      * {@code module} is omitted for a home-module annotation, which the renderer then prefixes with the
      * library's own alias — the division of labour the spec already imposes on a service type.
      */
-    private static JsonObject toJson(AnnotationRef ref, String packageName) {
-        JsonObject json = new JsonObject();
-        json.addProperty("name", ref.name());
-        if (ref.module() != null) {
-            json.addProperty("module", ref.module());
-        }
-        json.addProperty("presence", ref.required()
+    private static ServiceAnnotationRef write(AnnotationRef ref, String packageName) {
+        ServiceAnnotationRef written = new ServiceAnnotationRef();
+        written.setName(ref.name());
+        written.setModule(ref.module());
+        written.setPresence(ref.required()
                 ? TriggerMetadataModel.Annotation.PRESENCE_REQUIRED
                 : TriggerMetadataModel.Annotation.PRESENCE_OPTIONAL);
-        json.addProperty("attachPoint", ref.attachPoint());
+        written.setAttachPoint(ref.attachPoint());
         if (ref.typeConstraint() != null && !ref.typeConstraint().isEmpty()) {
-            json.add("typeConstraint", TypeResolver.resolveAnnotationConstraint(
+            written.setTypeConstraint(TypeResolver.resolveAnnotationConstraint(
                     ref.typeConstraint(), packageName, ref.module()));
         }
-        return json;
+        return written;
     }
 }

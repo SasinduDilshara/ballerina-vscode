@@ -18,11 +18,12 @@
 
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
+import io.ballerina.flowmodelgenerator.core.copilot.model.ParamBinding;
+import io.ballerina.flowmodelgenerator.core.copilot.model.Type;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 import io.ballerina.modelgenerator.commons.trigger.utils.TypeRefResolver;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
@@ -94,7 +95,7 @@ final class ParamAspects {
 
         // The spec's other legal types, as link-carrying pairs so the type closure reaches their
         // definitions. Never joined with `|` — see ParamTypeResolver.ParamType.
-        JsonArray alternatives = new JsonArray();
+        List<Type> alternatives = new ArrayList<>();
         for (String alternative : resolved.alternatives()) {
             alternatives.add(TypeResolver.resolveTypeWithLinks(alternative, packageName));
         }
@@ -133,15 +134,8 @@ final class ParamAspects {
      * The spec {@code params[].dataBinding} — how a parameter's raw value may be projected into a
      * user-defined type.
      *
-     * <p>Every type name is written as a {@code {name, links}} pair rather than bare text, because the type
-     * closure that decides which definitions reach the prompt walks links. A binding note naming
-     * {@code AnydataConsumerRecord} with no way to reach its declaration would tell the model to include a
-     * record the file never defines.
-     *
-     * <p><b>The wire shape mirrors the document's</b> — variants, each with a bound, its exclusions and its
-     * shapes — rather than flattening to a single {@code modes} array. Flattening would have to pick one
-     * bound per binding, and the spec's whole point is that two variants can share shapes while differing in bound
-     * (ftp's CSV rows) or share a bound while differing in shape (kafka's bare-vs-included).
+     * <p>{@link TypeShapeRules#resolveBinding} owns the resolved shape, including why every type name is
+     * carried as a link-bearing {@code Type} and why the variant structure mirrors the document's.
      */
     static void dataBinding(ParamScope scope, ParamDraft draft) {
         TriggerMetadataModel.ServiceType.Param param = scope.param();
@@ -150,7 +144,7 @@ final class ParamAspects {
         }
         TriggerScope service = scope.handler().service();
         String packageName = service.packageName();
-        Optional<TypeShapeRules.BindingSpec> spec = TypeShapeRules.resolveBinding(
+        Optional<ParamBinding> spec = TypeShapeRules.resolveBinding(
                 param.dataBinding(), packageName, service.declaresType(), envelopeFields(service));
 
         if (spec.isEmpty()) {
@@ -162,7 +156,7 @@ final class ParamAspects {
                     + ": its dataBinding declares no variant with both a bound and a readable shape");
             return;
         }
-        draft.setBinding(toJson(spec.get(), packageName));
+        draft.setBinding(spec.get());
     }
 
     /**
@@ -173,65 +167,5 @@ final class ParamAspects {
     private static Function<String, List<String>> envelopeFields(TriggerScope scope) {
         TriggerSemanticFacts facts = scope.facts();
         return facts == null ? name -> List.of() : facts::recordFieldNames;
-    }
-
-    private static JsonObject toJson(TypeShapeRules.BindingSpec spec, String packageName) {
-        JsonObject json = new JsonObject();
-        JsonArray variants = new JsonArray();
-        for (TypeShapeRules.Variant variant : spec.variants()) {
-            variants.add(variantToJson(variant, packageName));
-        }
-        json.add("typedescs", variants);
-        return json;
-    }
-
-    private static JsonObject variantToJson(TypeShapeRules.Variant variant, String packageName) {
-        JsonObject json = new JsonObject();
-        json.add("constraint", TypeResolver.resolveTypeWithLinks(variant.constraint(), packageName));
-        addTypes(json, "excludes", variant.excludes(), packageName);
-        JsonArray shapes = new JsonArray();
-        for (TypeShapeRules.ResolvedShape shape : variant.shapes()) {
-            shapes.add(shapeToJson(shape, packageName));
-        }
-        json.add("shapes", shapes);
-        return json;
-    }
-
-    private static JsonObject shapeToJson(TypeShapeRules.ResolvedShape shape, String packageName) {
-        JsonObject json = new JsonObject();
-        json.addProperty("form", shape.form());
-        if (shape.element() != null) {
-            json.addProperty("element", shape.element());
-        }
-        if (shape.envelope() != null) {
-            json.add("envelope", TypeResolver.resolveTypeWithLinks(shape.envelope(), packageName));
-        }
-        addStrings(json, "bindableFields", shape.bindableFields());
-        addStrings(json, "fixedFields", shape.fixedFields());
-        if (shape.completionType() != null) {
-            json.add("completionType",
-                    TypeResolver.resolveTypeWithLinks(shape.completionType(), packageName));
-        }
-        return json;
-    }
-
-    private static void addTypes(JsonObject json, String key, List<String> signatures, String packageName) {
-        if (signatures == null || signatures.isEmpty()) {
-            return;
-        }
-        JsonArray types = new JsonArray();
-        for (String signature : signatures) {
-            types.add(TypeResolver.resolveTypeWithLinks(signature, packageName));
-        }
-        json.add(key, types);
-    }
-
-    private static void addStrings(JsonObject json, String key, List<String> values) {
-        if (values == null || values.isEmpty()) {
-            return;
-        }
-        JsonArray array = new JsonArray();
-        values.forEach(array::add);
-        json.add(key, array);
     }
 }
