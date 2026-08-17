@@ -29,6 +29,7 @@ import {
 } from "./function-types";
 import { Client, GetTypeResponse, GetTypesRequest, GetTypesResponse, getTypesResponseSchema, Library, MiniType, RemoteFunction, ResourceFunction, Service, FixedService, Annotation } from "./library-types";
 import { TypeDefinition, AbstractFunction, Type, RecordTypeDefinition, UnionTypeDefinition } from "./library-types";
+import { getClientFunctionCount, hasNothingToSelect, selectServices } from "./library-selection";
 import { getAnthropicClient, ANTHROPIC_HAIKU } from "../ai-client";
 import { GenerationType } from "./libraries";
 // import { getRequiredTypesFromLibJson } from "../healthcare/healthcare";
@@ -74,10 +75,6 @@ export async function selectRequiredFunctions(prompt: string, selectedLibNames: 
 
     const result = { libraries: mergedLibraries, usage: mergeUsage(...allUsages) };
     return result;
-}
-
-function getClientFunctionCount(clients: MinifiedClient[]): number {
-    return clients.reduce((count, client) => count + client.functions.length, 0);
 }
 
 function toTypesToLibraries(types: GetTypeResponse[], fullLibs: Library[]): Library[] {
@@ -159,13 +156,28 @@ async function getRequiredFunctions(
             services: filteredServicesForRequest(lib.services),
         }));
 
-    const largeLibs = libraryList.filter((lib) => getClientFunctionCount(lib.clients) >= 100);
-    const smallLibs = libraryList.filter((lib) => !largeLibs.includes(lib));
+    // A library with no client functions and no module-level functions never reaches the model.
+    //
+    // Selection is the only thing this call does, and for such a library there is nothing to select — every
+    // trigger package is this shape. Sending it anyway made its presence in the output depend on the model
+    // echoing the name back, and when it did not, the library was dropped outright: not fetched, not
+    // rendered, and indistinguishable to the caller from one that does not exist. One sentence of prompt
+    // prose was the only thing standing against that. Passing it straight through removes the dependency
+    // instead of restating it.
+    const passthroughLibs = libraryList.filter(hasNothingToSelect);
+    const selectableLibs = libraryList.filter((lib) => !passthroughLibs.includes(lib));
+    const passthroughResp: GetFunctionResponse[] = passthroughLibs.map((lib) => ({ name: lib.name }));
+
+    const largeLibs = selectableLibs.filter((lib) => getClientFunctionCount(lib.clients) >= 100);
+    const smallLibs = selectableLibs.filter((lib) => !largeLibs.includes(lib));
 
     console.log(
         `[Parallel Execution Plan] Large libraries: ${largeLibs.length} (${largeLibs
             .map((lib) => lib.name)
             .join(", ")}), Small libraries: ${smallLibs.length} (${smallLibs.map((lib) => lib.name).join(", ")})`
+        + `, Passthrough (nothing to select): ${passthroughLibs.length} (${passthroughLibs
+            .map((lib) => lib.name)
+            .join(", ")})`
     );
 
     // Create promises for large libraries (each processed individually)
@@ -192,7 +204,11 @@ async function getRequiredFunctions(
     console.log(`[Parallel Execution Complete] Total parallel execution time: ${parallelDuration}s`);
 
     // Flatten the results
-    const collectiveResp: GetFunctionResponse[] = [...smallLibResult.libraries, ...largeLibResults.flatMap(r => r.libraries)];
+    const collectiveResp: GetFunctionResponse[] = [
+        ...passthroughResp,
+        ...smallLibResult.libraries,
+        ...largeLibResults.flatMap(r => r.libraries),
+    ];
     const endTime = Date.now();
     const totalDuration = (endTime - startTime) / 1000;
 
@@ -234,7 +250,7 @@ CRITICAL RULES:
 2. Your ONLY task is selection - include or exclude items, NEVER modify field values.
 3. Copy all field values EXACTLY as provided - preserve every character including backslashes and special characters.
 4. For resource functions: "accessor" and "paths" are SEPARATE fields - NEVER combine them.
-5. A library is relevant if ANY of its clients, functions, or services match the query. Echo matching services under the library's "services" field (copy listener, name, and methods verbatim). If a library matches ONLY via its services, still include the library in the output with empty/omitted clients and functions.`;
+5. A library is relevant if ANY of its clients, functions, or services match the query. List each matching service under the library's "services" field, copying its "listener" and "name" verbatim; omit the services that do not match. If a library matches ONLY via its services, still include the library in the output with empty/omitted clients and functions.`;
 
     const getLibUserPrompt = `You will be provided with a list of libraries, clients, and their functions, and a user query.
 
@@ -426,6 +442,7 @@ export async function toMaximizedLibrariesFromLibJson(
 
         const filteredClients = selectClients(originalLib.clients, funcResponse);
         const filteredFunctions = selectFunctions(originalLib.functions, funcResponse);
+        const filteredServices = selectServices(originalLib.services, funcResponse);
 
         const maximizedLib: Library = {
             name: funcResponse.name,
@@ -433,8 +450,11 @@ export async function toMaximizedLibrariesFromLibJson(
             clients: filteredClients,
             functions: filteredFunctions ? filteredFunctions : null,
             // Get only the type definitions that are actually used by the selected functions, clients, services, and annotations
-            typeDefs: getOwnTypeDefsForLib(filteredClients, filteredFunctions, originalLib.typeDefs, originalLib.services, originalLib.annotations),
-            services: originalLib.services ? originalLib.services : null,
+            // The SELECTED services, not the library's whole set: the closure is what pulls a service's
+            // parameter, return, annotation and binding types into `typeDefs`, so walking dropped services
+            // would keep paying the larger half of their cost after dropping the services themselves.
+            typeDefs: getOwnTypeDefsForLib(filteredClients, filteredFunctions, originalLib.typeDefs, filteredServices ? filteredServices : undefined, originalLib.annotations),
+            services: filteredServices,
             annotations: originalLib.annotations ? originalLib.annotations : null,
             instructions: originalLib.instructions ? originalLib.instructions : null,
             readme: originalLib.readme ? originalLib.readme : null,
