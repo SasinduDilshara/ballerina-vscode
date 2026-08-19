@@ -265,13 +265,19 @@ final class TriggerSchemaServiceLoader {
      * <p>The shipped tier is read from the package the caller already compiled, so it costs a single
      * {@code stat} rather than a {@code .bala} resolution — which is what makes consulting it for every
      * library cheap enough to do unconditionally.
+     *
+     * <p><b>A bundled document is filed under the library's own package name</b>, with no indirection.
+     * There used to be a per-library override map, needed by exactly one entry: the CDC document for
+     * {@code ballerinax/mssql} was filed as {@code mssql.cdc}, after the module its listener lives in
+     * rather than after the package a caller asks for. The 2026-08-19 corpus refiled it — and its three
+     * new siblings, {@code mysql}, {@code postgresql} and {@code oracledb} — under the package name, so
+     * every document now resolves by the default and the map had nothing left to say. The documents are
+     * still validated against the actually resolved package before use, which is what makes filing a
+     * cross-module listener under the parent package safe.
      */
-    private static Optional<TriggerMetadataModel> resolveMetadata(String org, String packageName, Package pkg) {
+    private static Optional<TriggerMetadataModel> resolveMetadata(String org, String packageName,
+                                                                  Package pkg) {
         LibraryMetadataReader reader = LibraryMetadataReader.getInstance();
-        // Every bundled document is filed under its library's bare package name, so the key needs no
-        // per-library mapping. {@code ballerinax/mssql} is the one that used to: its document was filed
-        // under `mssql.cdc` for the module the service type comes from, and reads `mssql` now — the
-        // listener it declares (`CdcListener`) is validated against the resolved package either way.
         return reader.getTriggerMetadataModel(pkg)
                 .or(() -> reader.getPackagedTriggerMetadataModel(
                         new ModuleInfo(org, packageName, packageName, null)));

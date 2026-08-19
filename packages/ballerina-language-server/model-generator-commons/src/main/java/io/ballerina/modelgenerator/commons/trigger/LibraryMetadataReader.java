@@ -66,10 +66,15 @@ public final class LibraryMetadataReader {
     private static final int MAX_CACHE_SIZE = 2;
 
     /**
-     * Sized for the Copilot, which walks every library in one request. At the designer's bound of 2, the
-     * corpus's 14 bundled documents evicted each other and nearly every request re-parsed the same JSON.
+     * Sized for the Copilot, which walks every library in one request. At the designer's bound of 2 the
+     * bundled documents evicted each other and nearly every request re-parsed the same JSON.
+     *
+     * <p>Held comfortably above the corpus rather than at it. The 2026-08-19 corpus is 32 documents, and a
+     * bound of 20 would have reintroduced exactly the eviction this cache exists to remove — silently, as a
+     * slow request rather than a wrong answer. The headroom is what stops the next document from doing so
+     * again; the entries are small parsed models, so the cost of the slack is negligible.
      */
-    private static final int PACKAGED_METADATA_CACHE_SIZE = 20;
+    private static final int PACKAGED_METADATA_CACHE_SIZE = 64;
     private static final Pattern SUPPORTED_VERSION = Pattern.compile("^v1\\.\\d+$");
 
     private static final Duration PACKAGE_ROOT_CACHE_TTL = Duration.ofSeconds(60);

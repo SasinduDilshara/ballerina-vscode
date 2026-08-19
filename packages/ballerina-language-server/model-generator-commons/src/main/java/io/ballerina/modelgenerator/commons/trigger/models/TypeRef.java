@@ -48,10 +48,52 @@ public record TypeRef(String name, PackageInfo packageInfo, Boolean builtin, Boo
         this(name, packageInfo, null, null, null, null, null);
     }
 
+    /** A composite node, whose parts carry their own {@code builtin}/{@code subtypeFamily} flags. */
+    public TypeRef(String name, PackageInfo packageInfo, String shape, List<TypeRef> elementType,
+                   List<TypeRef> completionType) {
+        this(name, packageInfo, null, null, shape, elementType, completionType);
+    }
+
     public boolean isNamed() {
         return shape == null;
     }
 
+    /** Whether this node is a constructed type. */
+    public boolean isComposite() {
+        return shape != null;
+    }
+
+    /**
+     * Whether the spec marks this leaf as one of the language's own types, which is what decides that it
+     * must never take a module prefix.
+     *
+     * <p>Read rather than inferred: the spec §1.2 says outright that "a consumer should read {@code
+     * builtin} rather than pattern match on casing", because the casing convention that separates
+     * {@code error} from a module's {@code Error} is an authoring habit and not a rule.
+     */
+    public boolean isBuiltin() {
+        return Boolean.TRUE.equals(builtin);
+    }
+
+    /**
+     * Whether this reference stands for a whole subtype family rather than one exact type — the spec §1.4.
+     *
+     * <p>Only a rendering decision follows from it: the type name written is the same either way, but a
+     * note describing what a reader may declare has to say "any subtype of" rather than naming a single
+     * record, since the family is open-ended over the user's own narrowings.
+     */
+    public boolean isSubtypeFamily() {
+        return Boolean.TRUE.equals(subtypeFamily);
+    }
+
+    /**
+     * The coordinates of the module a cross-module {@link TypeRef} originates from.
+     *
+     * @param org         the organization, e.g. {@code "ballerina"}
+     * @param packageName the package name, e.g. {@code "http"}
+     * @param moduleName  the module name, e.g. {@code "http"}
+     * @param version     the package version, e.g. {@code "2.16.5"}
+     */
     public record PackageInfo(String org, String packageName, String moduleName, String version) {
     }
 }
