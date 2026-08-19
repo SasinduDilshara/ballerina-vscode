@@ -37,10 +37,10 @@ import java.util.List;
  * <p><b>Rejections {@code drop}, they do not {@code veto}.</b> An unresolvable obligation makes the
  * obligation unusable, not the construct carrying it.
  *
- * <p><b>Known coverage gap, owned elsewhere.</b> {@code ballerina/http} and {@code ballerina/graphql} both
- * declare an optional service-level {@code serviceConfig}, and
- * {@code ServiceLoader.mergeWithGenericServices} discards their synthesized entry in favour of a richer
- * curated overlay — silently, after this pipeline. Both are {@code optional}, so nothing miscompiles.
+ * <p>{@code ballerina/http} and {@code ballerina/graphql} both declare an optional service-level
+ * {@code serviceConfig}. Their curated overlay entry collides by name with the synthesized one, and
+ * {@code ServiceLoader.mergeWithGenericServices} now keeps the synthesized entry, so the obligation this
+ * component resolves does reach the prompt.
  *
  * @since 1.7.0
  */

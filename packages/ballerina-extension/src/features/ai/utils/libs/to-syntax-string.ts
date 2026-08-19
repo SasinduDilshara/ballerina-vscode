@@ -2453,43 +2453,6 @@ function renderServiceAlternativesNote(services: Service[]): string[] {
 }
 
 /**
- * The curated `test.md` guidance a library's services carry — emitted **once per library**.
- *
- * The Java side attaches it to every service of the library, so the text is identical across them and
- * repeating it per service type would state one fact several times. Distinct texts are all emitted, in
- * first-appearance order, because nothing guarantees a future producer keeps them uniform.
- *
- * Until now the field was declared nowhere in TypeScript and rendered nowhere, while the system prompt told
- * the model to respect "the testGenerationInstruction field in whatever library associated with the
- * service" — so the instruction pointed at text the model was never shown.
- *
- * `//` rather than `#`: this is a library-level statement, and a `#` line here would attach to whatever
- * declaration follows. Emitted after the services, since it is about testing code the reader has not
- * written yet.
- */
-function renderTestGuidance(services: Service[]): string[] {
-    const seen = new Set<string>();
-    const blocks: string[] = [];
-    for (const service of services) {
-        const guidance = service.testGenerationInstruction;
-        if (!guidance || guidance.trim() === "" || seen.has(guidance)) {
-            continue;
-        }
-        seen.add(guidance);
-        blocks.push(guidance.trimEnd());
-    }
-    if (blocks.length === 0) {
-        return [];
-    }
-    return [
-        "",
-        "// --- Test generation guidance ---",
-        "// Applies only when generating tests for this library's services.",
-        ...blocks,
-    ];
-}
-
-/**
  * Renders a service to Ballerina syntax.
  */
 function renderService(service: Service): string {
@@ -2569,7 +2532,6 @@ export function toSyntaxString(libraries: Library[]): string {
                 output.push("");
                 output.push(renderService(service));
             }
-            output.push(...renderTestGuidance(lib.services));
         }
 
         // Annotation section

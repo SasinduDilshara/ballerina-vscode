@@ -22,9 +22,10 @@ import {
     hasNothingToSelect,
     selectServices,
     toServiceRequestEntries,
+    withRestoredServiceLibraries,
 } from "../../../../src/features/ai/utils/libs/library-selection";
 import { Service } from "../../../../src/features/ai/utils/libs/library-types";
-import { GetFunctionResponse, GetFunctionsRequest } from "../../../../src/features/ai/utils/libs/function-types";
+import { GetFunctionResponse, GetFunctionsRequest, MinifiedService } from "../../../../src/features/ai/utils/libs/function-types";
 
 function service(listener: string, name?: string): Service {
     return {
@@ -158,6 +159,87 @@ suite("library selection — hasNothingToSelect", () => {
             })),
             false
         );
+    });
+
+    test("a services-only library at the filter threshold IS a decision, so it is asked about", () => {
+        // ballerinax/trigger.github's shape: no clients, no functions, many self-describing service types.
+        assert.strictEqual(
+            hasNothingToSelect(request({
+                clients: [],
+                services: requestEntries(MIN_SERVICES_TO_FILTER),
+            })),
+            false
+        );
+    });
+
+    test("below the threshold there is still nothing to ask, because the answer would be discarded", () => {
+        // `selectServices` keeps every service of such a library whatever the model says, so the request
+        // would buy nothing. Gated on the same constant for exactly that reason.
+        assert.strictEqual(
+            hasNothingToSelect(request({
+                clients: [],
+                services: requestEntries(MIN_SERVICES_TO_FILTER - 1),
+            })),
+            true
+        );
+    });
+});
+
+/** `count` minified service entries on one listener, as a request states them. */
+function requestEntries(count: number): MinifiedService[] {
+    return Array.from({ length: count }, (_, i) => ({ listener: "trigger:Listener", name: `S${i}` }));
+}
+
+suite("library selection — withRestoredServiceLibraries", () => {
+    const withServices = request({ name: "ballerinax/trigger.example", services: requestEntries(4) });
+    const clientsOnly = request({
+        name: "ballerinax/clientlib",
+        clients: [{ name: "Client", functions: [{ name: "get", parameters: [], returnType: "error?" }] }],
+    });
+
+    test("an omitted service-declaring library is restored, so its metadata cannot vanish", () => {
+        const restored = withRestoredServiceLibraries([withServices], []);
+        assert.deepStrictEqual(restored, [{ name: "ballerinax/trigger.example" }]);
+    });
+
+    test("a restored entry names no clients and no functions, only the library", () => {
+        const [entry] = withRestoredServiceLibraries([withServices], []);
+        assert.strictEqual(entry.clients, undefined);
+        assert.strictEqual(entry.functions, undefined);
+        assert.strictEqual(entry.services, undefined);
+    });
+
+    test("a restored entry keeps every service, because it names no selection", () => {
+        const all = services(4);
+        const [entry] = withRestoredServiceLibraries([withServices], []);
+        assert.deepStrictEqual(selectServices(all, entry)?.length, 4);
+    });
+
+    test("an omitted client-only library is left omitted — that judgement was the model's to make", () => {
+        assert.deepStrictEqual(withRestoredServiceLibraries([clientsOnly], []), []);
+    });
+
+    test("a library the model answered is never duplicated", () => {
+        const answered: GetFunctionResponse[] = [
+            { name: "ballerinax/trigger.example", services: [{ listener: "trigger:Listener", name: "S1" }] },
+        ];
+        assert.deepStrictEqual(withRestoredServiceLibraries([withServices], answered), answered);
+    });
+
+    test("restoration is per library: one answered, one omitted", () => {
+        const other = request({ name: "ballerinax/trigger.other", services: requestEntries(3) });
+        const answered: GetFunctionResponse[] = [{ name: "ballerinax/trigger.example" }];
+        assert.deepStrictEqual(
+            withRestoredServiceLibraries([withServices, other], answered).map((r) => r.name),
+            ["ballerinax/trigger.example", "ballerinax/trigger.other"]
+        );
+    });
+
+    test("the answered responses keep their order and identity", () => {
+        const answered: GetFunctionResponse[] = [{ name: "a" }, { name: "b" }];
+        const out = withRestoredServiceLibraries([], answered);
+        assert.deepStrictEqual(out, answered);
+        assert.notStrictEqual(out, answered, "returns a new array rather than mutating the caller's");
     });
 });
 

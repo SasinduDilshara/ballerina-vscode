@@ -454,13 +454,6 @@ export interface Service {
     // Spec §3 `deprecated` — why this service type is superseded, as prose. See
     // ServiceRemoteFunction.deprecated for why it is text and not a flag.
     deprecated?: string;
-    // Hand-authored guidance for writing TESTS against this service, from
-    // `resources/copilot/instructions/<org>/<module>/test.md`. Set by the Java side on every service of a
-    // library that ships one, and named by the system prompt.
-    //
-    // It was undeclared here and rendered nowhere, so the prompt instructed the model to honour text it never
-    // received. Rendered once per library, because the claim is about the library.
-    testGenerationInstruction?: string;
 }
 
 // Spec §2.1 — a native artifact the generated project needs on its classpath, which no public repository

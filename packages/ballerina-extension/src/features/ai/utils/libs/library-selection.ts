@@ -29,9 +29,14 @@ import {
     GetFunctionsRequest,
     MinifiedClient,
     MinifiedHandler,
+    MinifiedRemoteFunction,
+    MinifiedResourceFunction,
     MinifiedService,
 } from "./function-types";
-import { FixedService, Service } from "./library-types";
+import { Client, FixedService, Library, RemoteFunction, ResourceFunction, Service } from "./library-types";
+
+/** The `type` a client's constructor carries; it is re-attached by `selectClients`, never selected. */
+const TYPE_CONSTRUCTOR = "Constructor";
 
 /**
  * A library with fewer services than this never has them filtered.
@@ -49,14 +54,63 @@ export function getClientFunctionCount(clients: MinifiedClient[]): number {
 /**
  * Whether a request entry gives the selection model no choice to make.
  *
- * The model's only job is to include or exclude clients and functions. A library carrying neither — a
- * trigger package, or one that is services and types alone — has nothing for it to decide, so the call can
- * only be a no-op or a loss. Services are deliberately NOT part of the test: they are re-resolved by
- * {@link selectServices} from the library's own definitions, and a passthrough entry names none, which is
- * exactly the case that function falls back to keeping all of them.
+ * Three things must all be absent, and the third is the one that reads oddly. A library with no client
+ * functions and no module-level functions has nothing *functional* to select — every trigger package is
+ * that shape — but it may still declare many service types, and choosing among those is a decision.
+ *
+ * The service half is therefore gated on the **same** {@link MIN_SERVICES_TO_FILTER} threshold
+ * {@link selectServices} applies to the answer. That is not symmetry for its own sake: below the threshold
+ * the response side keeps every service no matter what the model says, so asking would spend a request on a
+ * result that is discarded by construction. Above it the question is real, and the entry now carries enough
+ * to answer it — the spec's §3 and §2 `doc` fields make every service type and listener self-describing,
+ * where before a services-only entry offered nothing but a type name.
+ *
+ * Passing straight through is not free of consequence: a library the model never sees cannot be dropped by
+ * it, which is the protection {@link withRestoredServiceLibraries} extends to the libraries that DO get
+ * asked about.
  */
 export function hasNothingToSelect(lib: GetFunctionsRequest): boolean {
-    return getClientFunctionCount(lib.clients) === 0 && (lib.functions?.length ?? 0) === 0;
+    return getClientFunctionCount(lib.clients) === 0
+        && (lib.functions?.length ?? 0) === 0
+        && (lib.services?.length ?? 0) < MIN_SERVICES_TO_FILTER;
+}
+
+/**
+ * The responses, with an entry restored for every requested library that declares services and that the
+ * model did not name.
+ *
+ * `toMaximizedLibrariesFromLibJson` iterates the *response*, so a library the model omits is not filtered
+ * down — it is absent: no services, no annotations, no types, no README, and nothing distinguishing it from
+ * a library that was never fetched. For a library whose clients were the point that is a legitimate
+ * selection outcome, and it is left alone: the model was shown those clients and asked to judge them.
+ *
+ * A library declaring **service types** is the case this exists for, and the asymmetry is the argument. The
+ * request states a service type's `doc`, its listener's, and its handlers' — but never its annotation
+ * obligations, its constraints, its cardinality, its identifier slot, its platform dependencies or its
+ * README. Omitting the library discards all of that on the strength of a judgement made without seeing any
+ * of it. Restoring the entry hands the decision back to {@link selectServices}, whose no-selection case
+ * keeps the whole set.
+ *
+ * A restored entry names no clients and no functions, which is exactly right: it is not a claim that the
+ * model erred about the clients it *was* shown, only that the service metadata it was not shown should not
+ * vanish with them.
+ */
+export function withRestoredServiceLibraries(
+    requested: GetFunctionsRequest[],
+    responses: GetFunctionResponse[]
+): GetFunctionResponse[] {
+    const answered = new Set(responses.map((response) => response.name));
+    const restored = requested
+        .filter((lib) => (lib.services?.length ?? 0) > 0 && !answered.has(lib.name))
+        .map((lib) => ({ name: lib.name }));
+    if (restored.length > 0) {
+        console.warn(
+            `[withRestoredServiceLibraries] the selection model named none of ${restored.length} requested `
+            + `service-declaring librar${restored.length === 1 ? "y" : "ies"} `
+            + `(${restored.map((lib) => lib.name).join(", ")}). Restoring them with their services intact.`
+        );
+    }
+    return [...responses, ...restored];
 }
 
 /**
@@ -219,4 +273,84 @@ export function selectServices(
         return originalServices;
     }
     return filtered;
+}
+
+/**
+ * One library as the selection request states it — the whole of what the selection model is shown.
+ *
+ * Lives here rather than in `function-registry` for the reason this module exists: it is a pure function of
+ * its arguments, and what the model is allowed to reason over is a selection decision. Keeping it importable
+ * without starting VS Code is also what lets the request be captured from a real
+ * `getFilteredLibraries` payload rather than reproduced from a hand-written one.
+ *
+ * @param lib                         the library as the language server returned it
+ * @param includeFunctionDescriptions whether a module-level function carries its `description`, which is
+ *                                    the healthcare generation's one deviation. A boolean rather than the
+ *                                    `GenerationType` enum on purpose: that enum lives in `libraries.ts`,
+ *                                    which reaches the language server through `activator`, and importing it
+ *                                    here would give this module the VS Code dependency it exists without
+ */
+export function toSelectionRequest(lib: Library, includeFunctionDescriptions: boolean): GetFunctionsRequest {
+    return {
+        name: lib.name,
+        description: lib.description,
+        clients: toRequestClients(lib.clients),
+        functions: toRequestFunctions(lib.functions, includeFunctionDescriptions),
+        services: toServiceRequestEntries(lib.services),
+    };
+}
+
+/** Each client as the request states it: its name, its doc, and its functions minified. */
+function toRequestClients(clients: Client[]): MinifiedClient[] {
+    return clients.map((cli) => ({
+        name: cli.name,
+        description: cli.description,
+        functions: toRequestClientFunctions(cli.functions),
+    }));
+}
+
+/**
+ * A client's functions, reduced to what a selection decision needs: the identity, the parameter *names*,
+ * and the return type's name. The constructor is omitted — it is not a choice the model makes, and
+ * `selectClients` re-attaches it to any client whose functions survived.
+ */
+function toRequestClientFunctions(
+    functions: (RemoteFunction | ResourceFunction)[]
+): (MinifiedRemoteFunction | MinifiedResourceFunction)[] {
+    const output: (MinifiedRemoteFunction | MinifiedResourceFunction)[] = [];
+
+    for (const item of functions) {
+        if ("accessor" in item) {
+            output.push({
+                accessor: item.accessor,
+                paths: item.paths,
+                parameters: item.parameters.map((param) => param.name),
+                returnType: item.return.type.name,
+            });
+        } else if (item.type !== TYPE_CONSTRUCTOR) {
+            output.push({
+                name: item.name,
+                parameters: item.parameters.map((param) => param.name),
+                returnType: item.return.type.name,
+            });
+        }
+    }
+
+    return output;
+}
+
+/** The module-level functions as the request states them; absent when the library declares none. */
+function toRequestFunctions(
+    functions: RemoteFunction[] | undefined,
+    includeDescriptions: boolean
+): MinifiedRemoteFunction[] | undefined {
+    if (!functions) {
+        return undefined;
+    }
+    return functions.map((item) => ({
+        name: item.name,
+        parameters: item.parameters.map((param) => param.name),
+        returnType: item.return.type.name,
+        ...(includeDescriptions && { description: item?.description }),
+    }));
 }

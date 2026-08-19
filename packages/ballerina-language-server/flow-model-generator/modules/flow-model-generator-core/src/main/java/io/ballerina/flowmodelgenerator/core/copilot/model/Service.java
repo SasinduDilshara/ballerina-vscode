@@ -142,7 +142,6 @@ public class Service {
     private List<ServiceRemoteFunction> handlerTemplates;
     @SerializedName("methods")
     private List<ServiceRemoteFunction> methods;
-    private String testGenerationInstruction;
     /**
      * The spec's {@code deprecated} — why this construct is superseded, as the document's own prose.
      *
@@ -294,14 +293,6 @@ public class Service {
 
     public void setMethods(List<ServiceRemoteFunction> methods) {
         this.methods = methods;
-    }
-
-    public String getTestGenerationInstruction() {
-        return testGenerationInstruction;
-    }
-
-    public void setTestGenerationInstruction(String testGenerationInstruction) {
-        this.testGenerationInstruction = testGenerationInstruction;
     }
 
     public Boolean isDeprecated() {
