@@ -24,8 +24,14 @@
  * the rendered catalog.
  */
 
-import { GetFunctionResponse, GetFunctionsRequest, MinifiedClient } from "./function-types";
-import { Service } from "./library-types";
+import {
+    GetFunctionResponse,
+    GetFunctionsRequest,
+    MinifiedClient,
+    MinifiedHandler,
+    MinifiedService,
+} from "./function-types";
+import { FixedService, Service } from "./library-types";
 
 /**
  * A library with fewer services than this never has them filtered.
@@ -51,6 +57,73 @@ export function getClientFunctionCount(clients: MinifiedClient[]): number {
  */
 export function hasNothingToSelect(lib: GetFunctionsRequest): boolean {
     return getClientFunctionCount(lib.clients) === 0 && (lib.functions?.length ?? 0) === 0;
+}
+
+/**
+ * The longest handler `doc` the request carries, in characters.
+ *
+ * A bound rather than a budget: the selection model needs enough of the sentence to tell one handler from
+ * another, and `websocket` — 12 handlers, the corpus maximum — costs about 300 tokens at this cap. Without
+ * one, a single verbose document would decide how much of the request every other library gets.
+ */
+export const MAX_HANDLER_DOC_CHARS = 120;
+
+/**
+ * One handler as the request states it: its name, and the first line of its documentation.
+ *
+ * The first line only. A handler `doc` opens with what the handler is for and continues into how to write
+ * it — `kafka`'s `onConsumerRecord` runs to 157 characters, `grpc`'s to 230 — and only the opening answers
+ * the question this request exists to ask.
+ */
+function toRequestHandler(name: string, description?: string): MinifiedHandler {
+    const firstLine = description?.split("\n")[0].trim();
+    if (!firstLine) {
+        return { name };
+    }
+    return { name, doc: firstLine.slice(0, MAX_HANDLER_DOC_CHARS) };
+}
+
+/**
+ * The services of one library, as the selection request states them.
+ *
+ * Three fields per service, and the reason each is there:
+ *  - `listener` and `name` are the *identity* the response echoes back — {@link selectServices} re-resolves
+ *    a selection by exactly this pair, so they are sent verbatim and never prettified;
+ *  - `methods` is the *evidence*, and nothing more: the response has no counterpart for it (see
+ *    `SelectedService`), so a handler cannot be selected individually. It is sent because handler names and
+ *    their `doc` lines are the only thing that makes a service recognisably relevant to a query — the spec
+ *    gives `serviceType` no `doc` field, so the type name is otherwise the whole story.
+ *
+ * A `generic` service states no methods: its handlers live in curated prose rather than in a method list,
+ * and there is nothing to enumerate. Such an entry reaches the model as a listener and a name, which is why
+ * {@link selectServices} refuses to filter a library declaring fewer than {@link MIN_SERVICES_TO_FILTER}
+ * services — for those, a name is not enough to decide on and the whole set is kept.
+ *
+ * Lives here rather than in `function-registry` for the reason this module exists: it is a pure function of
+ * its arguments, and it decides what the selection model is allowed to reason over — which is a selection
+ * decision, not a transport detail.
+ */
+export function toServiceRequestEntries(services?: Service[]): MinifiedService[] | undefined {
+    if (!services || services.length === 0) {
+        return undefined;
+    }
+    return services.map((svc) => {
+        const result: MinifiedService = {
+            listener: svc.listener.name,
+        };
+        if (svc.name) {
+            result.name = svc.name;
+        }
+        if (svc.type === "fixed") {
+            const handlers = ((svc as FixedService).methods ?? [])
+                .filter((method) => method && method.name)
+                .map((method) => toRequestHandler(method.name, method.description));
+            if (handlers.length > 0) {
+                result.methods = handlers;
+            }
+        }
+        return result;
+    });
 }
 
 /**

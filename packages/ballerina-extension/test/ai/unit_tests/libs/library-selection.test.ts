@@ -16,9 +16,11 @@
 
 import * as assert from "assert";
 import {
+    MAX_HANDLER_DOC_CHARS,
     MIN_SERVICES_TO_FILTER,
     hasNothingToSelect,
     selectServices,
+    toServiceRequestEntries,
 } from "../../../../src/features/ai/utils/libs/library-selection";
 import { Service } from "../../../../src/features/ai/utils/libs/library-types";
 import { GetFunctionResponse, GetFunctionsRequest } from "../../../../src/features/ai/utils/libs/function-types";
@@ -155,5 +157,113 @@ suite("library selection — hasNothingToSelect", () => {
             })),
             false
         );
+    });
+});
+
+/** A fixed service whose handlers are given as `[name, doc]` pairs. */
+function fixedService(
+    listener: string,
+    name: string,
+    methods: [string, string?][]
+): Service {
+    return {
+        type: "fixed",
+        listener: { name: listener, parameters: [] },
+        name,
+        methods: methods.map(([methodName, description]) => ({
+            name: methodName,
+            type: "remote",
+            parameters: [],
+            return: { type: { name: "error?" } },
+            ...(description !== undefined ? { description } : {}),
+        })),
+    } as Service;
+}
+
+suite("library selection — toServiceRequestEntries", () => {
+    test("sends the identity pair the response echoes back, verbatim", () => {
+        const entries = toServiceRequestEntries([
+            fixedService("kafka:Listener", "Service", [["onConsumerRecord"]]),
+        ]);
+        assert.strictEqual(entries?.length, 1);
+        assert.strictEqual(entries?.[0].listener, "kafka:Listener");
+        assert.strictEqual(entries?.[0].name, "Service");
+    });
+
+    test("carries each handler's first doc line — the only prose a service type has", () => {
+        const entries = toServiceRequestEntries([
+            fixedService("kafka:Listener", "Service", [
+                ["onConsumerRecord", "Invoked with each batch of records polled from the subscribed topics.\nThe listener polls on its configured interval."],
+                ["onError", "Invoked when polling fails."],
+            ]),
+        ]);
+        assert.deepStrictEqual(entries?.[0].methods, [
+            { name: "onConsumerRecord", doc: "Invoked with each batch of records polled from the subscribed topics." },
+            { name: "onError", doc: "Invoked when polling fails." },
+        ]);
+    });
+
+    test("caps a doc so one verbose document cannot dominate the request", () => {
+        const long = "x".repeat(MAX_HANDLER_DOC_CHARS + 50);
+        const entries = toServiceRequestEntries([
+            fixedService("ftp:Listener", "Service", [["onFileChange", long]]),
+        ]);
+        assert.strictEqual(entries?.[0].methods?.[0].doc?.length, MAX_HANDLER_DOC_CHARS);
+    });
+
+    test("omits `doc` entirely for an undocumented handler rather than sending an empty one", () => {
+        // trigger.github's shape: handlers introspected from a concrete type that carries no doc comments.
+        const entries = toServiceRequestEntries([
+            fixedService("github:Listener", "IssuesService", [["onOpened"], ["onClosed", "   "]]),
+        ]);
+        assert.deepStrictEqual(entries?.[0].methods, [{ name: "onOpened" }, { name: "onClosed" }]);
+    });
+
+    test("a generic service states no methods, so only its identity is sent", () => {
+        const generic = {
+            type: "generic",
+            listener: { name: "http:Listener", parameters: [] },
+            name: "Service",
+            instructions: "…",
+        } as Service;
+        assert.deepStrictEqual(toServiceRequestEntries([generic]), [
+            { listener: "http:Listener", name: "Service" },
+        ]);
+    });
+
+    test("omits the `methods` key when a fixed service declares none", () => {
+        // mcp's wildcard (addMode: many) service types reach the request with no methods at all.
+        const entries = toServiceRequestEntries([
+            fixedService("mcp:StreamableHttpListener", "Service", []),
+        ]);
+        assert.deepStrictEqual(entries, [
+            { listener: "mcp:StreamableHttpListener", name: "Service" },
+        ]);
+    });
+
+    test("a nameless service omits `name`, matching the key selectServices builds", () => {
+        const entries = toServiceRequestEntries([
+            { type: "fixed", listener: { name: "x:Listener", parameters: [] } } as Service,
+        ]);
+        assert.deepStrictEqual(entries, [{ listener: "x:Listener" }]);
+    });
+
+    test("a library declaring no services sends the field absent, not empty", () => {
+        assert.strictEqual(toServiceRequestEntries(undefined), undefined);
+        assert.strictEqual(toServiceRequestEntries([]), undefined);
+    });
+
+    test("the entries a request states are re-resolvable by selectServices", () => {
+        const all = [
+            fixedService("trigger:Listener", "S0", [["onA", "First."]]),
+            fixedService("trigger:Listener", "S1", [["onB", "Second."]]),
+            fixedService("trigger:Listener", "S2", [["onC", "Third."]]),
+        ];
+        const entries = toServiceRequestEntries(all)!;
+        // The model echoes one entry back exactly as it was sent.
+        const kept = selectServices(all, response([
+            { listener: entries[1].listener, name: entries[1].name },
+        ]));
+        assert.deepStrictEqual(kept?.map((s) => s.name), ["S1"]);
     });
 });

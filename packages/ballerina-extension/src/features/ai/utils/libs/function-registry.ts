@@ -24,12 +24,16 @@ import {
     MinifiedClient,
     MinifiedRemoteFunction,
     MinifiedResourceFunction,
-    MinifiedService,
     PathParameter,
 } from "./function-types";
 import { Client, GetTypeResponse, GetTypesRequest, GetTypesResponse, getTypesResponseSchema, Library, MiniType, RemoteFunction, ResourceFunction, Service, FixedService, Annotation } from "./library-types";
 import { TypeDefinition, AbstractFunction, Type, RecordTypeDefinition, UnionTypeDefinition } from "./library-types";
-import { getClientFunctionCount, hasNothingToSelect, selectServices } from "./library-selection";
+import {
+    getClientFunctionCount,
+    hasNothingToSelect,
+    selectServices,
+    toServiceRequestEntries,
+} from "./library-selection";
 import { getAnthropicClient, ANTHROPIC_HAIKU } from "../ai-client";
 import { GenerationType } from "./libraries";
 // import { getRequiredTypesFromLibJson } from "../healthcare/healthcare";
@@ -153,7 +157,7 @@ async function getRequiredFunctions(
             description: lib.description,
             clients: filteredClients(lib.clients),
             functions: filteredNormalFunctions(lib.functions, generationType),
-            services: filteredServicesForRequest(lib.services),
+            services: toServiceRequestEntries(lib.services),
         }));
 
     // A library with no client functions and no module-level functions never reaches the model.
@@ -250,7 +254,7 @@ CRITICAL RULES:
 2. Your ONLY task is selection - include or exclude items, NEVER modify field values.
 3. Copy all field values EXACTLY as provided - preserve every character including backslashes and special characters.
 4. For resource functions: "accessor" and "paths" are SEPARATE fields - NEVER combine them.
-5. A library is relevant if ANY of its clients, functions, or services match the query. List each matching service under the library's "services" field, copying its "listener" and "name" verbatim; omit the services that do not match. If a library matches ONLY via its services, still include the library in the output with empty/omitted clients and functions.`;
+5. A library is relevant if ANY of its clients, functions, or services match the query. A service matches when its name, or ANY ONE of its handlers under "methods", is what the query needs. List each matching service under the library's "services" field, copying its "listener" and "name" verbatim; omit the services that do not match. If a library matches ONLY via its services, still include the library in the output with empty/omitted clients and functions.`;
 
     const getLibUserPrompt = `You will be provided with a list of libraries, clients, and their functions, and a user query.
 
@@ -369,27 +373,6 @@ function filteredFunctions(
     }
 
     return output;
-}
-
-function filteredServicesForRequest(services?: Service[]): MinifiedService[] | undefined {
-    if (!services || services.length === 0) {
-        return undefined;
-    }
-    return services.map((svc) => {
-        const result: MinifiedService = {
-            listener: svc.listener.name,
-        };
-        if (svc.name) {
-            result.name = svc.name;
-        }
-        if (svc.type === "fixed") {
-            const methodNames = ((svc as FixedService).methods ?? []).map((m) => m.name);
-            if (methodNames.length > 0) {
-                result.methods = methodNames;
-            }
-        }
-        return result;
-    });
 }
 
 function filteredNormalFunctions(functions?: RemoteFunction[], generationType?: GenerationType): MinifiedRemoteFunction[] | undefined {

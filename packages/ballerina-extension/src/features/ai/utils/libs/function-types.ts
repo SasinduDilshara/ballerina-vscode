@@ -33,7 +33,25 @@ export interface MinifiedClient {
 export interface MinifiedService {
     listener: string;
     name?: string;
-    methods?: string[];
+    methods?: MinifiedHandler[];
+}
+
+/**
+ * One handler, as the *request* states it for the selection model.
+ *
+ * Carries `doc` because it is the only prose about a service type that exists anywhere: spec `$defs
+ * .serviceType` declares no `doc` field, and `Service` correspondingly has no description — so a service
+ * reaches the selection model identified by its type name alone. Its handlers' `doc` lines (58 of 58
+ * handler options in the corpus carry one) are therefore the whole semantic signal for deciding whether a
+ * service answers the query, and they were being dropped on the way in while being rendered for the
+ * generating model.
+ *
+ * First line only, and capped: the judgement needs what the handler is *for*, not the paragraph on how to
+ * write it, and an uncapped field would let one verbose document dominate the request.
+ */
+export interface MinifiedHandler {
+    name: string;
+    doc?: string;
 }
 
 /**
