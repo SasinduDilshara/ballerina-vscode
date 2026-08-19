@@ -63,41 +63,69 @@ export function hasNothingToSelect(lib: GetFunctionsRequest): boolean {
  * The longest handler `doc` the request carries, in characters.
  *
  * A bound rather than a budget: the selection model needs enough of the sentence to tell one handler from
- * another, and `websocket` — 12 handlers, the corpus maximum — costs about 300 tokens at this cap. Without
+ * another, and `websocket` — 11 handlers, the corpus maximum — costs about 300 tokens at this cap. Without
  * one, a single verbose document would decide how much of the request every other library gets.
  */
 export const MAX_HANDLER_DOC_CHARS = 120;
 
 /**
- * One handler as the request states it: its name, and the first line of its documentation.
+ * The longest service-type and listener `doc` the request carries, in characters.
  *
- * The first line only. A handler `doc` opens with what the handler is for and continues into how to write
- * it — `kafka`'s `onConsumerRecord` runs to 157 characters, `grpc`'s to 230 — and only the opening answers
- * the question this request exists to ask.
+ * Higher than the handler bound, and for the reason that bound is low: a service type states its `doc`
+ * once, whereas a handler states one per handler and `websocket` declares twelve. The corpus's longest are
+ * `grpc`'s service type at 183 characters and `mcp`'s listener at 165, so at 200 nothing in it is
+ * truncated — the cap exists to stop one future verbose document deciding how much of the request every
+ * other library gets, not to trim the documents that exist.
+ */
+export const MAX_SERVICE_DOC_CHARS = 200;
+
+/**
+ * One documentation string as the request states it: its first line, capped.
+ *
+ * The first line only. A `doc` opens with what the construct is for and continues into how to write it —
+ * `kafka`'s `onConsumerRecord` runs to 157 characters, `grpc`'s to 230 — and only the opening answers the
+ * question this request exists to ask.
+ *
+ * @param description the document's authored prose; may be absent
+ * @param limit       the cap for this construct's tier
+ * @returns the trimmed line, or `undefined` when there is nothing to state
+ */
+function toRequestDoc(description: string | undefined, limit: number): string | undefined {
+    const firstLine = description?.split("\n")[0].trim();
+    return firstLine ? firstLine.slice(0, limit) : undefined;
+}
+
+/**
+ * One handler as the request states it: its name, and the first line of its documentation.
  */
 function toRequestHandler(name: string, description?: string): MinifiedHandler {
-    const firstLine = description?.split("\n")[0].trim();
-    if (!firstLine) {
-        return { name };
-    }
-    return { name, doc: firstLine.slice(0, MAX_HANDLER_DOC_CHARS) };
+    const doc = toRequestDoc(description, MAX_HANDLER_DOC_CHARS);
+    return doc ? { name, doc } : { name };
 }
 
 /**
  * The services of one library, as the selection request states them.
  *
- * Three fields per service, and the reason each is there:
+ * Five fields per service, and the reason each is there:
  *  - `listener` and `name` are the *identity* the response echoes back — {@link selectServices} re-resolves
  *    a selection by exactly this pair, so they are sent verbatim and never prettified;
- *  - `methods` is the *evidence*, and nothing more: the response has no counterpart for it (see
- *    `SelectedService`), so a handler cannot be selected individually. It is sent because handler names and
- *    their `doc` lines are the only thing that makes a service recognisably relevant to a query — the spec
- *    gives `serviceType` no `doc` field, so the type name is otherwise the whole story.
+ *  - `doc` and `listenerDoc` are the *statement of purpose*, and the strongest evidence an entry carries:
+ *    the spec §3/§2 revision of 2026-08-19 made both required on every service type and listener precisely
+ *    so each construct says what it is for, and until they were sent a service reached the selection model
+ *    identified by a type name alone — `Service`, over and over, across thirty-two libraries;
+ *  - `methods` is the *finest-grained* evidence, and nothing more: the response has no counterpart for it
+ *    (see `SelectedService`), so a handler cannot be selected individually. It is sent because a query is
+ *    often about one event rather than about the library, and only handler names and their `doc` lines can
+ *    match at that grain.
  *
  * A `generic` service states no methods: its handlers live in curated prose rather than in a method list,
  * and there is nothing to enumerate. Such an entry reaches the model as a listener and a name, which is why
  * {@link selectServices} refuses to filter a library declaring fewer than {@link MIN_SERVICES_TO_FILTER}
- * services — for those, a name is not enough to decide on and the whole set is kept.
+ * services — for those, a name is not enough to decide on and the whole set is kept. The docs improve that
+ * entry too, but they do not change the rule: a generic entry still states no per-handler evidence.
+ *
+ * Every field is omitted when the document states nothing, per the schema's own omission rule, so a
+ * pre-revision document produces exactly the request it produced before.
  *
  * Lives here rather than in `function-registry` for the reason this module exists: it is a pure function of
  * its arguments, and it decides what the selection model is allowed to reason over — which is a selection
@@ -113,6 +141,19 @@ export function toServiceRequestEntries(services?: Service[]): MinifiedService[]
         };
         if (svc.name) {
             result.name = svc.name;
+        }
+        // The spec §3 `doc`: what this service type is for. Applies to every service kind, generic
+        // included — a curated overlay entry states none today, but the field is the service's own and
+        // nothing about the entry's kind decides whether it is worth sending.
+        const doc = toRequestDoc(svc.description, MAX_SERVICE_DOC_CHARS);
+        if (doc) {
+            result.doc = doc;
+        }
+        // The spec §2 `doc` of the listener this service attaches to — how the service is triggered, which
+        // is a different question from what it receives and just as often what a query is about.
+        const listenerDoc = toRequestDoc(svc.listener?.description, MAX_SERVICE_DOC_CHARS);
+        if (listenerDoc) {
+            result.listenerDoc = listenerDoc;
         }
         if (svc.type === "fixed") {
             const handlers = ((svc as FixedService).methods ?? [])

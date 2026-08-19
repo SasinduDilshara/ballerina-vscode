@@ -34,24 +34,51 @@ import java.util.List;
  * compiler API can already tell you — a listener's init signature, a concrete service type's declared
  * methods, an annotation record's field shapes — is referenced by name here, never restated).
  *
- * <h2>Spec v1.0 (m2)</h2>
+ * <h2>Spec v1.0</h2>
  *
- * <p>This models spec <b>v1.0</b>, which restructured several constructs relative to the pre-release
- * {@code "v1"} documents. The differences a reader of the older shape will notice:
+ * <p>This models spec <b>v1.0</b> as last revised 2026-08-19. Relative to the pre-release {@code "v1"}
+ * documents it restructured:
  * <ul>
- *   <li><b>the spec</b> — ids and every reference to one are {@code $}-prefixed. The sigil is carried
+ *   <li><b>the spec §0</b> — ids and every reference to one are {@code $}-prefixed. The sigil is carried
  *       verbatim rather than stripped: it is part of the value, references and definitions gain it
  *       symmetrically, so equality comparisons are unaffected.</li>
- *   <li><b>the spec/the spec</b> — attachment cardinality is split three ways. Two facts describe the
+ *   <li><b>the spec §2/§3</b> — attachment cardinality is split three ways. Two facts describe the
  *       <i>listener instance</i> and moved onto {@link Listener}; only "may one service attach to
  *       several listeners" stays on {@link ServiceType}.</li>
- *   <li><b>the spec</b> — {@code rules} became a reference to an open registry ({@link Rule}) instead of a
- *       closed {@code oneOf}/{@code atMostOne} enum, and gained a top-level array for constraints
+ *   <li><b>the spec §6</b> — {@code rules} became a reference to an open registry ({@link Rule}) instead
+ *       of a closed {@code oneOf}/{@code atMostOne} enum, and gained a top-level array for constraints
  *       spanning more than one service type.</li>
- *   <li><b>the spec</b> — the reverse {@code appliesTo} list is gone. Every annotation is now reached by a
- *       forward reference from the construct that carries it.</li>
- *   <li><b>the spec</b> — the top-level {@code dataBindingRules} registry is gone; a binding is written
- *       inline on the parameter it describes ({@link DataBinding}).</li>
+ *   <li><b>the spec §8</b> — the reverse {@code appliesTo} list is gone. Every annotation is now reached
+ *       by a forward reference from the construct that carries it.</li>
+ *   <li><b>the spec §9</b> — the top-level {@code dataBindingRules} registry is gone; a binding is written
+ *       inline on the slot it describes ({@link DataBinding}).</li>
+ * </ul>
+ *
+ * <p>The 2026-08-19 revision then changed five further things, each of which this record models:
+ * <ul>
+ *   <li><b>§0</b> — <b>every</b> construct a file can point back into carries an {@code id}, not just
+ *       {@code serviceTypes}/{@code annotations}/{@code rules}. {@link Listener}, {@link
+ *       ServiceType.HandlerOption}, {@link ServiceType.Param} and the new {@link ServiceType.ReturnSpec}
+ *       gained one, and a handler's/param's/return's is <i>hierarchical</i> — dot-separated segments
+ *       scoping it under its owner, {@code $service.onMessage.records}. Hierarchical ids therefore only
+ *       ever appear under a non-concrete service type, since a concrete one has no {@code options[]}.</li>
+ *   <li><b>§2/§3/§5.2</b> — {@code doc} is required on {@link Listener} and on {@link ServiceType},
+ *       unconditionally, and on a service type even when it is {@code concrete}: id and doc together are
+ *       what make every top-level construct navigable on its own, rather than only what introspection
+ *       cannot recover.</li>
+ *   <li><b>§5.4</b> — {@code returns} became an object ({@link ServiceType.ReturnSpec}) instead of a bare
+ *       type-or-union, so it can carry the same {@code id}/{@code dataBinding}/{@code annotations} facts a
+ *       parameter can. {@code returnAnnotations} is gone; the same list now lives on
+ *       {@code returns.annotations}.</li>
+ *   <li><b>§9.1</b> — a return may carry a {@code dataBinding} of its own, the <i>outbound</i> reading of
+ *       the same shape a parameter's states inbound: the declared return type is narrower than a builtin
+ *       constraint the runtime serializes it out through.</li>
+ *   <li><b>§1.3/§1.4/§1.1</b> — {@link TypeRef} gained {@code builtin} and {@code subtypeFamily} flags and
+ *       a {@code readonly} shape.</li>
+ *   <li><b>§6.1.1</b> — a {@code handler} or {@code param} rule subject addresses its construct by
+ *       <i>id</i>, never by name, because an {@code addMode: "many"} option's name is always {@code "*"}
+ *       and cannot disambiguate one open shape from another. An {@code annotation} subject likewise moved
+ *       from {@code name} to {@code id}.</li>
  * </ul>
  *
  * <p><b>Omission rule.</b> Omit {@link #annotations} / {@link #rules} entirely when the connector has
@@ -95,6 +122,15 @@ public record TriggerMetadataModel(
      * <p>The spec puts two of the three attachment-cardinality facts here rather than on the service
      * type, because both describe what <i>this listener instance</i> will accept.
      *
+     * @param id                                the spec §0 — this listener's id, flat rather than
+     *                                          hierarchical since a listener nests inside nothing:
+     *                                          {@code $listener}, or {@code $listener1}/{@code $listener2}
+     *                                          when a connector declares more than one. Required
+     * @param doc                               the spec §2 — what this listener is and when a service
+     *                                          attaches to it. Required <i>unconditionally</i>, unlike a
+     *                                          handler's doc: §5.2's "leave out what introspection
+     *                                          recovers" rule is suspended for the constructs a reader
+     *                                          navigates the file by, and a listener is one of them
      * @param type                              the listener class
      * @param deprecated                        the spec — why this listener is deprecated, as prose;
      *                                          {@code null} when it is current
@@ -112,7 +148,9 @@ public record TriggerMetadataModel(
      * @param platformDependencies              native dependencies the build cannot fetch;
      *                                          {@code null}/absent when the connector needs none
      */
-    public record Listener(TypeRef type,
+    public record Listener(String id,
+                           String doc,
+                           TypeRef type,
                            String deprecated,
                            List<String> services,
                            Boolean multipleServicesAllowed,
@@ -200,7 +238,14 @@ public record TriggerMetadataModel(
      * mandatory.
      *
      * @param id                       local identifier ({@code $}-prefixed), referenced from
-     *                                 {@link Listener#services()} and from rule subjects
+     *                                 {@link Listener#services()} and from rule subjects. Also the
+     *                                 <i>hierarchy root</i> for this type's handler, param and return ids
+     *                                 (the spec §0)
+     * @param doc                      the spec §3 — what this service type is for. Required, and
+     *                                 <b>required even when {@code concrete} is {@code true}</b>: unlike a
+     *                                 handler's doc, which is authored only because a marker type has no
+     *                                 method to introspect, this one exists so that every top-level
+     *                                 construct in the file is navigable on its own
      * @param type                     the service object type
      * @param concrete                 {@code true} if the type declares its own methods directly (fully
      *                                 introspectable — {@code handlers} then carries
@@ -227,6 +272,7 @@ public record TriggerMetadataModel(
      */
     public record ServiceType(
             String id,
+            String doc,
             TypeRef type,
             boolean concrete,
             Boolean multipleListenersAllowed,
@@ -258,6 +304,15 @@ public record TriggerMetadataModel(
          * One handler in the catalog — either a named option under {@code addMode: "subset"}, or the
          * single {@link #WILDCARD_NAME} entry under {@code addMode: "many"}.
          *
+         * @param id                the spec §0 — this handler's id, hierarchical: the owning service
+         *                          type's id plus this handler's own segment, e.g.
+         *                          {@code $service.onMessage}. Required, and the <b>only</b> way a rule
+         *                          subject can address the handler: under {@code addMode: "many"} the
+         *                          {@code name} is always {@code "*"}, so two open shapes on one service
+         *                          type are indistinguishable by name (the spec §6.1.1). For such an
+         *                          option the last segment is an authored label rather than the emitted
+         *                          method name — {@code graphql}'s three shapes are {@code $service.query},
+         *                          {@code $service.mutation} and {@code $service.subscription}
          * @param name              the handler's method name, or {@link #WILDCARD_NAME} for an
          *                          open/many-shaped handler
          * @param kind              {@link #KIND_REMOTE} or {@link #KIND_RESOURCE}
@@ -277,12 +332,13 @@ public record TriggerMetadataModel(
          *                          {@code "required"}/{@code "optional"}. A {@code many} shape has no fixed
          *                          occurrence count to require
          * @param annotations       ids of annotations with {@code attachPoint: "function"}
-         * @param returnAnnotations ids of annotations with {@code attachPoint: "return"}. Its own slot
-         *                          rather than sharing {@code annotations}, because the two attach to
-         *                          different syntactic positions and a consumer renders them differently
          * @param params            the handler's parameters, in meaningful positional order
-         * @param returns           the handler's return type(s) — a union is expressed as more than one
-         *                          element
+         * @param returns           the spec §5.4 — the handler's return, as an object rather than a bare
+         *                          type-or-union so it can carry the same {@code id}/{@code dataBinding}/
+         *                          {@code annotations} facts a parameter can. {@code null} when the
+         *                          handler's language form forbids a return clause. This absorbed the
+         *                          former {@code returnAnnotations} slot, which is gone: the same list is
+         *                          now {@code returns.annotations}, filed beside the type it attaches to
          * @param accessor          the spec — the legal accessors of a {@code resource} handler. Required
          *                          for {@code kind: "resource"} and forbidden for {@code remote}. HTTP puts
          *                          its verbs here and GraphQL puts {@code get}/{@code subscribe}: the schema
@@ -292,6 +348,7 @@ public record TriggerMetadataModel(
          *                          recorded: the language already fixes what a resource path may look like
          */
         public record HandlerOption(
+                String id,
                 String name,
                 String kind,
                 String addMode,
@@ -299,9 +356,8 @@ public record TriggerMetadataModel(
                 String deprecated,
                 String presence,
                 List<String> annotations,
-                List<String> returnAnnotations,
                 List<Param> params,
-                List<TypeRef> returns,
+                ReturnSpec returns,
                 ValueSpec accessor,
                 ValueSpec path) {
 
@@ -321,9 +377,43 @@ public record TriggerMetadataModel(
         }
 
         /**
+         * The spec §5.4 — a handler's return, grouped into one object rather than left as three sibling
+         * fields on the handler.
+         *
+         * <p>The same reasoning that gives a {@link Param} its own object: a return can carry a type, a
+         * data binding and annotation obligations, and those three describe one slot. Flattening them onto
+         * the handler is what produced the shape this replaced, where {@code returnAnnotations} sat beside
+         * {@code returns} with nothing tying the two together.
+         *
+         * <p><b>No {@code name} and no {@code presence}</b>, deliberately: a return has no identifier to
+         * emit, and it is not itself omittable the way a parameter slot is. {@code returns} is absent
+         * altogether when the handler's language form forbids a return clause — the {@code file}
+         * connector's handlers are the corpus case.
+         *
+         * @param id          the spec §0 — hierarchical: the owning handler's id plus the fixed segment
+         *                    {@code returns}, e.g. {@code $service.onMessage.returns}. Required
+         * @param type        the return's type(s) — a union is expressed as more than one element, and the
+         *                    spec's nilable rule makes {@code T?} an explicit {@code ()} member. Required
+         * @param dataBinding the spec §9.1 — the outbound reading of the same shape a parameter's
+         *                    {@code dataBinding} states inbound: present only when one union member is a
+         *                    builtin constraint the runtime serializes the declared type out through, such
+         *                    as an HTTP resource's {@code anydata} response branch. {@code null} otherwise,
+         *                    which is every handler whose return is a fixed type
+         * @param annotations ids of annotations with {@code attachPoint: "return"}. This is where the
+         *                    former {@code handlers.options[].returnAnnotations} moved to
+         */
+        public record ReturnSpec(String id, List<TypeRef> type, DataBinding dataBinding,
+                                 List<String> annotations) {
+        }
+
+        /**
          * One parameter slot of a {@link HandlerOption}. Order in the array is meaningful and is trusted
          * to convey positional constraints.
          *
+         * @param id          the spec §0 — hierarchical: the owning handler's id plus this parameter's
+         *                    name, e.g. {@code $service.onMessage.records}. Required. On an
+         *                    {@code addMode: "many"} slot it names the <i>slot</i>, not each user-named
+         *                    occurrence, which is why a rule subject can address a repeatable slot at all
          * @param name        the parameter name to emit. The spec makes this required on every fixed
          *                    slot and permits its omission only under {@code addMode: "many"}, where
          *                    the user names each occurrence: a handler in {@code options[]} has no method
@@ -347,6 +437,7 @@ public record TriggerMetadataModel(
          * @param annotations ids of annotations with {@code attachPoint: "parameter"}
          */
         public record Param(
+                String id,
                 String name,
                 String doc,
                 String deprecated,
@@ -372,7 +463,7 @@ public record TriggerMetadataModel(
      * <table><caption>attach point to referencing field</caption>
      *   <tr><td>{@code service}</td><td>{@code serviceTypes[].annotations}</td></tr>
      *   <tr><td>{@code function}</td><td>{@code handlers.options[].annotations}</td></tr>
-     *   <tr><td>{@code return}</td><td>{@code handlers.options[].returnAnnotations}</td></tr>
+     *   <tr><td>{@code return}</td><td>{@code handlers.options[].returns.annotations}</td></tr>
      *   <tr><td>{@code parameter}</td><td>{@code params[].annotations}</td></tr>
      * </table>
      * This replaced the earlier reverse {@code appliesTo} list, which named service types rather than the
@@ -461,21 +552,28 @@ public record TriggerMetadataModel(
      * <table><caption>fields populated per kind</caption>
      *   <tr><th>{@code kind}</th><th>fields</th><th>addresses</th></tr>
      *   <tr><td>{@code identifier}</td><td>none</td><td>the identifier or base-path slot</td></tr>
-     *   <tr><td>{@code annotation}</td><td>{@code name}</td><td>an annotation as a whole</td></tr>
+     *   <tr><td>{@code annotation}</td><td>{@code id}</td><td>an annotation as a whole</td></tr>
      *   <tr><td>{@code annotationField}</td><td>{@code annotation}, {@code path}</td><td>one field inside
      *       an annotation</td></tr>
-     *   <tr><td>{@code handler}</td><td>{@code name}</td><td>a handler function</td></tr>
-     *   <tr><td>{@code param}</td><td>{@code handler}, {@code name}</td><td>one parameter of a handler</td></tr>
+     *   <tr><td>{@code handler}</td><td>{@code id}</td><td>a handler option</td></tr>
+     *   <tr><td>{@code param}</td><td>{@code id}</td><td>one parameter of a handler</td></tr>
      * </table>
      *
+     * <p><b>Addressed by id, never by name (the spec §6.1.1).</b> A {@code subset} handler's {@code name}
+     * would work, but an {@code addMode: "many"} option's is always {@code "*"} and so cannot tell one open
+     * shape from another on the same service type — {@code graphql} declares three. Rather than switch
+     * addressing scheme on {@code addMode}, both {@code handler} and {@code param} always use the
+     * construct's own hierarchical id, and a {@code param}'s id already scopes it under its handler so the
+     * old {@code handler}+{@code name} pair is redundant as well as ambiguous.
+     *
      * @param kind        the discriminator
-     * @param name        for {@code annotation} an annotation id ({@code $}-prefixed); for
-     *                    {@code handler} a handler name and for {@code param} a parameter name, neither of
-     *                    which is prefixed
+     * @param id          for {@code annotation}, an {@code annotations[].id}; for {@code handler}, a
+     *                    {@link ServiceType.HandlerOption#id()}; for {@code param}, a
+     *                    {@link ServiceType.Param#id()}. Always {@code $}-prefixed, and for the last two
+     *                    hierarchical
      * @param annotation  for {@code annotationField}, the annotation id the field lives in
      * @param path        for {@code annotationField}, the field path inside the annotation record. An
      *                    array, so a nested field such as {@code ["retryConfig", "maxCount"]} is reachable
-     * @param handler     for {@code param}, the handler the parameter belongs to
      * @param serviceType which service type this subject belongs to; defaults to the enclosing one, and is
      *                    required in a top-level rule
      * @param role        this subject's name within its rule. Asymmetric constraints fix the names
@@ -483,10 +581,9 @@ public record TriggerMetadataModel(
      *                    referenced by {@link Rule#prefer()}
      */
     public record Subject(String kind,
-                          String name,
+                          String id,
                           String annotation,
                           List<String> path,
-                          String handler,
                           String serviceType,
                           String role) {
 
@@ -496,20 +593,28 @@ public record TriggerMetadataModel(
         public static final String KIND_ANNOTATION = "annotation";
         /** One field inside an annotation. */
         public static final String KIND_ANNOTATION_FIELD = "annotationField";
-        /** A handler function. */
+        /** A handler option, addressed by its {@link ServiceType.HandlerOption#id()}. */
         public static final String KIND_HANDLER = "handler";
-        /** One parameter of a handler. */
+        /** One parameter of a handler, addressed by its own {@link ServiceType.Param#id()}. */
         public static final String KIND_PARAM = "param";
     }
 
     /**
-     * The spec — how a handler parameter's raw value may be projected into a different, user-defined type.
+     * The spec §9 — how a slot's value may be projected into a different, user-defined type.
      *
-     * <p>Written <b>inline on the parameter</b> it describes rather than in a top-level registry: a binding
+     * <p>Written <b>inline on the slot</b> it describes rather than in a top-level registry: a binding
      * describes one slot, so it carries no id and nothing references it.
      *
      * <p>Modeled on Ballerina's {@code typedesc<T>}: a user-suppliable type, bound by an upper constraint,
      * embedded into the declared type in one or more ways.
+     *
+     * <p><b>Two slots carry one, and the shape is identical because the idea is.</b> On a
+     * {@link ServiceType.Param} it reads <i>inbound</i> — the wire payload is converted into the declared
+     * type, as kafka's {@code records} projects each batch entry's value. On a
+     * {@link ServiceType.ReturnSpec} it reads <i>outbound</i> (§9.1) — the declared return type is
+     * converted out to wire form, as an HTTP resource's {@code anydata} branch is serialized into the
+     * response body. Both are the same fact: a declared type narrower than a builtin constraint that the
+     * runtime converts on the way past.
      *
      * @param typedescs independent variants that share nothing; never empty
      */

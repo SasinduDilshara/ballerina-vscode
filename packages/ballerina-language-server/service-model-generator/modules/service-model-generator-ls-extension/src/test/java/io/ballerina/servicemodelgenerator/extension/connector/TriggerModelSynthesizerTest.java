@@ -123,6 +123,7 @@ public class TriggerModelSynthesizerTest {
     private TriggerMetadataModel authoringModel() {
         TypeRef listenerType = new TypeRef("Listener", null);
         TriggerMetadataModel.Listener listener = new TriggerMetadataModel.Listener(
+                "$listener", "Dispatches each inbound event to the attached service.",
                 listenerType, null, List.of("service"), null, null, null, null);
 
         TriggerMetadataModel.ServiceType.Handlers handlers =
@@ -133,7 +134,8 @@ public class TriggerModelSynthesizerTest {
         // fixture was written against the reverse form; every one of the ten corpus documents that declares a
         // service-pointed annotation references it exactly like this.
         TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType(
-                "service", new TypeRef("Service", null), true, false, null, List.of("serviceConfig"), null,
+                "service", "Receives each inbound event.",
+                new TypeRef("Service", null), true, false, null, List.of("serviceConfig"), null,
                 handlers, null);
 
         // Deliberately mirrors the real SMB shape that exposed the bug: the annotation's own declared
@@ -325,6 +327,7 @@ public class TriggerModelSynthesizerTest {
     public void testDataBindingParamComposition() {
         TypeRef listenerType = new TypeRef("Listener", null);
         TriggerMetadataModel.Listener listener = new TriggerMetadataModel.Listener(
+                "$listener", "Polls the subscribed topics and dispatches each batch.",
                 listenerType, null, List.of("service"), null, null, null, null);
 
         // The spec writes the binding INLINE on the parameter — there is no registry id to resolve, so the
@@ -337,15 +340,22 @@ public class TriggerModelSynthesizerTest {
                                 TriggerMetadataModel.Shape.FORM_INCLUDED,
                                 new TypeRef("AnydataConsumerRecord", null), List.of("value"), null)))));
         TriggerMetadataModel.ServiceType.Param recordsParam = new TriggerMetadataModel.ServiceType.Param(
-                "records", null, null, null, "required", null, recordsBinding, null);
-        TriggerMetadataModel.ServiceType.HandlerOption option = new TriggerMetadataModel.ServiceType.HandlerOption(
-                "onConsumerRecord", TriggerMetadataModel.ServiceType.HandlerOption.KIND_REMOTE, null, null, null,
-                "required", null, null, List.of(recordsParam),
+                "$service.onConsumerRecord.records", "records", null, null, null, "required", null,
+                recordsBinding, null);
+        // The spec §5.4 groups the return into its own object, so the union sits under `type` beside the
+        // return's own id.
+        TriggerMetadataModel.ServiceType.ReturnSpec returns = new TriggerMetadataModel.ServiceType.ReturnSpec(
+                "$service.onConsumerRecord.returns",
                 List.of(new TypeRef("error", null), new TypeRef("()", null)), null, null);
+        TriggerMetadataModel.ServiceType.HandlerOption option = new TriggerMetadataModel.ServiceType.HandlerOption(
+                "$service.onConsumerRecord", "onConsumerRecord",
+                TriggerMetadataModel.ServiceType.HandlerOption.KIND_REMOTE, null, null, null,
+                "required", null, List.of(recordsParam), returns, null, null);
         TriggerMetadataModel.ServiceType.Handlers handlers = new TriggerMetadataModel.ServiceType.Handlers(
                 false, List.of(option));
         TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType(
-                "service", new TypeRef("Service", null), false, false, null, null, null, handlers, null);
+                "service", "Consumes messages from the subscribed topics.",
+                new TypeRef("Service", null), false, false, null, null, null, handlers, null);
 
         TriggerMetadataModel authoring = new TriggerMetadataModel(null,
                 List.of(listener), List.of(serviceType), null, null);
@@ -392,6 +402,7 @@ public class TriggerModelSynthesizerTest {
     public void testCompositeTypeRefsRenderAsArraysAndStreams() {
         TypeRef listenerType = new TypeRef("Listener", null);
         TriggerMetadataModel.Listener listener = new TriggerMetadataModel.Listener(
+                "$listener", "Accepts connections and dispatches each frame.",
                 listenerType, null, List.of("service"), null, null, null, null);
 
         // websocket's binary-frame parameter: {"shape":"array","elementType":{"name":"byte"}}
@@ -406,17 +417,22 @@ public class TriggerModelSynthesizerTest {
                 List.of(new TypeRef("error", null), new TypeRef("()", null)));
 
         TriggerMetadataModel.ServiceType.Param dataParam = new TriggerMetadataModel.ServiceType.Param(
-                "data", null, null, List.of(byteArray), "required", null, null, null);
+                "$service.onBinaryMessage.data", "data", null, null, List.of(byteArray), "required", null,
+                null, null);
         TriggerMetadataModel.ServiceType.Param recordsParam = new TriggerMetadataModel.ServiceType.Param(
-                "records", null, null, List.of(recordArray), "required", null, null, null);
+                "$service.onBinaryMessage.records", "records", null, null, List.of(recordArray), "required",
+                null, null, null);
+        TriggerMetadataModel.ServiceType.ReturnSpec returns = new TriggerMetadataModel.ServiceType.ReturnSpec(
+                "$service.onBinaryMessage.returns", List.of(anydataStream), null, null);
         TriggerMetadataModel.ServiceType.HandlerOption option = new TriggerMetadataModel.ServiceType.HandlerOption(
-                "onBinaryMessage", TriggerMetadataModel.ServiceType.HandlerOption.KIND_REMOTE, null, null, null,
-                "required", null, null, List.of(dataParam, recordsParam),
-                List.of(anydataStream), null, null);
+                "$service.onBinaryMessage", "onBinaryMessage",
+                TriggerMetadataModel.ServiceType.HandlerOption.KIND_REMOTE, null, null, null,
+                "required", null, List.of(dataParam, recordsParam), returns, null, null);
         TriggerMetadataModel.ServiceType.Handlers handlers = new TriggerMetadataModel.ServiceType.Handlers(
                 false, List.of(option));
         TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType(
-                "service", new TypeRef("Service", null), false, false, null, null, null, handlers, null);
+                "service", "Receives each inbound message.",
+                new TypeRef("Service", null), false, false, null, null, null, handlers, null);
 
         TriggerMetadataModel authoring = new TriggerMetadataModel(null,
                 List.of(listener), List.of(serviceType), null, null);
@@ -455,6 +471,7 @@ public class TriggerModelSynthesizerTest {
     public void testStreamableDataBindingComposesFtpLikeComplexPayload() {
         TypeRef listenerType = new TypeRef("Listener", null);
         TriggerMetadataModel.Listener listener = new TriggerMetadataModel.Listener(
+                "$listener", "Polls the watched directory and dispatches each detected file.",
                 listenerType, null, List.of("service"), null, null, null, null);
 
         // ballerina/ftp's real onFileCsv binding: one variant bound by `anydata`, embedded either as an
@@ -467,15 +484,19 @@ public class TriggerModelSynthesizerTest {
                                 TriggerMetadataModel.Shape.FORM_BARE, null, null,
                                 List.of(new TypeRef("error", null), new TypeRef("()", null)))))));
         TriggerMetadataModel.ServiceType.Param contentParam = new TriggerMetadataModel.ServiceType.Param(
-                "content", null, null, null, "required", null, csvBinding, null);
+                "$service.onFileCsv.content", "content", null, null, null, "required", null, csvBinding, null);
+        TriggerMetadataModel.ServiceType.ReturnSpec returns = new TriggerMetadataModel.ServiceType.ReturnSpec(
+                "$service.onFileCsv.returns",
+                List.of(new TypeRef("error", null), new TypeRef("()", null)), null, null);
         TriggerMetadataModel.ServiceType.HandlerOption option = new TriggerMetadataModel.ServiceType.HandlerOption(
-                "onFileCsv", TriggerMetadataModel.ServiceType.HandlerOption.KIND_REMOTE, null, null, null, "required",
-                null, null, List.of(contentParam), List.of(new TypeRef("error", null), new TypeRef("()", null)), null,
-                null);
+                "$service.onFileCsv", "onFileCsv",
+                TriggerMetadataModel.ServiceType.HandlerOption.KIND_REMOTE, null, null, null, "required",
+                null, List.of(contentParam), returns, null, null);
         TriggerMetadataModel.ServiceType.Handlers handlers = new TriggerMetadataModel.ServiceType.Handlers(
                 false, List.of(option));
         TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType(
-                "service", new TypeRef("Service", null), false, false, null, null, null, handlers, null);
+                "service", "Receives each inbound message.",
+                new TypeRef("Service", null), false, false, null, null, null, handlers, null);
 
         TriggerMetadataModel authoring = new TriggerMetadataModel(null,
                 List.of(listener), List.of(serviceType), null, null);
@@ -532,22 +553,30 @@ public class TriggerModelSynthesizerTest {
     public void testOptionalNamedHandlerParamRendersAsFlagWithQualifiedType() {
         TypeRef listenerType = new TypeRef("Listener", null);
         TriggerMetadataModel.Listener listener = new TriggerMetadataModel.Listener(
+                "$listener", "Polls the watched share and dispatches each detected file.",
                 listenerType, null, List.of("service"), null, null, null, null);
 
         TriggerMetadataModel.ServiceType.Param contentParam = new TriggerMetadataModel.ServiceType.Param(
-                "content", null, null, List.of(new TypeRef("xml", null)), "required", null, null, null);
+                "$service.onFileXml.content", "content", null, null, List.of(new TypeRef("xml", null)),
+                "required", null, null, null);
         TriggerMetadataModel.ServiceType.Param callerParam = new TriggerMetadataModel.ServiceType.Param(
-                "caller", null, null, List.of(new TypeRef("Caller", null)), "optional", null, null, null);
+                "$service.onFileXml.caller", "caller", null, null, List.of(new TypeRef("Caller", null)),
+                "optional", null, null, null);
         TriggerMetadataModel.ServiceType.Param fileInfoParam = new TriggerMetadataModel.ServiceType.Param(
-                "fileInfo", null, null, List.of(new TypeRef("FileInfo", null)), "optional", null, null, null);
-        TriggerMetadataModel.ServiceType.HandlerOption option = new TriggerMetadataModel.ServiceType.HandlerOption(
-                "onFileXml", TriggerMetadataModel.ServiceType.HandlerOption.KIND_REMOTE, null, null, null, "required",
-                null, null, List.of(contentParam, callerParam, fileInfoParam),
+                "$service.onFileXml.fileInfo", "fileInfo", null, null, List.of(new TypeRef("FileInfo", null)),
+                "optional", null, null, null);
+        TriggerMetadataModel.ServiceType.ReturnSpec returns = new TriggerMetadataModel.ServiceType.ReturnSpec(
+                "$service.onFileXml.returns",
                 List.of(new TypeRef("error", null), new TypeRef("()", null)), null, null);
+        TriggerMetadataModel.ServiceType.HandlerOption option = new TriggerMetadataModel.ServiceType.HandlerOption(
+                "$service.onFileXml", "onFileXml",
+                TriggerMetadataModel.ServiceType.HandlerOption.KIND_REMOTE, null, null, null, "required",
+                null, List.of(contentParam, callerParam, fileInfoParam), returns, null, null);
         TriggerMetadataModel.ServiceType.Handlers handlers = new TriggerMetadataModel.ServiceType.Handlers(
                 false, List.of(option));
         TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType(
-                "service", new TypeRef("Service", null), false, false, null, null, null, handlers, null);
+                "service", "Receives files detected on the watched share.",
+                new TypeRef("Service", null), false, false, null, null, null, handlers, null);
         TriggerMetadataModel authoring = new TriggerMetadataModel(null,
                 List.of(listener), List.of(serviceType), null, null);
 
@@ -593,18 +622,24 @@ public class TriggerModelSynthesizerTest {
     public void testHandlerLevelAnnotationRendersAndEmits() {
         TypeRef listenerType = new TypeRef("Listener", null);
         TriggerMetadataModel.Listener listener = new TriggerMetadataModel.Listener(
+                "$listener", "Polls the watched share and dispatches each detected file.",
                 listenerType, null, List.of("service"), null, null, null, null);
 
         TriggerMetadataModel.ServiceType.Param contentParam = new TriggerMetadataModel.ServiceType.Param(
-                "content", null, null, List.of(new TypeRef("xml", null)), "required", null, null, null);
-        TriggerMetadataModel.ServiceType.HandlerOption option = new TriggerMetadataModel.ServiceType.HandlerOption(
-                "onFileXml", TriggerMetadataModel.ServiceType.HandlerOption.KIND_REMOTE, null, null, null, "required",
-                List.of("fnConfig"), null, List.of(contentParam),
+                "$service.onFileXml.content", "content", null, null, List.of(new TypeRef("xml", null)),
+                "required", null, null, null);
+        TriggerMetadataModel.ServiceType.ReturnSpec returns = new TriggerMetadataModel.ServiceType.ReturnSpec(
+                "$service.onFileXml.returns",
                 List.of(new TypeRef("error", null), new TypeRef("()", null)), null, null);
+        TriggerMetadataModel.ServiceType.HandlerOption option = new TriggerMetadataModel.ServiceType.HandlerOption(
+                "$service.onFileXml", "onFileXml",
+                TriggerMetadataModel.ServiceType.HandlerOption.KIND_REMOTE, null, null, null, "required",
+                List.of("fnConfig"), List.of(contentParam), returns, null, null);
         TriggerMetadataModel.ServiceType.Handlers handlers = new TriggerMetadataModel.ServiceType.Handlers(
                 false, List.of(option));
         TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType(
-                "service", new TypeRef("Service", null), false, false, null, null, null, handlers, null);
+                "service", "Receives files detected on the watched share.",
+                new TypeRef("Service", null), false, false, null, null, null, handlers, null);
 
         TriggerMetadataModel.Annotation fnAnnotation = new TriggerMetadataModel.Annotation(
                 "fnConfig", new TypeRef("FunctionConfig", null),
@@ -656,11 +691,13 @@ public class TriggerModelSynthesizerTest {
     public void testRecordTypedListenerParamRendersAsSingleRecordField() {
         TypeRef listenerType = new TypeRef("Listener", null);
         TriggerMetadataModel.Listener listener = new TriggerMetadataModel.Listener(
+                "$listener", "Watches the configured calendar and dispatches each change.",
                 listenerType, null, List.of("calendarService"), null, null, null, null);
         TriggerMetadataModel.ServiceType.Handlers handlers = new TriggerMetadataModel.ServiceType.Handlers(
                 true, List.of());
         TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType(
-                "calendarService", new TypeRef("CalendarService", null), true, true, null, null, null, handlers, null);
+                "calendarService", "Receives each calendar change event.",
+                new TypeRef("CalendarService", null), true, true, null, null, null, handlers, null);
         TriggerMetadataModel authoring = new TriggerMetadataModel(null,
                 List.of(listener), List.of(serviceType), null, null);
 

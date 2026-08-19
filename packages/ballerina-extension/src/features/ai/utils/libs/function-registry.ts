@@ -254,7 +254,8 @@ CRITICAL RULES:
 2. Your ONLY task is selection - include or exclude items, NEVER modify field values.
 3. Copy all field values EXACTLY as provided - preserve every character including backslashes and special characters.
 4. For resource functions: "accessor" and "paths" are SEPARATE fields - NEVER combine them.
-5. A library is relevant if ANY of its clients, functions, or services match the query. A service matches when its name, or ANY ONE of its handlers under "methods", is what the query needs. List each matching service under the library's "services" field, copying its "listener" and "name" verbatim; omit the services that do not match. If a library matches ONLY via its services, still include the library in the output with empty/omitted clients and functions.`;
+5. A library is relevant if ANY of its clients, functions, or services match the query. A service matches when its "doc" (what the service is for), its "listenerDoc" (how it is triggered), its name, or ANY ONE of its handlers under "methods", is what the query needs. List each matching service under the library's "services" field, copying its "listener" and "name" verbatim; omit the services that do not match. If a library matches ONLY via its services, still include the library in the output with empty/omitted clients and functions.
+6. "doc", "listenerDoc" and a handler's "doc" are evidence to reason over, never fields to copy: the response carries only "listener" and "name" for a service.`;
 
     const getLibUserPrompt = `You will be provided with a list of libraries, clients, and their functions, and a user query.
 

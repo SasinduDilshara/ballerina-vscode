@@ -17,6 +17,7 @@
 import * as assert from "assert";
 import {
     MAX_HANDLER_DOC_CHARS,
+    MAX_SERVICE_DOC_CHARS,
     MIN_SERVICES_TO_FILTER,
     hasNothingToSelect,
     selectServices,
@@ -180,6 +181,21 @@ function fixedService(
     } as Service;
 }
 
+/**
+ * The same service, with the spec §3 and §2 `doc` fields the 2026-08-19 revision made required.
+ *
+ * Applied on top of an existing fixture rather than woven into `fixedService`, so that every assertion
+ * written before the revision keeps testing a document that states neither — which is exactly the
+ * back-compatibility the omission rule promises.
+ */
+function withDocs(svc: Service, doc?: string, listenerDoc?: string): Service {
+    return {
+        ...svc,
+        ...(doc !== undefined ? { description: doc } : {}),
+        listener: { ...svc.listener, ...(listenerDoc !== undefined ? { description: listenerDoc } : {}) },
+    } as Service;
+}
+
 suite("library selection — toServiceRequestEntries", () => {
     test("sends the identity pair the response echoes back, verbatim", () => {
         const entries = toServiceRequestEntries([
@@ -251,6 +267,88 @@ suite("library selection — toServiceRequestEntries", () => {
     test("a library declaring no services sends the field absent, not empty", () => {
         assert.strictEqual(toServiceRequestEntries(undefined), undefined);
         assert.strictEqual(toServiceRequestEntries([]), undefined);
+    });
+
+    // ---- the spec's 2026-08-19 §2/§3 `doc`, as evidence for the selection model ----
+
+    test("sends the service type's own doc, which is what a query actually matches on", () => {
+        // Before this the model saw a bare type name. Thirty-two libraries name their service type
+        // `Service`, so the name told it nothing and the handler list carried the whole judgement.
+        const entries = toServiceRequestEntries([
+            withDocs(fixedService("kafka:Listener", "Service", [["onConsumerRecord"]]),
+                "Consumes records from the subscribed topics and dispatches each poll's batch.",
+                undefined),
+        ]);
+        assert.strictEqual(entries?.[0].doc,
+            "Consumes records from the subscribed topics and dispatches each poll's batch.");
+        assert.strictEqual(entries?.[0].listenerDoc, undefined);
+    });
+
+    test("sends the listener's doc too, because how a service is triggered is a separate question", () => {
+        const entries = toServiceRequestEntries([
+            withDocs(fixedService("file:Listener", "Service", []),
+                "Receives file system change events for the watched directory.",
+                "Polls the watched directory on its configured interval."),
+        ]);
+        assert.strictEqual(entries?.[0].doc,
+            "Receives file system change events for the watched directory.");
+        assert.strictEqual(entries?.[0].listenerDoc,
+            "Polls the watched directory on its configured interval.");
+    });
+
+    test("takes the first line only, as it does for a handler", () => {
+        const entries = toServiceRequestEntries([
+            withDocs(fixedService("x:Listener", "Service", []),
+                "What it is for.\nHow to write it, which the judgement does not need.",
+                "What it listens to.\nEverything else."),
+        ]);
+        assert.strictEqual(entries?.[0].doc, "What it is for.");
+        assert.strictEqual(entries?.[0].listenerDoc, "What it listens to.");
+    });
+
+    test("caps both, so one verbose document cannot dominate the request", () => {
+        const long = "x".repeat(MAX_SERVICE_DOC_CHARS + 50);
+        const entries = toServiceRequestEntries([
+            withDocs(fixedService("x:Listener", "Service", []), long, long),
+        ]);
+        assert.strictEqual(entries?.[0].doc?.length, MAX_SERVICE_DOC_CHARS);
+        assert.strictEqual(entries?.[0].listenerDoc?.length, MAX_SERVICE_DOC_CHARS);
+    });
+
+    test("the service cap is looser than the handler cap, because a service states one doc", () => {
+        // A handler doc is stated once per handler and `websocket` declares twelve; a service type's is
+        // stated once. The corpus's longest are 183 and 165 characters, so nothing in it is truncated.
+        assert.ok(MAX_SERVICE_DOC_CHARS > MAX_HANDLER_DOC_CHARS);
+    });
+
+    test("omits both keys when the document states neither, so a pre-revision document is unchanged", () => {
+        const entries = toServiceRequestEntries([
+            fixedService("kafka:Listener", "Service", [["onConsumerRecord"]]),
+        ]);
+        assert.deepStrictEqual(entries, [{
+            listener: "kafka:Listener", name: "Service", methods: [{ name: "onConsumerRecord" }],
+        }]);
+    });
+
+    test("a blank doc is treated as absent rather than sent empty", () => {
+        const entries = toServiceRequestEntries([
+            withDocs(fixedService("x:Listener", "Service", []), "   ", "\n"),
+        ]);
+        assert.deepStrictEqual(entries, [{ listener: "x:Listener", name: "Service" }]);
+    });
+
+    test("a generic service carries its docs too, since the fields are the service's own", () => {
+        const generic = {
+            type: "generic",
+            listener: { name: "http:Listener", parameters: [], description: "Serves HTTP requests." },
+            name: "Service",
+            description: "An HTTP service.",
+            instructions: "…",
+        } as Service;
+        assert.deepStrictEqual(toServiceRequestEntries([generic]), [{
+            listener: "http:Listener", name: "Service",
+            doc: "An HTTP service.", listenerDoc: "Serves HTTP requests.",
+        }]);
     });
 
     test("the entries a request states are re-resolvable by selectServices", () => {

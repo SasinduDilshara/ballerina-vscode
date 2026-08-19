@@ -594,7 +594,11 @@ public final class TriggerModelSynthesizer {
                 parameters.add(buildParameterFromAuthoring(param, authoring, moduleName));
             }
         }
-        TriggerUISchemaModel.ReturnType returnType = buildReturnTypeFromRefs(option.returns(), moduleName);
+        // The spec §5.4 made `returns` an object rather than a bare type-or-union, so the member list is a
+        // field inside it. A handler whose language form forbids a return clause states no object at all,
+        // which is a different thing from an empty union and reaches `buildReturnTypeFromRefs` as null.
+        TriggerUISchemaModel.ReturnType returnType = buildReturnTypeFromRefs(
+                option.returns() == null ? null : option.returns().type(), moduleName);
         Map<String, TriggerUISchemaModel.Property> properties = buildFunctionAnnotations(option.annotations(),
                 authoring, facts, identity);
 

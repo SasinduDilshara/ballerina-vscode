@@ -86,6 +86,10 @@ public final class TriggerMetadataGson {
      * <p>An unknown {@code shape} is carried through rather than rejected here, so that one unrecognised
      * node does not cost the whole document. Note that nothing currently reports it: the shape reaches
      * {@code TypeRefResolver}, which renders an unknown composite as the empty string.
+     *
+     * <p>A composite node carries no {@code builtin} or {@code subtypeFamily}: the spec puts both only
+     * alongside {@code name}, and the flags belong to the leaves the composite is built from, each of which
+     * is read by this same method one level down.
      */
     static TypeRef readNode(JsonElement element) {
         if (element == null || !element.isJsonObject()) {
@@ -107,7 +111,17 @@ public final class TriggerMetadataGson {
                     string(info, "org"), string(info, "packageName"),
                     string(info, "moduleName"), string(info, "version"));
         }
-        return new TypeRef(name, packageInfo);
+        // The spec §1.3/§1.4 make both `const: true` — absent, never `false` — so they are read as boxed
+        // booleans and stay null when the key is missing. Reading them as primitives would turn "the
+        // document said nothing" into "the document said no", which for `builtin` decides whether a leaf
+        // takes a module prefix.
+        return new TypeRef(name, packageInfo, bool(object, "builtin"), bool(object, "subtypeFamily"),
+                null, null, null);
+    }
+
+    /** An optional boolean flag: {@code null} when the key is absent, which is not the same as false. */
+    private static Boolean bool(JsonObject object, String key) {
+        return object.has(key) && object.get(key).isJsonPrimitive() ? object.get(key).getAsBoolean() : null;
     }
 
     /** The spec's one-or-many rule: a bare object is a singleton, an array is the union, in order. */

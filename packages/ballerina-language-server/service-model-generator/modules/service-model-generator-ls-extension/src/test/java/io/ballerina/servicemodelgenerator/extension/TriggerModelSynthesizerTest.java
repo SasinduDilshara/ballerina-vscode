@@ -35,9 +35,11 @@ import java.util.Optional;
  * multi-module shape (e.g. CDC's own listener module plus a shared service-type module) can be tested
  * without a real {@code .bala}.
  *
- * <p>The fixtures are built against Trigger Construct Spec v1.0 (m2): {@code ServiceType} no longer carries
- * {@code multipleServicesPerListenerAllowed}, and {@code addMode} moved off {@code Handlers} onto the
- * individual {@code HandlerOption} (the spec), so neither appears in the constructor calls below.
+ * <p>The fixtures are built against Trigger Construct Spec v1.0 as last revised 2026-08-19:
+ * {@code ServiceType} no longer carries {@code multipleServicesPerListenerAllowed}, {@code addMode} moved
+ * off {@code Handlers} onto the individual {@code HandlerOption}, and every construct a rule can point back
+ * into now carries an {@code id} while {@code Listener} and {@code ServiceType} additionally carry a
+ * required {@code doc}.
  */
 public class TriggerModelSynthesizerTest {
 
@@ -50,13 +52,15 @@ public class TriggerModelSynthesizerTest {
                 new TypeRef.PackageInfo("ballerinax", "mssql.cdc.driver", "mssql.cdc.driver", "1.0.2");
 
         TriggerMetadataModel.Listener listener = new TriggerMetadataModel.Listener(
+                "$listener", "Streams row change events captured from the configured tables.",
                 new TypeRef("CdcListener", null), null,
                 List.of("service"), null, null,
                 List.of(new TriggerMetadataModel.RequiredImport(
                         TriggerMetadataModel.RequiredImport.IMPORT_TYPE_DRIVER, driverModule)), null);
 
         TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType(
-                "service", new TypeRef("Service", cdcModule), false, true, null, null, null,
+                "service", "Receives each captured row change.",
+                new TypeRef("Service", cdcModule), false, true, null, null, null,
                 new TriggerMetadataModel.ServiceType.Handlers(false, List.of()),
                 List.of());
 
@@ -87,9 +91,11 @@ public class TriggerModelSynthesizerTest {
             + "module) needs no extra imports.")
     public void testNoImportStatementsWhenEverythingIsSelfModule() {
         TriggerMetadataModel.Listener listener = new TriggerMetadataModel.Listener(
+                "$listener", "Polls the broker and dispatches each message.",
                 new TypeRef("Listener", null), null, List.of("service"), null, null, List.of(), null);
         TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType(
-                "service", new TypeRef("Service", null), false, false, null, null, null,
+                "service", "Consumes messages from the subscribed topics.",
+                new TypeRef("Service", null), false, false, null, null, null,
                 new TriggerMetadataModel.ServiceType.Handlers(false, List.of()),
                 List.of());
         TriggerMetadataModel authoring =
