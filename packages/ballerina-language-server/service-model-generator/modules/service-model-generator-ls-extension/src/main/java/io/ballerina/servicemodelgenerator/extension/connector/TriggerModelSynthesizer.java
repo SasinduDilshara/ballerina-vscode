@@ -829,11 +829,10 @@ public final class TriggerModelSynthesizer {
     }
 
     private static TriggerUISchemaModel.ReturnType buildReturnTypeFromRefs(List<TypeRef> refs, String moduleName) {
-        // Shares `renderUnion` with the parameter path, so a composite return -- graphql's subscription
-        // `{"shape":"stream", ...}` is the corpus instance -- renders as `stream<anydata, error?>` rather than
-        // as the text `null`, and an unrenderable member is dropped instead of joined.
-        String joined = renderUnion(refs, moduleName);
-        if (joined.isEmpty()) {
+        // Rendered through the shared renderer, as the parameter path is, so a composite return -- graphql's
+        // subscription `{"shape":"stream", ...}` is the corpus instance -- renders as
+        // `stream<anydata, error?>` rather than as the text `null`.
+        if (refs == null || refs.isEmpty()) {
             return buildReturnType(null, false);
         }
         String rendered = renderTypeRef(refs, moduleName);

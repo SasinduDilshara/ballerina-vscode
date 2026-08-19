@@ -183,7 +183,7 @@ public final class TypeRefResolver {
         if (ref == null) {
             return "";
         }
-        if (ref.isComposite()) {
+        if (!ref.isNamed()) {
             return renderComposite(ref, homePackageName, declaredByHomeModule);
         }
         if (ref.name() == null) {

@@ -19,6 +19,9 @@
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
+import io.ballerina.modelgenerator.commons.trigger.models.TypeRef;
+
+import java.util.List;
 
 /**
  * The handler tier of the spec: everything written on one {@code remote}/{@code resource function} line
@@ -150,8 +153,17 @@ final class HandlerAspects {
         TriggerScope service = scope.service();
         String signature = scope.isConcrete()
                 ? scope.declared().returnTypeSignature()
-                : TypeShapeRules.signature(scope.option().returns(), service.packageName(),
+                : TypeShapeRules.signature(returnTypes(scope.option()), service.packageName(),
                         service.declaresType());
         TypeShapeRules.resolveReturn(signature, service.packageName()).ifPresent(draft::setReturn);
+    }
+
+    /**
+     * The spec wraps a handler's return in a {@code returns} object carrying its own id alongside the type
+     * union; only the union reaches a signature.
+     */
+    private static List<TypeRef> returnTypes(TriggerMetadataModel.ServiceType.HandlerOption option) {
+        TriggerMetadataModel.ServiceType.ReturnSpec returns = option == null ? null : option.returns();
+        return returns == null || returns.type() == null ? List.of() : returns.type();
     }
 }

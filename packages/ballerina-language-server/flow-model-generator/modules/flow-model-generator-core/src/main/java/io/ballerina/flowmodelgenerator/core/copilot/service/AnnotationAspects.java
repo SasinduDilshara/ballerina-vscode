@@ -20,6 +20,8 @@ package io.ballerina.flowmodelgenerator.core.copilot.service;
 
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 
+import java.util.List;
+
 /**
  * The spec {@code annotations[]} at all four attach points: which annotations generated code must or may
  * carry, on the service, on a handler, on a handler parameter, and on a handler's return.
@@ -125,7 +127,8 @@ final class AnnotationAspects {
 
     /**
      * The spec at {@code attachPoint: "return"} — reached by id from
-     * {@code handlers.options[].returnAnnotations}.
+     * {@code handlers.options[].returns.annotations}, which the document groups with the return's own id and
+     * data binding rather than keeping alongside the handler's declaration-level annotations.
      *
      * <p>Runs in the handler tier because the return slot belongs to a handler, and is resolved
      * <b>per handler</b>: selection used to be by attach point, which is a document-wide question, so every
@@ -141,7 +144,7 @@ final class AnnotationAspects {
         TriggerScope service = scope.service();
         AnnotationScopeResolver.Resolution resolution = AnnotationScopeResolver.byIds(
                 service.annotations(),
-                scope.option() == null ? null : scope.option().returnAnnotations(),
+                returnAnnotationIds(scope.option()),
                 AnnotationScopeResolver.Scope.RETURN,
                 service.homeModule(), AnnotationScopeResolver.factsOf(service.facts()));
         if (resolution.refs().isEmpty() && resolution.rejections().isEmpty()) {
@@ -149,6 +152,12 @@ final class AnnotationAspects {
         }
         report(resolution, draft, "returnAnnotation");
         draft.setReturnAnnotationRefs(AnnotationRefWriter.write(resolution.refs(), service.packageName()));
+    }
+
+    /** The return's annotation ids, which the document carries on the {@code returns} object itself. */
+    private static List<String> returnAnnotationIds(TriggerMetadataModel.ServiceType.HandlerOption option) {
+        TriggerMetadataModel.ServiceType.ReturnSpec returns = option == null ? null : option.returns();
+        return returns == null ? null : returns.annotations();
     }
 
     private static void report(AnnotationScopeResolver.Resolution resolution, ServiceDraft draft, String id) {

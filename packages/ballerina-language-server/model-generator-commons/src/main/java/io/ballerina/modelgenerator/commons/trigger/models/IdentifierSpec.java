@@ -16,7 +16,7 @@
  *  under the License.
  */
 
-package io.ballerina.flowmodelgenerator.core.copilot.model;
+package io.ballerina.modelgenerator.commons.trigger.models;
 
 import java.util.List;
 

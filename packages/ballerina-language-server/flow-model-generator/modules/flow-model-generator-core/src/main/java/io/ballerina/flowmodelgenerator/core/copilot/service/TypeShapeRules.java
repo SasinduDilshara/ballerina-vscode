@@ -89,9 +89,9 @@ final class TypeShapeRules {
      * @param envelopeFields the declared field names of a record, by bare type name
      * @return the resolved shape, or {@code null} when the entry names no form and so states nothing
      */
-    static BindingShape resolveShape(TriggerMetadataModel.Shape shape, String packageName,
-                                 Predicate<String> declaresType,
-                                 Function<String, List<String>> envelopeFields) {
+    static BindingShape resolveShape(TriggerMetadataModel.ServiceType.Shape shape, String packageName,
+                                     Predicate<String> declaresType,
+                                     Function<String, List<String>> envelopeFields) {
         if (shape == null || shape.form() == null || shape.form().isBlank()) {
             return null;
         }
@@ -198,14 +198,15 @@ final class TypeShapeRules {
      * @param envelopeFields the declared field names of a record, by bare type name
      * @return the resolved binding, or empty when it states nothing a consumer can act on
      */
-    static Optional<ParamBinding> resolveBinding(TriggerMetadataModel.DataBinding binding, String packageName,
-                                         Predicate<String> declaresType,
-                                         Function<String, List<String>> envelopeFields) {
+    static Optional<ParamBinding> resolveBinding(TriggerMetadataModel.ServiceType.DataBinding binding,
+                                                 String packageName,
+                                                 Predicate<String> declaresType,
+                                                 Function<String, List<String>> envelopeFields) {
         if (binding == null || binding.typedescs() == null || binding.typedescs().isEmpty()) {
             return Optional.empty();
         }
         List<TypedescVariant> variants = new ArrayList<>();
-        for (TriggerMetadataModel.TypedescVariant variant : binding.typedescs()) {
+        for (TriggerMetadataModel.ServiceType.TypedescVariant variant : binding.typedescs()) {
             if (variant == null) {
                 continue;
             }
@@ -215,7 +216,7 @@ final class TypeShapeRules {
                 continue;
             }
             List<BindingShape> shapes = new ArrayList<>();
-            for (TriggerMetadataModel.Shape shape : safeShapes(variant)) {
+            for (TriggerMetadataModel.ServiceType.Shape shape : safeShapes(variant)) {
                 BindingShape resolved =
                         resolveShape(shape, packageName, declaresType, envelopeFields);
                 if (resolved != null) {
@@ -246,7 +247,8 @@ final class TypeShapeRules {
         return Optional.of(resolved);
     }
 
-    private static List<TriggerMetadataModel.Shape> safeShapes(TriggerMetadataModel.TypedescVariant variant) {
+    private static List<TriggerMetadataModel.ServiceType.Shape> safeShapes(
+            TriggerMetadataModel.ServiceType.TypedescVariant variant) {
         return variant.shapes() == null ? List.of() : variant.shapes();
     }
 

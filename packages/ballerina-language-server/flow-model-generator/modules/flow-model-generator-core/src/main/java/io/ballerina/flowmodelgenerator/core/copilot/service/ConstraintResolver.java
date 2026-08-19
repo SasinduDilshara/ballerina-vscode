@@ -342,13 +342,13 @@ final class ConstraintResolver {
                 case TriggerMetadataModel.Subject.KIND_IDENTIFIER ->
                         new Subject.Identifier(subject.role(), owner.name(), owner.id());
                 case TriggerMetadataModel.Subject.KIND_ANNOTATION ->
-                        annotationSubject(libraryName, rule, subject.name(), null, subject.role(),
+                        annotationSubject(libraryName, rule, subject.id(), null, subject.role(),
                                 annotations, owner);
                 case TriggerMetadataModel.Subject.KIND_ANNOTATION_FIELD ->
                         annotationSubject(libraryName, rule, subject.annotation(),
                                 nonEmpty(subject.path()), subject.role(), annotations, owner);
                 case TriggerMetadataModel.Subject.KIND_HANDLER ->
-                        handlerSubject(libraryName, rule, subject.name(), subject.role(),
+                        handlerSubject(libraryName, rule, lastSegment(subject.id()), subject.role(),
                                 handlerNames, owner);
                 case TriggerMetadataModel.Subject.KIND_PARAM ->
                         paramSubject(libraryName, rule, subject, handlerNames, owner);
@@ -406,20 +406,36 @@ final class ConstraintResolver {
     private static Subject paramSubject(String libraryName, TriggerMetadataModel.Rule rule,
                                         TriggerMetadataModel.Subject subject,
                                         Set<String> declaredHandlerNames, Attribution owner) {
-        if (subject.handler() == null || subject.handler().isBlank()
-                || subject.name() == null || subject.name().isBlank()) {
+        String[] segments = segments(subject.id());
+        if (segments.length < 2) {
             LOGGER.warning("Dropped subject of rule '" + rule.id() + "' for " + libraryName
-                    + ": a param subject needs both `handler` and `name`");
+                    + ": a param subject's `id` must name both its handler and the parameter");
             return null;
         }
-        if (declaredHandlerNames != null && !declaredHandlerNames.contains(subject.handler())) {
+        String handler = segments[segments.length - 2];
+        String name = segments[segments.length - 1];
+        if (declaredHandlerNames != null && !declaredHandlerNames.contains(handler)) {
             LOGGER.warning("Dropped subject of rule '" + rule.id() + "' for " + libraryName
-                    + ": handler '" + subject.handler() + "' is not declared by "
+                    + ": handler '" + handler + "' is not declared by "
                     + (owner.name() == null ? "this service type" : "service type '" + owner.name() + "'"));
             return null;
         }
-        return new Subject.Param(subject.handler(), subject.name(), subject.role(), owner.name(),
-                owner.id());
+        return new Subject.Param(handler, name, subject.role(), owner.name(), owner.id());
+    }
+
+    /**
+     * A handler's and a param's {@code id} is hierarchical — {@code $serviceType.handler[.param]} — because
+     * a {@code many} option is always named {@code "*"} and so a bare name could not disambiguate. The
+     * resolved subjects carry the names a reader writes, so the id is split back into them here.
+     */
+    private static String[] segments(String id) {
+        return id == null || id.isBlank() ? new String[0] : id.split("\\.");
+    }
+
+    /** The construct's own name: the last segment of its hierarchical id. */
+    private static String lastSegment(String id) {
+        String[] segments = segments(id);
+        return segments.length == 0 ? null : segments[segments.length - 1];
     }
 
     /**

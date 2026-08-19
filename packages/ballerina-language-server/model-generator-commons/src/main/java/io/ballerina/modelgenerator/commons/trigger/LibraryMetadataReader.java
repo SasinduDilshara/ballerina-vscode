@@ -239,7 +239,8 @@ public final class LibraryMetadataReader {
         }
     }
 
-    private Optional<TriggerMetadataModel> readTriggerMetadataModel(Path packageRoot) {
+    /** Package-private rather than private: the reader's own tests drive it from a package root directly. */
+    Optional<TriggerMetadataModel> readTriggerMetadataModel(Path packageRoot) {
         return readResourceFile(packageRoot, TRIGGER_METADATA_RESOURCE_PATH).flatMap(json -> {
             try {
                 TriggerMetadataModel model = TriggerMetadataGson.instance().fromJson(json, TriggerMetadataModel.class);

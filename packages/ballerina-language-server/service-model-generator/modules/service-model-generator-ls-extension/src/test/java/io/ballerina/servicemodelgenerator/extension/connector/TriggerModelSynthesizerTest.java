@@ -338,12 +338,6 @@ public class TriggerModelSynthesizerTest {
         // The spec writes the binding INLINE on the parameter — there is no registry id to resolve, so the
         // whole "dangling dataBinding reference" failure mode is gone. This mirrors ballerinax/kafka's real
         // document: one variant bound by `anydata`, embedded as an ARRAY whose elements INCLUDE the envelope.
-        TriggerMetadataModel.DataBinding recordsBinding = new TriggerMetadataModel.DataBinding(List.of(
-                new TriggerMetadataModel.TypedescVariant(new TypeRef("anydata", null), null,
-                        List.of(new TriggerMetadataModel.Shape(
-                                TriggerMetadataModel.Shape.FORM_ARRAY,
-                                TriggerMetadataModel.Shape.FORM_INCLUDED,
-                                new TypeRef("AnydataConsumerRecord", null), List.of("value"), null)))));
         TriggerMetadataModel.ServiceType.Param recordsParam = new TriggerMetadataModel.ServiceType.Param(
                 "$service.onConsumerRecord.records", "records", "The polled batch.", null, null, "required", null,
                 binding, null);
@@ -406,34 +400,42 @@ public class TriggerModelSynthesizerTest {
     public void testCompositeTypeRefsRenderAsArraysAndStreams() {
         TypeRef listenerType = new TypeRef("Listener", null);
         TriggerMetadataModel.Listener listener = new TriggerMetadataModel.Listener(
-                listenerType, null, List.of("service"), null, null, null, null);
+                "$listener", "Listens for events.",
+                listenerType, null, List.of("$service"), false, null, null, null);
 
         // websocket's binary-frame parameter: {"shape":"array","elementType":{"name":"byte"}}
-        TypeRef byteArray = new TypeRef(null, null, TypeRef.SHAPE_ARRAY,
+        TypeRef byteArray = new TypeRef(null, null, null, null, TypeRef.SHAPE_ARRAY,
                 List.of(new TypeRef("byte", null)), null);
         // A home-module element, to pin that leaf qualification is unchanged by the delegation.
-        TypeRef recordArray = new TypeRef(null, null, TypeRef.SHAPE_ARRAY,
+        TypeRef recordArray = new TypeRef(null, null, null, null, TypeRef.SHAPE_ARRAY,
                 List.of(new TypeRef("AnydataConsumerRecord", null)), null);
-        // graphql's subscription return: stream<anydata, error?>, the nilable member written as an explicit ().
-        TypeRef anydataStream = new TypeRef(null, null, TypeRef.SHAPE_STREAM,
+        // graphql's subscription return: a stream whose completion type is the union `error|()`, which the
+        // spec writes as an explicit `()` member rather than a nilable flag.
+        TypeRef anydataStream = new TypeRef(null, null, null, null, TypeRef.SHAPE_STREAM,
                 List.of(new TypeRef("anydata", null)),
                 List.of(new TypeRef("error", null), new TypeRef("()", null)));
 
         TriggerMetadataModel.ServiceType.Param dataParam = new TriggerMetadataModel.ServiceType.Param(
-                "data", null, null, List.of(byteArray), "required", null, null, null);
+                "$service.onBinaryMessage.data", "data", null, null, List.of(byteArray), "required", null, null,
+                null);
         TriggerMetadataModel.ServiceType.Param recordsParam = new TriggerMetadataModel.ServiceType.Param(
-                "records", null, null, List.of(recordArray), "required", null, null, null);
+                "$service.onBinaryMessage.records", "records", null, null, List.of(recordArray), "required", null,
+                null, null);
+        TriggerMetadataModel.ServiceType.ReturnSpec returns = new TriggerMetadataModel.ServiceType.ReturnSpec(
+                "$service.onBinaryMessage.returns", List.of(anydataStream), null, null);
         TriggerMetadataModel.ServiceType.HandlerOption option = new TriggerMetadataModel.ServiceType.HandlerOption(
-                "onBinaryMessage", TriggerMetadataModel.ServiceType.HandlerOption.KIND_REMOTE, null, null, null,
-                "required", null, null, List.of(dataParam, recordsParam),
-                List.of(anydataStream), null, null);
+                "$service.onBinaryMessage", "onBinaryMessage",
+                TriggerMetadataModel.ServiceType.HandlerOption.KIND_REMOTE, null,
+                "Invoked with each binary frame.", null, "required", null,
+                List.of(dataParam, recordsParam), returns, null, null);
         TriggerMetadataModel.ServiceType.Handlers handlers = new TriggerMetadataModel.ServiceType.Handlers(
                 false, List.of(option));
         TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType(
-                "service", new TypeRef("Service", null), false, false, null, null, null, handlers, null);
+                "$service", "A service.", new TypeRef("Service", null), null, false, false, null, null, handlers,
+                null);
 
-        TriggerMetadataModel authoring = new TriggerMetadataModel(null,
-                List.of(listener), List.of(serviceType), null, null);
+        TriggerMetadataModel authoring = new TriggerMetadataModel(
+                "v1.0", List.of(listener), List.of(serviceType), null, null);
 
         TriggerLibraryFacts.Listener listenerFacts = new TriggerLibraryFacts.Listener("Listener", List.of());
         TriggerLibraryFacts facts = new TriggerLibraryFacts(List.of(listenerFacts), List.of(), List.of());
@@ -447,8 +449,8 @@ public class TriggerModelSynthesizerTest {
                 "a composite array TypeRef must render as `byte[]`, never as the text `null`");
         Assert.assertEquals(fn.parameters().get(1).type().value(), "kafka:AnydataConsumerRecord[]",
                 "a composite's home-module element keeps the module alias it has at the top level");
-        Assert.assertEquals(fn.returnType().type(), "stream<anydata, error?>",
-                "a composite stream return renders its element and its nilable completion type");
+        Assert.assertEquals(fn.returnType().type(), "stream<anydata, error|()>",
+                "a composite stream return renders its element and its completion-type union");
         Assert.assertTrue(fn.returnType().hasError(),
                 "the completion type carries `error`, so the handler still reports it can fail");
     }
@@ -483,13 +485,6 @@ public class TriggerModelSynthesizerTest {
 
         // ballerina/ftp's real onFileCsv binding: one variant bound by `anydata`, embedded either as an
         // array of bare values or as a stream of them. The stream shape is what makes the UX composed.
-        TriggerMetadataModel.DataBinding csvBinding = new TriggerMetadataModel.DataBinding(List.of(
-                new TriggerMetadataModel.TypedescVariant(new TypeRef("anydata", null), null, List.of(
-                        new TriggerMetadataModel.Shape(TriggerMetadataModel.Shape.FORM_ARRAY,
-                                TriggerMetadataModel.Shape.FORM_BARE, null, null, null),
-                        new TriggerMetadataModel.Shape(TriggerMetadataModel.Shape.FORM_STREAM,
-                                TriggerMetadataModel.Shape.FORM_BARE, null, null,
-                                List.of(new TypeRef("error", null), new TypeRef("()", null)))))));
         TriggerMetadataModel.ServiceType.Param contentParam = new TriggerMetadataModel.ServiceType.Param(
                 "$service.onFileCsv.content", "content", "The parsed rows.", null, null, "required", null,
                 binding, null);

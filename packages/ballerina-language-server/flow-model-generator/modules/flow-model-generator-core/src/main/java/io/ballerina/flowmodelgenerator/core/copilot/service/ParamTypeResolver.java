@@ -143,8 +143,8 @@ final class ParamTypeResolver {
                 }
             }
         }
-        if (option.returns() != null) {
-            for (TypeRef ref : option.returns()) {
+        if (option.returns() != null && option.returns().type() != null) {
+            for (TypeRef ref : option.returns().type()) {
                 if (isUndeclaredBareUserType(ref, declaresType)) {
                     return true;
                 }

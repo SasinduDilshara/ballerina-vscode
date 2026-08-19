@@ -25,7 +25,7 @@ import io.ballerina.flowmodelgenerator.core.copilot.model.Parameter;
 import io.ballerina.flowmodelgenerator.core.copilot.model.PlatformDependency;
 import io.ballerina.flowmodelgenerator.core.copilot.model.RequiredImport;
 import io.ballerina.flowmodelgenerator.core.copilot.model.ServiceIdentifier;
-import io.ballerina.modelgenerator.commons.trigger.models.PresenceForm;
+import io.ballerina.modelgenerator.commons.trigger.models.IdentifierSpec;
 import io.ballerina.modelgenerator.commons.trigger.utils.TypeRefResolver;
 
 import java.util.ArrayList;
@@ -206,7 +206,7 @@ final class ServiceAspects {
         ServiceRules.resolveIdentifier(scope.serviceType().identifier()).ifPresent(slot -> {
             ServiceIdentifier identifier = new ServiceIdentifier();
             identifier.setPresence(slot.required()
-                    ? PresenceForm.PRESENCE_REQUIRED : PresenceForm.PRESENCE_OPTIONAL);
+                    ? IdentifierSpec.PRESENCE_REQUIRED : IdentifierSpec.PRESENCE_OPTIONAL);
             identifier.setForm(List.copyOf(slot.forms()));
             draft.setIdentifier(identifier);
         });

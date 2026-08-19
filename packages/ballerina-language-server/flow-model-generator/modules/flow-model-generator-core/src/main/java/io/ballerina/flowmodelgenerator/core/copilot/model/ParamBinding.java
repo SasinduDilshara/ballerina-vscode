@@ -21,16 +21,22 @@ package io.ballerina.flowmodelgenerator.core.copilot.model;
 import java.util.List;
 
 /**
- * Requiredness plus legal shapes for a service type's {@code identifier} slot.
+ * The data-binding rule a handler parameter's {@code dataBinding} id names — the spec.
  *
- * @param presence required or optional
- * @param form the legal shapes for the slot
+ * @since 1.7.0
  */
-public record IdentifierSpec(String presence, List<String> form) {
+public class ParamBinding {
 
-    public static final String PRESENCE_REQUIRED = "required";
-    public static final String PRESENCE_OPTIONAL = "optional";
+    private List<TypedescVariant> typedescs;
 
-    public static final String FORM_BASE_PATH = "basePath";
-    public static final String FORM_STRING_LITERAL = "stringLiteral";
+    public ParamBinding() {
+    }
+
+    public List<TypedescVariant> getTypedescs() {
+        return typedescs;
+    }
+
+    public void setTypedescs(List<TypedescVariant> typedescs) {
+        this.typedescs = typedescs;
+    }
 }

@@ -18,7 +18,7 @@
 
 package io.ballerina.flowmodelgenerator.core.copilot.service;
 
-import io.ballerina.modelgenerator.commons.trigger.models.PresenceForm;
+import io.ballerina.modelgenerator.commons.trigger.models.IdentifierSpec;
 import io.ballerina.modelgenerator.commons.trigger.models.TriggerMetadataModel;
 import io.ballerina.modelgenerator.commons.trigger.models.TypeRef;
 import io.ballerina.modelgenerator.commons.trigger.utils.TypeRefResolver;
@@ -90,7 +90,7 @@ final class ServiceRules {
      * The identifier slot between {@code service} and {@code on new …}, or empty when the connector does
      * not consult it — which is what a document stating no usable form means.
      */
-    static Optional<IdentifierSlot> resolveIdentifier(PresenceForm identifier) {
+    static Optional<IdentifierSlot> resolveIdentifier(IdentifierSpec identifier) {
         if (identifier == null) {
             return Optional.empty();
         }
@@ -102,7 +102,7 @@ final class ServiceRules {
             return Optional.empty();
         }
         return Optional.of(new IdentifierSlot(
-                PresenceForm.PRESENCE_REQUIRED.equals(identifier.presence()), forms));
+                IdentifierSpec.PRESENCE_REQUIRED.equals(identifier.presence()), forms));
     }
 
     // ---- required imports -------------------------------------------------------------------------

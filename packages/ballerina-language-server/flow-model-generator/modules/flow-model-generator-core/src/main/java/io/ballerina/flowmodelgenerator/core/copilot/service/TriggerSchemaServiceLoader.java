@@ -28,7 +28,6 @@ import io.ballerina.projects.Package;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.logging.Logger;
@@ -79,27 +78,6 @@ final class TriggerSchemaServiceLoader {
     private static final Logger LOGGER = Logger.getLogger(TriggerSchemaServiceLoader.class.getName());
 
     private static final String DEFAULT_ORG = "ballerinax";
-
-    /**
-     * Module keys for the LS-bundled {@code trigger-metadata-models/<key>/trigger-metadata.json}
-     * documents, keyed by library name. <em>Not</em> an allowlist: a library whose package ships its own
-     * {@code resources/trigger-metadata.json} is served without appearing here, and one absent from this
-     * map still resolves a bundled document filed under its bare package name. It maps only the libraries
-     * whose bundled document is filed under a name the library does not carry — {@code ballerinax/mssql}
-     * maps to the {@code mssql.cdc} document, whose listener ({@code CdcListener}) and handler set are
-     * validated against the actually resolved {@code mssql} package before use.
-     */
-    static final Map<String, String> BUNDLED_METADATA_KEYS = Map.of(
-            "ballerinax/kafka", "kafka",
-            "ballerinax/rabbitmq", "rabbitmq",
-            "ballerina/ftp", "ftp",
-            "ballerina/mcp", "mcp",
-            "ballerinax/mssql", "mssql.cdc",
-            "ballerinax/trigger.github", "trigger.github",
-            // Net-new to the Copilot: these were never in the SQLite service-index.
-            "ballerina/smb", "smb",
-            "ballerina/websub", "websub",
-            "ballerinax/trigger.google.calendar", "trigger.google.calendar");
 
     /** The spec major this build implements. A new major is structural, so it cannot be read as this one. */
     private static final int SUPPORTED_SPEC_MAJOR = 1;
@@ -171,7 +149,7 @@ final class TriggerSchemaServiceLoader {
         // after that point is a failure to *process* a document that exists, not an absence of metadata.
         boolean documentResolved = false;
         try {
-            Optional<TriggerMetadataModel> resolution = resolveMetadata(libraryName, org, packageName, pkg);
+            Optional<TriggerMetadataModel> resolution = resolveMetadata(org, packageName, pkg);
             documentResolved = resolution.isPresent();
             if (resolution.isEmpty()) {
                 return empty(false);
@@ -288,13 +266,15 @@ final class TriggerSchemaServiceLoader {
      * {@code stat} rather than a {@code .bala} resolution — which is what makes consulting it for every
      * library cheap enough to do unconditionally.
      */
-    private static Optional<TriggerMetadataModel> resolveMetadata(String libraryName, String org,
-                                                                 String packageName, Package pkg) {
+    private static Optional<TriggerMetadataModel> resolveMetadata(String org, String packageName, Package pkg) {
         LibraryMetadataReader reader = LibraryMetadataReader.getInstance();
-        String metadataKey = BUNDLED_METADATA_KEYS.getOrDefault(libraryName, packageName);
+        // Every bundled document is filed under its library's bare package name, so the key needs no
+        // per-library mapping. {@code ballerinax/mssql} is the one that used to: its document was filed
+        // under `mssql.cdc` for the module the service type comes from, and reads `mssql` now — the
+        // listener it declares (`CdcListener`) is validated against the resolved package either way.
         return reader.getTriggerMetadataModel(pkg)
                 .or(() -> reader.getPackagedTriggerMetadataModel(
-                        new ModuleInfo(org, packageName, metadataKey, null)));
+                        new ModuleInfo(org, packageName, packageName, null)));
     }
 
 }

@@ -162,7 +162,6 @@ public record TriggerMetadataModel(
                 String deprecated,
                 String presence,
                 List<String> annotations,
-                List<String> returnAnnotations,
                 List<Param> params,
                 ReturnSpec returns,
                 ValueSpec accessor,
@@ -170,8 +169,6 @@ public record TriggerMetadataModel(
 
             public static final String KIND_REMOTE = "remote";
             public static final String KIND_RESOURCE = "resource";
-            public static final String ADD_MODE_SUBSET = "subset";
-            public static final String ADD_MODE_MANY = "many";
             public static final String WILDCARD_NAME = "*";
 
             /** The spec: one fixed method name, governed by {@code presence}. The default when absent. */
@@ -271,6 +268,11 @@ public record TriggerMetadataModel(
         public static final String RULE_ALL_OR_NONE = "structure.allOrNone";
         public static final String RULE_REQUIRES = "structure.requires";
         public static final String RULE_CONFLICTS_WITH = "structure.conflictsWith";
+
+        /** The {@link Subject#role()} an asymmetric constraint's antecedent must carry. */
+        public static final String ROLE_WHEN = "when";
+        /** The {@link Subject#role()} an asymmetric constraint's consequent must carry. */
+        public static final String ROLE_THEN = "then";
 
         public static final String SEVERITY_ERROR = "error";
         public static final String SEVERITY_WARNING = "warning";
