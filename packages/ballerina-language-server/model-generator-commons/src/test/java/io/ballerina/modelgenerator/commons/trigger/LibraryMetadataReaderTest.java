@@ -66,6 +66,24 @@ public class LibraryMetadataReaderTest {
     }
 
     @Test
+    public void testGetPackagedTriggerMetadataModelRefusesUnsupportedMajorVersion() {
+        ModuleInfo moduleInfo = new ModuleInfo("ballerinax", "version-v2", "version-v2", "1.0.0");
+        Assert.assertTrue(READER.getPackagedTriggerMetadataModel(moduleInfo).isEmpty());
+    }
+
+    @Test
+    public void testGetPackagedTriggerMetadataModelAcceptsNewerMinorVersion() {
+        ModuleInfo moduleInfo = new ModuleInfo("ballerinax", "version-v19", "version-v19", "1.0.0");
+        Assert.assertTrue(READER.getPackagedTriggerMetadataModel(moduleInfo).isPresent());
+    }
+
+    @Test
+    public void testGetPackagedTriggerMetadataModelRefusesMissingVersion() {
+        ModuleInfo moduleInfo = new ModuleInfo("ballerinax", "version-none", "version-none", "1.0.0");
+        Assert.assertTrue(READER.getPackagedTriggerMetadataModel(moduleInfo).isEmpty());
+    }
+
+    @Test
     public void testGetTriggerMetadataModelNullModuleInfo() {
         // Cast required: getTriggerMetadataModel is overloaded on ModuleInfo and Package, so a bare null
         // matches both. Every production call site passes a typed reference and is unaffected.

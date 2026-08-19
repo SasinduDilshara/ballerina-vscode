@@ -49,6 +49,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 
 /**
  * Connector-agnostic entry point for reading the trigger model family, shared by every LS extension.
@@ -69,6 +70,7 @@ public final class LibraryMetadataReader {
      * corpus's 14 bundled documents evicted each other and nearly every request re-parsed the same JSON.
      */
     private static final int PACKAGED_METADATA_CACHE_SIZE = 20;
+    private static final Pattern SUPPORTED_VERSION = Pattern.compile("^v1\\.\\d+$");
 
     private static final Duration PACKAGE_ROOT_CACHE_TTL = Duration.ofSeconds(60);
 
@@ -227,8 +229,8 @@ public final class LibraryMetadataReader {
                 return Optional.empty();
             }
             String json = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            return parsed(TriggerMetadataGson.instance().fromJson(json, TriggerMetadataModel.class),
-                    resourcePath);
+            TriggerMetadataModel model = TriggerMetadataGson.instance().fromJson(json, TriggerMetadataModel.class);
+            return requireSupportedVersion(model, resourcePath);
         } catch (IOException | JsonParseException e) {
             // A bundled document is this repo's own, so a failure here is a build defect. Logged all the
             // same: silence is what made the shipped-document equivalent undiagnosable.
@@ -237,45 +239,25 @@ public final class LibraryMetadataReader {
         }
     }
 
-    /**
-     * A freshly-parsed document, or empty with a log line when the JSON parsed to nothing.
-     *
-     * <p>Valid JSON yielding no document is a defect in a file that exists, so it is logged rather than
-     * dropped silently — that log line is the only signal a connector author gets that their file is wrong.
-     *
-     * @param document the parsed document; may be {@code null}
-     * @param source   what was read, for the log line
-     * @return the document, or empty
-     */
-    private Optional<TriggerMetadataModel> parsed(TriggerMetadataModel document, String source) {
-        if (document == null) {
-            LOGGER.warning("Ignoring " + source + ": it parsed to no document.");
-            return Optional.empty();
-        }
-        return Optional.of(document);
+    private Optional<TriggerMetadataModel> readTriggerMetadataModel(Path packageRoot) {
+        return readResourceFile(packageRoot, TRIGGER_METADATA_RESOURCE_PATH).flatMap(json -> {
+            try {
+                TriggerMetadataModel model = TriggerMetadataGson.instance().fromJson(json, TriggerMetadataModel.class);
+                return requireSupportedVersion(model, packageRoot.resolve(TRIGGER_METADATA_RESOURCE_PATH).toString());
+            } catch (JsonParseException e) {
+                return Optional.empty();
+            }
+        });
     }
 
-    /**
-     * Resolves and parses {@code resources/trigger-metadata.json} relative to {@code packageRoot} — the one
-     * point every metadata read passes through, whichever way the root was obtained.
-     *
-     * <p>Package-private purely as a test seam: no package published to Central ships this file yet, so a
-     * test going in through {@link Package} would have nothing to read.
-     */
-    Optional<TriggerMetadataModel> readTriggerMetadataModel(Path packageRoot) {
-        Optional<String> json = readResourceFile(packageRoot, TRIGGER_METADATA_RESOURCE_PATH);
-        if (json.isEmpty()) {
-            return Optional.empty();
+    /** Refuses a {@code null}/absent/unsupported-major version, logging why. */
+    private Optional<TriggerMetadataModel> requireSupportedVersion(TriggerMetadataModel model, String source) {
+        if (model != null && model.version() != null && SUPPORTED_VERSION.matcher(model.version()).matches()) {
+            return Optional.of(model);
         }
-        String source = packageRoot.resolve(TRIGGER_METADATA_RESOURCE_PATH).toString();
-        try {
-            return parsed(TriggerMetadataGson.instance().fromJson(json.get(), TriggerMetadataModel.class),
-                    source);
-        } catch (JsonParseException e) {
-            // Logged, not silent: this is the one signal a connector author gets that their file has a typo.
-            LOGGER.warning("Ignoring " + source + ": it is not valid trigger metadata: " + e.getMessage());
-            return Optional.empty();
-        }
+        LOGGER.log(Level.WARNING, "Unsupported trigger-metadata.json version \""
+                + (model == null ? null : model.version()) + "\" in " + source + "; expected v1.x");
+        return Optional.empty();
     }
 
     private Optional<TriggerUISchemaModel> readTriggerUISchemaModel(Path packageRoot) {

@@ -2,12 +2,19 @@
   "version": "v1.0",
 
   "listeners": [
-    { "type": { "name": "Listener" }, "services": ["$calendarService"], "multipleServicesAllowed": false }
+    {
+      "id": "$listener",
+      "doc": "Webhook listener that receives push notifications for changes to the subscribed calendar and dispatches them to the attached service.",
+      "type": { "name": "Listener" },
+      "services": ["$calendarService"],
+      "multipleServicesAllowed": false
+    }
   ],
 
   "serviceTypes": [
     {
       "id": "$calendarService",
+      "doc": "Receives Google Calendar change notifications for a subscribed calendar.",
       "type": { "name": "CalendarService" },
       "concrete": true,
       "multipleListenersAllowed": true,

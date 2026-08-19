@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2025, WSO2 LLC. (https://www.wso2.com) All Rights Reserved.
+ * Copyright (c) 2026, WSO2 LLC. (https://www.wso2.com) All Rights Reserved.
  *
  * WSO2 LLC. licenses this file to you under the Apache License,
  * Version 2.0 (the "License"); you may not use this file except
@@ -22,8 +22,9 @@
  * collection can fire dozens of concurrent LS compilations or file reads at once;
  * this keeps the parallelism win while bounding the fan-out.
  *
- * Rejections propagate like Promise.all: the first rejection rejects the whole call.
- * Callers that need per-item error isolation should catch inside `fn`.
+ * Rejections propagate like Promise.all: the first rejection rejects the whole call. The other
+ * workers keep draining the queue though, so `fn` still runs for the remaining items after the
+ * caller has been rejected. Callers that need per-item isolation should catch inside `fn`.
  */
 export async function mapWithConcurrency<T, R>(
     items: readonly T[],

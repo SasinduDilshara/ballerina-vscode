@@ -50,18 +50,19 @@ public class TriggerModelSynthesizerTest {
                 new TypeRef.PackageInfo("ballerinax", "mssql.cdc.driver", "mssql.cdc.driver", "1.0.2");
 
         TriggerMetadataModel.Listener listener = new TriggerMetadataModel.Listener(
-                new TypeRef("CdcListener", null), null,
-                List.of("service"), null, null,
+                "$listener", "Listens for CDC events.",
+                new TypeRef("CdcListener", null), null, List.of("$service"), true, null,
                 List.of(new TriggerMetadataModel.RequiredImport(
-                        TriggerMetadataModel.RequiredImport.IMPORT_TYPE_DRIVER, driverModule)), null);
+                        TriggerMetadataModel.RequiredImport.IMPORT_TYPE_DRIVER, driverModule)),
+                null);
 
         TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType(
-                "service", new TypeRef("Service", cdcModule), false, true, null, null, null,
+                "$service", "A CDC service.", new TypeRef("Service", cdcModule), null, false, true, null, null,
                 new TriggerMetadataModel.ServiceType.Handlers(false, List.of()),
-                List.of());
+                null);
 
-        TriggerMetadataModel authoring =
-                new TriggerMetadataModel(null, List.of(listener), List.of(serviceType), List.of(), List.of());
+        TriggerMetadataModel authoring = new TriggerMetadataModel(
+                "v1.0", List.of(listener), List.of(serviceType), List.of(), List.of());
 
         TriggerLibraryFacts facts = new TriggerLibraryFacts(
                 List.of(new TriggerLibraryFacts.Listener("CdcListener", List.of())),
@@ -87,13 +88,14 @@ public class TriggerModelSynthesizerTest {
             + "module) needs no extra imports.")
     public void testNoImportStatementsWhenEverythingIsSelfModule() {
         TriggerMetadataModel.Listener listener = new TriggerMetadataModel.Listener(
-                new TypeRef("Listener", null), null, List.of("service"), null, null, List.of(), null);
+                "$listener", "Listens for events.",
+                new TypeRef("Listener", null), null, List.of("$service"), false, null, null, null);
         TriggerMetadataModel.ServiceType serviceType = new TriggerMetadataModel.ServiceType(
-                "service", new TypeRef("Service", null), false, false, null, null, null,
+                "$service", "A service.", new TypeRef("Service", null), null, false, false, null, null,
                 new TriggerMetadataModel.ServiceType.Handlers(false, List.of()),
-                List.of());
-        TriggerMetadataModel authoring =
-                new TriggerMetadataModel(null, List.of(listener), List.of(serviceType), List.of(), List.of());
+                null);
+        TriggerMetadataModel authoring = new TriggerMetadataModel(
+                "v1.0", List.of(listener), List.of(serviceType), List.of(), List.of());
         TriggerLibraryFacts facts = new TriggerLibraryFacts(
                 List.of(new TriggerLibraryFacts.Listener("Listener", List.of())),
                 List.of(new TriggerLibraryFacts.ServiceType("Service", null, List.of())),

@@ -35,7 +35,6 @@ import io.ballerina.projects.Project;
 import io.ballerina.projects.ProjectEnvironmentBuilder;
 import io.ballerina.projects.bala.BalaProject;
 import io.ballerina.projects.directory.BuildProject;
-import io.ballerina.projects.environment.PackageLockingMode;
 import io.ballerina.projects.environment.PackageMetadataResponse;
 import io.ballerina.projects.environment.PackageResolver;
 import io.ballerina.projects.environment.ResolutionOptions;
@@ -44,6 +43,7 @@ import io.ballerina.projects.environment.ResolutionResponse;
 import io.ballerina.projects.repos.TempDirCompilationCache;
 import io.ballerina.projects.util.ProjectConstants;
 import org.ballerinalang.langserver.LSClientLogger;
+import org.ballerinalang.langserver.common.utils.CommonUtil;
 import org.ballerinalang.langserver.commons.BallerinaCompilerApi;
 import org.ballerinalang.langserver.commons.eventsync.exceptions.EventSyncException;
 import org.ballerinalang.langserver.commons.workspace.WorkspaceDocumentException;
@@ -62,6 +62,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Supplier;
 
 /**
  * Utility class that contains methods to perform package-related operations.
@@ -72,13 +73,6 @@ public class PackageUtil {
 
     private static final String BALLERINA_HOME_PROPERTY = "ballerina.home";
 
-    // Test-only switch (set by the Gradle test tasks via -Dls.test.offline=true). When
-    // enabled, package resolution never contacts Ballerina Central: packages resolve
-    // only from the local repositories the build pre-populates, "latest version"
-    // lookups use the cached version instead of the remote one, and versions that are
-    // not cached fail visibly. Absent in production, so production stays online.
-    private static final boolean FORCE_OFFLINE = Boolean.getBoolean("ls.test.offline");
-
     /**
      * Whether resolution is forced offline (test runs). When true, callers must avoid contacting Ballerina Central
      * (e.g. live catalog/keyword lookups) so behaviour is deterministic and reproducible from the build-owned home.
@@ -86,24 +80,12 @@ public class PackageUtil {
      * @return {@code true} if offline resolution is forced; {@code false} in production.
      */
     public static boolean isOffline() {
-        return FORCE_OFFLINE;
+        return CommonUtil.TEST_OFFLINE;
     }
 
-    /**
-     * Build options for loading a resolved bala, branched by mode:
-     * <ul>
-     *   <li><b>Tests</b> ({@code FORCE_OFFLINE}): resolve offline with SOFT locking, so a bala's baked transitive
-     *       versions re-resolve to the locked/available versions in the cache instead of demanding the exact baked
-     *       version (which is often not provisioned).</li>
-     *   <li><b>Production</b>: replicate the original two-argument {@code BalaProject.loadProject} behaviour
-     *       ({@code sticky = true}), so production is unchanged.</li>
-     * </ul>
-     */
+    // Owned by BallerinaCompilerApi so this stays loadable on distributions that predate PackageLockingMode.
     private static BuildOptions balaBuildOptions() {
-        if (FORCE_OFFLINE) {
-            return BuildOptions.builder().setOffline(true).setLockingMode(PackageLockingMode.SOFT).build();
-        }
-        return BuildOptions.builder().setSticky(true).build();
+        return BallerinaCompilerApi.getInstance().getBalaBuildOptions(CommonUtil.TEST_OFFLINE);
     }
 
     private static final BuildProject SAMPLE_PROJECT = createSampleProject();
@@ -124,12 +106,14 @@ public class PackageUtil {
      * getFlowModel request. Before this cache, a single warm flow-model fetch took seconds of
      * pure network time.
      *
-     * A bala package is immutable per version, so positive entries never go stale. Negative
-     * entries (package absent — typically a generated/test package that will never exist on
-     * Central) are cached too: they are the hottest repeat offenders. The accepted trade-off is
-     * that a "latest version" lookup or a transient network failure sticks for the LS session.
+     * A bala package is immutable per version, so positive entries never go stale. The accepted
+     * trade-off is that a "latest version" lookup or a transient network failure sticks for the
+     * LS session.
+     *
+     * Caches the resolved bala path rather than the loaded package, which would retain that
+     * package's syntax trees and symbols for the session.
      */
-    private static final ConcurrentHashMap<String, Optional<Package>> SAMPLE_RESOLUTION_CACHE =
+    private static final ConcurrentHashMap<String, Optional<Path>> SAMPLE_RESOLUTION_CACHE =
             new ConcurrentHashMap<>();
 
     /**
@@ -138,9 +122,41 @@ public class PackageUtil {
      */
     private static final Object SAMPLE_RESOLUTION_LOCK = new Object();
 
+    /**
+     * Caches only resolved paths. An absence is not remembered: the module-pull flow retries
+     * through here, and a cached failure would outlive the network problem that caused it.
+     */
+    private static Optional<Path> memoizedSampleBala(String key, Supplier<Optional<Path>> resolution) {
+        Optional<Path> cached = SAMPLE_RESOLUTION_CACHE.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        synchronized (SAMPLE_RESOLUTION_LOCK) {
+            Optional<Path> present = SAMPLE_RESOLUTION_CACHE.get(key);
+            if (present != null) {
+                return present;
+            }
+            Optional<Path> resolved;
+            try {
+                resolved = resolution.get();
+            } catch (RuntimeException e) {
+                return Optional.empty();
+            }
+            resolved.ifPresent(path -> SAMPLE_RESOLUTION_CACHE.put(key, Optional.of(path)));
+            return resolved;
+        }
+    }
+
     private static String sampleResolutionKey(String org, String name, String version, String repository) {
         return org + ":" + name + ":" + (version == null ? "<latest>" : version)
                 + ":" + (repository == null ? "" : repository);
+    }
+
+    private static Optional<Package> loadBalaPackage(Path balaPath) {
+        ProjectEnvironmentBuilder defaultBuilder = ProjectEnvironmentBuilder.getDefaultBuilder();
+        defaultBuilder.addCompilationCacheFactory(TempDirCompilationCache::from);
+        BalaProject balaProject = BalaProject.loadProject(defaultBuilder, balaPath, balaBuildOptions());
+        return Optional.ofNullable(balaProject.currentPackage());
     }
 
     /**
@@ -267,25 +283,16 @@ public class PackageUtil {
         // are safe to memoize across requests. Resolutions against a caller's real project may
         // depend on that project's state — leave them uncached.
         if (buildProject == SAMPLE_PROJECT) {
-            return SAMPLE_RESOLUTION_CACHE.computeIfAbsent(sampleResolutionKey(org, name, version, repository),
-                    key -> {
-                        synchronized (SAMPLE_RESOLUTION_LOCK) {
-                            try {
-                                return resolveVersionedModulePackage(buildProject, org, name, version, repository);
-                            } catch (RuntimeException e) {
-                                // Cache the miss: a package that fails to resolve (typically a
-                                // generated/test package that does not exist on Central) would
-                                // otherwise re-pay the network round trip on every request.
-                                return Optional.empty();
-                            }
-                        }
-                    });
+            return memoizedSampleBala(sampleResolutionKey(org, name, version, repository),
+                    () -> resolveVersionedModuleBala(buildProject, org, name, version, repository))
+                    .flatMap(PackageUtil::loadBalaPackage);
         }
-        return resolveVersionedModulePackage(buildProject, org, name, version, repository);
+        return resolveVersionedModuleBala(buildProject, org, name, version, repository)
+                .flatMap(PackageUtil::loadBalaPackage);
     }
 
-    private static Optional<Package> resolveVersionedModulePackage(BuildProject buildProject, String org, String name,
-                                                                   String version, String repository) {
+    private static Optional<Path> resolveVersionedModuleBala(BuildProject buildProject, String org, String name,
+                                                             String version, String repository) {
         PackageOrg packageOrg = PackageOrg.from(org);
         PackageName packageName = PackageName.from(name);
         PackageVersion packageVersion = PackageVersion.from(version);
@@ -300,18 +307,13 @@ public class PackageUtil {
         ResolutionRequest resolutionRequest = ResolutionRequest.from(packageDescriptor);
         Optional<ResolutionResponse> resolutionResponse =
                 resolveResponse(packageResolver, resolutionRequest, true);
-        if (resolutionResponse.isEmpty() && !FORCE_OFFLINE) {
+        if (resolutionResponse.isEmpty() && !CommonUtil.TEST_OFFLINE) {
             resolutionResponse = resolveResponse(packageResolver, resolutionRequest, false);
         }
         if (resolutionResponse.isEmpty()) {
             return Optional.empty();
         }
-
-        Path balaPath = resolutionResponse.get().resolvedPackage().project().sourceRoot();
-        ProjectEnvironmentBuilder defaultBuilder = ProjectEnvironmentBuilder.getDefaultBuilder();
-        defaultBuilder.addCompilationCacheFactory(TempDirCompilationCache::from);
-        BalaProject balaProject = BalaProject.loadProject(defaultBuilder, balaPath, balaBuildOptions());
-        return Optional.ofNullable(balaProject.currentPackage());
+        return Optional.of(resolutionResponse.get().resolvedPackage().project().sourceRoot());
     }
 
     /**
@@ -336,21 +338,13 @@ public class PackageUtil {
         // See the versioned overload for why sample-project resolutions are memoized. The
         // "latest version" lookup below can itself hit Central, so caching matters just as much.
         if (buildProject == SAMPLE_PROJECT) {
-            return SAMPLE_RESOLUTION_CACHE.computeIfAbsent(sampleResolutionKey(org, name, null, null),
-                    key -> {
-                        synchronized (SAMPLE_RESOLUTION_LOCK) {
-                            try {
-                                return resolveLatestModulePackage(buildProject, org, name);
-                            } catch (RuntimeException e) {
-                                return Optional.empty();
-                            }
-                        }
-                    });
+            return memoizedSampleBala(sampleResolutionKey(org, name, null, null),
+                    () -> resolveLatestModuleBala(buildProject, org, name)).flatMap(PackageUtil::loadBalaPackage);
         }
-        return resolveLatestModulePackage(buildProject, org, name);
+        return resolveLatestModuleBala(buildProject, org, name).flatMap(PackageUtil::loadBalaPackage);
     }
 
-    private static Optional<Package> resolveLatestModulePackage(BuildProject buildProject, String org, String name) {
+    private static Optional<Path> resolveLatestModuleBala(BuildProject buildProject, String org, String name) {
         ResolutionRequest resolutionRequest = ResolutionRequest.from(
                 PackageDescriptor.from(PackageOrg.from(org), PackageName.from(name)));
         PackageResolver packageResolver = buildProject.projectEnvironmentContext().getService(PackageResolver.class);
@@ -361,7 +355,7 @@ public class PackageUtil {
         PackageDescriptor packageDescriptor;
         if (pkgMetadata.isEmpty() ||
                 pkgMetadata.get().resolutionStatus() == ResolutionResponse.ResolutionStatus.UNRESOLVED) {
-            if (FORCE_OFFLINE) {
+            if (CommonUtil.TEST_OFFLINE) {
                 // Not in the local repositories and network fallback is disabled.
                 return Optional.empty();
             }
@@ -382,7 +376,7 @@ public class PackageUtil {
                 ResolutionOptions.builder().setOffline(true).build());
         Optional<ResolutionResponse> resolutionResponse = resolutionResponses.stream()
                 .filter(response -> response.resolvedPackage() != null).findFirst();
-        if (resolutionResponse.isEmpty() && !FORCE_OFFLINE) {
+        if (resolutionResponse.isEmpty() && !CommonUtil.TEST_OFFLINE) {
             resolutionResponses = packageResolver.resolvePackages(
                     Collections.singletonList(ResolutionRequest.from(packageDescriptor)),
                     ResolutionOptions.builder().setOffline(false).build());
@@ -393,12 +387,7 @@ public class PackageUtil {
             // The package could not be resolved from the local repositories or Central.
             return Optional.empty();
         }
-
-        Path balaPath = resolutionResponse.get().resolvedPackage().project().sourceRoot();
-        ProjectEnvironmentBuilder defaultBuilder = ProjectEnvironmentBuilder.getDefaultBuilder();
-        defaultBuilder.addCompilationCacheFactory(TempDirCompilationCache::from);
-        BalaProject balaProject = BalaProject.loadProject(defaultBuilder, balaPath, balaBuildOptions());
-        return Optional.ofNullable(balaProject.currentPackage());
+        return Optional.of(resolutionResponse.get().resolvedPackage().project().sourceRoot());
     }
 
     /**
@@ -623,13 +612,13 @@ public class PackageUtil {
 
     public static ModuleInfo fetchVersionIfNotExists(ModuleInfo moduleInfo) {
         if (moduleInfo.version() == null) {
-            String version = FORCE_OFFLINE
+            String version = CommonUtil.TEST_OFFLINE
                     ? cachedVersion(moduleInfo.org(), moduleInfo.packageName())
                     : RemoteCentral.getInstance().latestPackageVersion(moduleInfo.org(), moduleInfo.packageName());
-            // Under FORCE_OFFLINE a null version means the package was never provisioned into the build-owned
-            // cache. Fail loudly (matching the FORCE_OFFLINE contract above) so a missing lock entry is
+            // Under CommonUtil.TEST_OFFLINE a null version means the package was never provisioned into the build-owned
+            // cache. Fail loudly (matching the CommonUtil.TEST_OFFLINE contract above) so a missing lock entry is
             // self-diagnosing, rather than silently degrading into an empty model downstream.
-            if (FORCE_OFFLINE && version == null) {
+            if (CommonUtil.TEST_OFFLINE && version == null) {
                 throw new IllegalStateException(String.format(
                         "Package '%s/%s' is not provisioned in the offline test cache. Add it to "
                         + "build-config/ballerina_dependencies (Ballerina.toml) " + "and regenerate Dependencies.toml.",
