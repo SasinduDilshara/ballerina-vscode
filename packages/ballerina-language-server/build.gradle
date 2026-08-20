@@ -117,6 +117,11 @@ subprojects {
         ballerinaStdLibs "io.ballerina.lib:messaging-ballerina:${stdlibMessagingVersion}"
         ballerinaStdLibs "io.ballerina.stdlib:protobuf-ballerina:${stdlibProtobufVersion}"
         ballerinaStdLibs "io.ballerina.stdlib:soap-ballerina:${stdlibSoapVersion}"
+        /* The Copilot trigger-metadata corpus declares ballerina/websub, and it is the one corpus library
+           that reaches the tests by neither route: the lock pins the same version the distribution ships,
+           so `bal build` resolves it from there and nothing lands in the build-owned home. Copied in here
+           for the reason graphql is — bundled in the full distribution, absent from jballerina-tools. */
+        ballerinaStdLibs "io.ballerina.stdlib:websub-ballerina:${stdlibWebsubVersion}"
         ballerinaStdLibs "io.ballerina.stdlib:yaml-ballerina:${stdlibYamlVersion}"
 
         /* Ballerina Persist Tool */
