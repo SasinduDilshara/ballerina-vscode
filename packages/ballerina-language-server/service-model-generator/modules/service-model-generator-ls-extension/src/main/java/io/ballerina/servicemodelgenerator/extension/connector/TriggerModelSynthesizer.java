@@ -118,6 +118,7 @@ public final class TriggerModelSynthesizer {
     private static final String LISTENER_VAR_NAME_KEY = "listenerVarName";
     private static final String SERVICE_TYPE_KEY = "serviceType";
     private static final String IDENTIFIER_KEY = "identifier";
+    private static final String ERROR_TYPE = "error";
     private static final Gson GSON = new Gson();
 
     private TriggerModelSynthesizer() {
@@ -133,21 +134,39 @@ public final class TriggerModelSynthesizer {
                                                      String id, String displayName, String icon, String kind,
                                                      String orgName, String packageName, String moduleName,
                                                      String version) {
+        return synthesize(authoring, facts, Map.of(), listenerModel, id, displayName, icon, kind, orgName,
+                packageName, moduleName, version);
+    }
+
+    /**
+     * As the other overload, but {@code crossModuleFacts} supplies introspected facts for annotations
+     * declared outside the connector's own module, keyed by {@code "<org>/<packageName>"}.
+     */
+    public static Optional<TriggerUISchemaModel> synthesize(TriggerMetadataModel authoring, TriggerLibraryFacts facts,
+                                                     Map<String, TriggerLibraryFacts> crossModuleFacts,
+                                                     Listener listenerModel,
+                                                     String id, String displayName, String icon, String kind,
+                                                     String orgName, String packageName, String moduleName,
+                                                     String version) {
         if (authoring == null || facts == null
                 || authoring.listeners() == null || authoring.listeners().isEmpty()
                 || authoring.serviceTypes() == null || authoring.serviceTypes().isEmpty()) {
             return Optional.empty();
         }
+        Map<String, TriggerLibraryFacts> crossFacts = crossModuleFacts == null ? Map.of() : crossModuleFacts;
 
         List<TriggerMetadataModel.ServiceType> serviceTypes = authoring.serviceTypes();
         boolean multiType = serviceTypes.size() > 1;
         TriggerMetadataModel.ServiceType primary = serviceTypes.get(0);
         ConnectorIdentity identity = new ConnectorIdentity(orgName, packageName, moduleName, version);
 
-        TriggerLibraryFacts.Listener listenerFacts = findListener(authoring.listeners().get(0), facts);
+        TriggerMetadataModel.Listener primaryListener = authoring.listeners().get(0);
+        TriggerLibraryFacts.Listener listenerFacts = findListener(primaryListener, facts);
+        String listenerTypeName = primaryListener.type() == null || primaryListener.type().name() == null
+                ? "Listener" : primaryListener.type().name();
         Map<String, TriggerUISchemaModel.Property> initProperties = new LinkedHashMap<>();
-        buildListenerChoice(listenerFacts, listenerModel, moduleName, initProperties);
-        buildInitServiceAnnotations(primary, authoring, facts, identity, initProperties);
+        buildListenerChoice(listenerFacts, listenerModel, moduleName, listenerTypeName, initProperties);
+        buildInitServiceAnnotations(primary, authoring, facts, crossFacts, identity, initProperties);
         buildIdentifierField(primary, initProperties);
         if (multiType) {
             initProperties.put(SERVICE_TYPE_KEY, buildServiceTypeSelector(serviceTypes));
@@ -156,7 +175,7 @@ public final class TriggerModelSynthesizer {
         List<TriggerUISchemaModel.ServiceTypeModel> serviceTypeModels = new ArrayList<>();
         for (int i = 0; i < serviceTypes.size(); i++) {
             TriggerMetadataModel.ServiceType st = serviceTypes.get(i);
-            serviceTypeModels.add(buildServiceType(st, facts, authoring, identity, i == 0, multiType));
+            serviceTypeModels.add(buildServiceType(st, facts, crossFacts, authoring, identity, i == 0, multiType));
         }
 
         String listenerKind = primary.multipleListenersAllowed()
@@ -167,6 +186,11 @@ public final class TriggerModelSynthesizer {
                 SCHEMA_VERSION, id, displayName, null, "", orgName, packageName, moduleName, version,
                 kind, icon, kind, listenerKind, initProperties, serviceTypeModels, List.of(),
                 importStatements, null));
+    }
+
+    /** The key {@code crossModuleFacts} is looked up by, for a {@link TypeRef.PackageInfo}. */
+    static String crossModuleFactsKey(TypeRef.PackageInfo packageInfo) {
+        return packageInfo.org() + "/" + packageInfo.packageName();
     }
 
     /**
@@ -180,21 +204,27 @@ public final class TriggerModelSynthesizer {
         Set<String> imports = new LinkedHashSet<>();
         for (TriggerMetadataModel.ServiceType serviceType : authoring.serviceTypes()) {
             addImportIfCrossModule(imports, serviceType.type() == null ? null : serviceType.type().packageInfo(),
-                    identity);
+                    identity, false);
         }
         for (TriggerMetadataModel.Listener listener : authoring.listeners()) {
             if (listener.requiredImports() == null) {
                 continue;
             }
             for (TriggerMetadataModel.RequiredImport required : listener.requiredImports()) {
-                addImportIfCrossModule(imports, required.packageInfo(), identity);
+                boolean sideEffectOnly =
+                        TriggerMetadataModel.RequiredImport.IMPORT_TYPE_DRIVER.equals(required.importType());
+                addImportIfCrossModule(imports, required.packageInfo(), identity, sideEffectOnly);
             }
         }
         return List.copyOf(imports);
     }
 
+    /**
+     * {@code sideEffectOnly} emits {@code as _} (e.g. a JDBC driver a CDC listener never references by
+     * name, only loaded for its registration side effect) instead of a bare import.
+     */
     private static void addImportIfCrossModule(Set<String> imports, TypeRef.PackageInfo packageInfo,
-                                               ConnectorIdentity identity) {
+                                               ConnectorIdentity identity, boolean sideEffectOnly) {
         if (packageInfo == null || packageInfo.org() == null || packageInfo.packageName() == null) {
             return;
         }
@@ -203,7 +233,8 @@ public final class TriggerModelSynthesizer {
         }
         String module = packageInfo.moduleName() != null && !packageInfo.moduleName().isBlank()
                 ? packageInfo.moduleName() : packageInfo.packageName();
-        imports.add(packageInfo.org() + "/" + module);
+        String moduleRef = packageInfo.org() + "/" + module;
+        imports.add(sideEffectOnly ? moduleRef + " as _" : moduleRef);
     }
 
     /**
@@ -235,9 +266,10 @@ public final class TriggerModelSynthesizer {
                 .moduleName(moduleName).build();
     }
 
-    private static TriggerUISchemaModel.Codedata cdServiceType(String originalName, String moduleName) {
+    private static TriggerUISchemaModel.Codedata cdServiceType(String originalName, String moduleName,
+                                                        String orgName, String packageName) {
         return TriggerUISchemaModel.Codedata.builder().type(ARG_TYPE_SERVICE_TYPE_DESCRIPTOR)
-                .originalName(originalName).moduleName(moduleName).build();
+                .originalName(originalName).moduleName(moduleName).orgName(orgName).packageName(packageName).build();
     }
 
     private static TriggerUISchemaModel.Codedata cdAnnotation(String codedataType, String originalName,
@@ -264,10 +296,10 @@ public final class TriggerModelSynthesizer {
      * {@code argType}/position codedata (see {@link #walkListenerParams}).
      */
     private static void buildListenerChoice(TriggerLibraryFacts.Listener listenerFacts, Listener listenerModel,
-                                            String moduleName,
+                                            String moduleName, String listenerTypeName,
                                             Map<String, TriggerUISchemaModel.Property> initProperties) {
         Map<String, TriggerUISchemaModel.Property> groupProps = new LinkedHashMap<>();
-        groupProps.put(LISTENER_VAR_NAME_KEY, listenerVarNameProperty(moduleName));
+        groupProps.put(LISTENER_VAR_NAME_KEY, listenerVarNameProperty(moduleName, listenerTypeName));
         if (listenerFacts != null && listenerModel != null && listenerModel.getProperties() != null) {
             walkListenerParams(listenerFacts.initParams(), listenerModel, 1, groupProps);
         }
@@ -307,13 +339,15 @@ public final class TriggerModelSynthesizer {
                 true, true, false, false, null, null, List.of(type), null, null, properties, null, null);
     }
 
-    private static TriggerUISchemaModel.Property listenerVarNameProperty(String moduleName) {
+    private static TriggerUISchemaModel.Property listenerVarNameProperty(String moduleName, String listenerTypeName) {
         TriggerUISchemaModel.PropertyType type = new TriggerUISchemaModel.PropertyType(
-                "IDENTIFIER", true, moduleName + ":Listener", null, null, null, null, null);
+                "IDENTIFIER", true, moduleName + ":" + listenerTypeName, null, null, null, null, null);
+        // camelCase a dotted module name so the default variable name stays a legal identifier.
+        String varNamePrefix = ModuleAliasResolver.defaultAlias(moduleName);
         return new TriggerUISchemaModel.Property(
                 new TriggerUISchemaModel.Metadata("Listener Name", "Provide a name for the listener being created",
                         null, null, null, null, null, null, null, null),
-                true, true, false, false, null, moduleName + "Listener", List.of(type), null, null, null,
+                true, true, false, false, null, varNamePrefix + "Listener", List.of(type), null, null, null,
                 cdType(CD_TYPE_LISTENER_VAR_NAME), null);
     }
 
@@ -410,8 +444,13 @@ public final class TriggerModelSynthesizer {
      * Any other rule kind is irrelevant here and simply skipped, per the spec's skip-unknown policy.
      */
     private static boolean isSupersededByPreferredAnnotation(TriggerMetadataModel.ServiceType serviceType) {
+        return preferredAnnotationFieldId(serviceType) != null;
+    }
+
+    /** The id of the annotation a {@code structure.exactlyOne} rule prefers over the identifier, or null. */
+    private static String preferredAnnotationFieldId(TriggerMetadataModel.ServiceType serviceType) {
         if (serviceType.rules() == null) {
-            return false;
+            return null;
         }
         for (TriggerMetadataModel.Rule rule : serviceType.rules()) {
             if (!TriggerMetadataModel.Rule.RULE_EXACTLY_ONE.equals(rule.rule())) {
@@ -427,10 +466,10 @@ public final class TriggerModelSynthesizer {
             }
             TriggerMetadataModel.Subject preferred = preferredSubject(rule);
             if (preferred != null && TriggerMetadataModel.Subject.KIND_ANNOTATION_FIELD.equals(preferred.kind())) {
-                return true;
+                return preferred.annotation();
             }
         }
-        return false;
+        return null;
     }
 
     /** The subject named by {@code prefer} (matched on {@code role}), or the first subject if absent. */
@@ -471,13 +510,21 @@ public final class TriggerModelSynthesizer {
 
     private static TriggerUISchemaModel.ServiceTypeModel buildServiceType(TriggerMetadataModel.ServiceType serviceType,
                                                                   TriggerLibraryFacts facts,
+                                                                  Map<String, TriggerLibraryFacts> crossModuleFacts,
                                                                   TriggerMetadataModel authoring,
                                                                   ConnectorIdentity identity, boolean isFirst,
                                                                   boolean multiType) {
         String moduleName = identity.moduleName();
         String typeName = serviceType.type() == null ? "" : serviceType.type().name();
         Map<String, TriggerUISchemaModel.Property> properties = buildServiceAnnotations(serviceType, authoring, facts,
-                identity);
+                crossModuleFacts, identity);
+
+        TypeRef.PackageInfo servicePkg = serviceType.type() == null ? null : serviceType.type().packageInfo();
+        String serviceTypeOrg = servicePkg != null && servicePkg.org() != null ? servicePkg.org() : identity.orgName();
+        String serviceTypePackage = servicePkg != null && servicePkg.packageName() != null
+                ? servicePkg.packageName() : identity.packageName();
+        String serviceTypeModule = servicePkg != null && servicePkg.moduleName() != null
+                ? servicePkg.moduleName() : moduleName;
 
         List<TriggerUISchemaModel.FunctionModel> functions = new ArrayList<>();
         List<TriggerUISchemaModel.FunctionModel> schemaFunctions = new ArrayList<>();
@@ -491,7 +538,8 @@ public final class TriggerModelSynthesizer {
             }
         } else if (handlers != null && handlers.options() != null) {
             for (TriggerMetadataModel.ServiceType.HandlerOption option : handlers.options()) {
-                schemaFunctions.add(buildFunctionFromAuthoring(option, authoring, moduleName, facts, identity));
+                schemaFunctions.add(buildFunctionFromAuthoring(option, authoring, moduleName, facts, crossModuleFacts,
+                        identity));
             }
         }
 
@@ -501,7 +549,7 @@ public final class TriggerModelSynthesizer {
                         serviceType.deprecated(), null, null, null, null, null, serviceType.deprecated() != null,
                         null),
                 typeName, null, isFirst, multiType, properties, functions, schemaFunctions,
-                cdServiceType(typeName, moduleName));
+                cdServiceType(typeName, serviceTypeModule, serviceTypeOrg, serviceTypePackage));
     }
 
     private static TriggerLibraryFacts.ServiceType findServiceType(String name, TriggerLibraryFacts facts) {
@@ -573,7 +621,7 @@ public final class TriggerModelSynthesizer {
     /** An addable/locked handler built entirely from the authoring schema's own {@code HandlerOption}. */
     private static TriggerUISchemaModel.FunctionModel buildFunctionFromAuthoring(
             TriggerMetadataModel.ServiceType.HandlerOption option, TriggerMetadataModel authoring, String moduleName,
-            TriggerLibraryFacts facts, ConnectorIdentity identity) {
+            TriggerLibraryFacts facts, Map<String, TriggerLibraryFacts> crossModuleFacts, ConnectorIdentity identity) {
         boolean many = TriggerMetadataModel.ServiceType.HandlerOption.ADD_MODE_MANY.equals(option.addMode());
         boolean required = "required".equals(option.presence());
 
@@ -586,7 +634,7 @@ public final class TriggerModelSynthesizer {
         TriggerUISchemaModel.ReturnType returnType = buildReturnTypeFromRefs(
                 option.returns() == null ? null : option.returns().type(), moduleName);
         Map<String, TriggerUISchemaModel.Property> properties = buildFunctionAnnotations(option.annotations(),
-                authoring, facts, identity);
+                authoring, facts, crossModuleFacts, identity);
 
         String name = many ? "" : option.name();
         String label = many ? "Handler" : option.name();
@@ -608,6 +656,8 @@ public final class TriggerModelSynthesizer {
     private static Map<String, TriggerUISchemaModel.Property> buildFunctionAnnotations(List<String> annotationIds,
                                                                                 TriggerMetadataModel authoring,
                                                                                 TriggerLibraryFacts facts,
+                                                                                Map<String, TriggerLibraryFacts>
+                                                                                        crossModuleFacts,
                                                                                 ConnectorIdentity identity) {
         Map<String, TriggerUISchemaModel.Property> properties = new LinkedHashMap<>();
         if (annotationIds == null || annotationIds.isEmpty() || authoring.annotations() == null) {
@@ -616,7 +666,8 @@ public final class TriggerModelSynthesizer {
         for (String id : annotationIds) {
             findAnnotationDeclaration(id, authoring)
                     .ifPresent(annotation -> properties.put(stripId(id),
-                            buildAnnotationProperty(annotation, facts, identity, CD_TYPE_ANNOTATION_ATTACHMENT)));
+                            buildAnnotationProperty(annotation, facts, crossModuleFacts, identity,
+                                    CD_TYPE_ANNOTATION_ATTACHMENT, false)));
         }
         return properties;
     }
@@ -836,8 +887,25 @@ public final class TriggerModelSynthesizer {
         if (joined.isEmpty()) {
             return buildReturnType(null, false);
         }
-        String rendered = renderTypeRef(refs, moduleName);
-        return buildReturnType(rendered, rendered.contains("error"));
+        return buildReturnType(renderTypeRef(refs, moduleName), hasErrorMember(refs));
+    }
+
+    /**
+     * Whether the returned union has an {@code error} member of its own. Only the union's top-level
+     * members count: a substring scan of the rendered signature would also match an {@code error} that
+     * is merely a stream's completion type (e.g. {@code stream<anydata, error|()>}, a union with no
+     * error member) and would misfire on any type name that embeds the word. A module's own distinct
+     * error (e.g. {@code tcp:Error}) is deliberately not counted it is already spelled out in the
+     * rendered type, and {@code hasError} only drives appending a further {@code |error} to it.
+     */
+    private static boolean hasErrorMember(List<TypeRef> refs) {
+        for (TypeRef ref : refs) {
+            if (ref != null && ref.isNamed() && ERROR_TYPE.equals(ref.name())) {
+                return true;
+            }
+        }
+        // TODO: handle sub type of error type using semantic api
+        return false;
     }
 
     /**
@@ -865,11 +933,11 @@ public final class TriggerModelSynthesizer {
      */
     private static Map<String, TriggerUISchemaModel.Property> buildServiceAnnotations(
             TriggerMetadataModel.ServiceType serviceType, TriggerMetadataModel authoring, TriggerLibraryFacts facts,
-            ConnectorIdentity identity) {
+            Map<String, TriggerLibraryFacts> crossModuleFacts, ConnectorIdentity identity) {
         Map<String, TriggerUISchemaModel.Property> properties = new LinkedHashMap<>();
         for (TriggerMetadataModel.Annotation annotation : applicableServiceAnnotations(serviceType, authoring)) {
-            properties.put(stripId(annotation.id()), buildAnnotationProperty(annotation, facts, identity,
-                    CD_TYPE_ANNOTATION_ATTACHMENT));
+            properties.put(stripId(annotation.id()), buildAnnotationProperty(annotation, facts, crossModuleFacts,
+                    identity, CD_TYPE_ANNOTATION_ATTACHMENT, false));
         }
         return properties;
     }
@@ -877,15 +945,20 @@ public final class TriggerModelSynthesizer {
     /**
      * Places a copy of every applicable service-level annotation directly in the add-trigger init form,
      * keyed by schema id, using the {@code SERVICE_ANNOTATION} codedata role that
-     * {@code SchemaDrivenSourceGenerator#buildServiceAnnotations} scans for at add-time.
+     * {@code SchemaDrivenSourceGenerator#buildServiceAnnotations} scans for at add-time. The annotation
+     * {@link #preferredAnnotationFieldId} names is forced required, since the identifier alternative
+     * isn't shown here.
      */
     private static void buildInitServiceAnnotations(TriggerMetadataModel.ServiceType serviceType,
                                                     TriggerMetadataModel authoring, TriggerLibraryFacts facts,
+                                                    Map<String, TriggerLibraryFacts> crossModuleFacts,
                                                     ConnectorIdentity identity,
                                                     Map<String, TriggerUISchemaModel.Property> initProperties) {
+        String requiredId = preferredAnnotationFieldId(serviceType);
         for (TriggerMetadataModel.Annotation annotation : applicableServiceAnnotations(serviceType, authoring)) {
-            initProperties.put(stripId(annotation.id()), buildAnnotationProperty(annotation, facts, identity,
-                    CD_TYPE_SERVICE_ANNOTATION));
+            boolean forceRequired = annotation.id().equals(requiredId);
+            initProperties.put(stripId(annotation.id()), buildAnnotationProperty(annotation, facts, crossModuleFacts,
+                    identity, CD_TYPE_SERVICE_ANNOTATION, forceRequired));
         }
     }
 
@@ -908,21 +981,29 @@ public final class TriggerModelSynthesizer {
 
     /**
      * Builds one annotation attachment field, shared by every attachment point; only the emitted
-     * {@code codedata.type} differs per caller.
+     * {@code codedata.type} differs per caller. {@code forceRequired} overrides the annotation's own
+     * declared presence (see {@link #preferredAnnotationFieldId}).
      */
     private static TriggerUISchemaModel.Property buildAnnotationProperty(TriggerMetadataModel.Annotation annotation,
                                                                   TriggerLibraryFacts facts,
+                                                                  Map<String, TriggerLibraryFacts> crossModuleFacts,
                                                                   ConnectorIdentity identity,
-                                                                  String codedataType) {
-        String annotationName = annotation.type().name();
-        boolean crossModule = annotation.type().packageInfo() != null;
-        String pkgOrg = crossModule ? annotation.type().packageInfo().org() : identity.orgName();
-        String pkgName = crossModule ? annotation.type().packageInfo().packageName() : identity.packageName();
-        String pkgModule = crossModule ? annotation.type().packageInfo().moduleName() : identity.moduleName();
-        String pkgVersion = crossModule ? annotation.type().packageInfo().version() : identity.version();
+                                                                  String codedataType, boolean forceRequired) {
+        TypeRef annotationType = annotation.type();
+        String annotationName = annotationType == null ? stripId(annotation.id()) : annotationType.name();
+        TypeRef.PackageInfo annotationPkg = annotationType == null ? null : annotationType.packageInfo();
+        boolean crossModule = annotationPkg != null;
+        String pkgOrg = crossModule ? annotationPkg.org() : identity.orgName();
+        String pkgName = crossModule ? annotationPkg.packageName() : identity.packageName();
+        String pkgModule = crossModule ? annotationPkg.moduleName() : identity.moduleName();
+        String pkgVersion = crossModule ? annotationPkg.version() : identity.version();
         String packageInfoStr = pkgOrg + ":" + pkgName + ":" + pkgVersion;
 
-        TriggerLibraryFacts.Annotation facted = findAnnotationFacts(annotationName, facts);
+        // A cross-module annotation (e.g. CDC's shared ballerinax/cdc) needs facts from that other
+        // package, not the connector's own -- falls back to facts if unresolved.
+        TriggerLibraryFacts annotationFacts = crossModule
+                ? crossModuleFacts.getOrDefault(crossModuleFactsKey(annotationPkg), facts) : facts;
+        TriggerLibraryFacts.Annotation facted = findAnnotationFacts(annotationName, annotationFacts);
         String recordTypeName = facted != null && facted.typeConstraint() != null
                 ? simpleName(facted.typeConstraint()) : annotationName;
 
@@ -931,12 +1012,12 @@ public final class TriggerModelSynthesizer {
         TriggerUISchemaModel.PropertyType propertyType = new TriggerUISchemaModel.PropertyType(
                 "RECORD_MAP_EXPRESSION", true, aliasOf(pkgModule) + ":" + recordTypeName, null, List.of(member),
                 null, null, null);
-        boolean optional = TriggerMetadataModel.Annotation.PRESENCE_OPTIONAL.equals(annotation.presence());
-        // No per-field skeleton: an empty "{}" record is enough for the user to fill via the record editor.
+        boolean optional = !forceRequired
+                && TriggerMetadataModel.Annotation.PRESENCE_OPTIONAL.equals(annotation.presence());
         return new TriggerUISchemaModel.Property(
                 new TriggerUISchemaModel.Metadata(humanize(stripId(annotation.id())),
                         "Configuration for this service", null, null, null, null, null, null, null, null),
-                true, true, optional, false, "{}", "{}", List.of(propertyType), null, null, null,
+                true, true, optional, false, "{}", null, List.of(propertyType), null, null, null,
                 cdAnnotation(codedataType, annotationName, pkgModule, pkgOrg, pkgName, optional), null);
     }
 
@@ -967,23 +1048,26 @@ public final class TriggerModelSynthesizer {
         return id != null && id.startsWith("$") ? id.substring(1) : id;
     }
 
-    /** {@code "bootstrapServers" -> "Bootstrap Servers"}; also splits on {@code _}/{@code -}. */
+    /** {@code "bootstrapServers" -> "Bootstrap Servers"}; also splits on {@code _}/{@code -}/{@code .}. */
     static String humanize(String identifier) {
         if (identifier == null || identifier.isEmpty()) {
             return identifier;
         }
         StringBuilder result = new StringBuilder();
-        char[] chars = identifier.replace('_', ' ').replace('-', ' ').toCharArray();
+        char[] chars = identifier.replace('_', ' ').replace('-', ' ').replace('.', ' ').toCharArray();
+        boolean capitalizeNext = true;
         for (int i = 0; i < chars.length; i++) {
             char c = chars[i];
+            if (c == ' ') {
+                result.append(' ');
+                capitalizeNext = true;
+                continue;
+            }
             if (i > 0 && Character.isUpperCase(c) && Character.isLowerCase(chars[i - 1])) {
                 result.append(' ');
             }
-            if (i == 0) {
-                result.append(Character.toUpperCase(c));
-            } else {
-                result.append(c);
-            }
+            result.append(capitalizeNext ? Character.toUpperCase(c) : c);
+            capitalizeNext = false;
         }
         return result.toString();
     }
