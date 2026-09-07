@@ -702,8 +702,8 @@ export function ProjectDestinationForm({
                                     {existingWorkspace ? "Existing project" : "New project"}
                                 </ProjectStatusLead>
                                 {existingWorkspace
-                                    ? <> · your {startingPointNoun} will be added here</>
-                                    : <> · will be created here</>}
+                                    ? <> — add to an existing project.</>
+                                    : <> — create a new project.</>}
                             </span>
                         </ProjectStatusStrip>
                     )}
@@ -713,10 +713,10 @@ export function ProjectDestinationForm({
             {showStartingPoint && (
                 <Section>
                     <ProjectTypeSelector
-                        label="Choose your starting point"
+                        label="What do you want to build?"
                         value={isLibrary}
                         onChange={setIsLibrary}
-                        note="This is just your starting point. You can add more integrations and libraries to the project later."
+                        note="This is a starting point. You can add more integrations and libraries to your projects later."
                     />
                 </Section>
             )}

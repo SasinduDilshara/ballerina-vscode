@@ -53,13 +53,13 @@ export interface ProjectTypeSelectorProps {
 const PROJECT_TYPE_OPTIONS: ProjectTypeOption[] = [
     {
         value: "integration",
-        title: "Create an integration",
-        description: "Build APIs, automations, event-driven flows, AI integrations, and more.",
+        title: "Integration",
+        description: "Build any type of integration, workflow, MCP server, or AI agent.",
         icon: "circuit-board",
     },
     {
         value: "library",
-        title: "Create a library",
+        title: "Library",
         description: "Build reusable components and utilities that can be shared across integrations.",
         icon: "library",
     },
@@ -69,7 +69,7 @@ export function ProjectTypeSelector({
     value,
     onChange,
     note,
-    label = "Type",
+    label = "What do you want to add?",
 }: ProjectTypeSelectorProps) {
     return (
         <ProjectTypeContainer>

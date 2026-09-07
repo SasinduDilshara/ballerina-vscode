@@ -173,8 +173,8 @@ export function getIntegrationCreationCopy({
 
     if (projectName && isNewProject) {
         return {
-            title: `Creating project ${projectName} with ${componentLabel} ${integrationName}`,
-            subtitle: `Your new ${opening} will open once the project is ready.`,
+            title: `Creating your project and integration.`,
+            subtitle: `Your integration will open once the project is ready.`,
         };
     }
     if (projectName) {
