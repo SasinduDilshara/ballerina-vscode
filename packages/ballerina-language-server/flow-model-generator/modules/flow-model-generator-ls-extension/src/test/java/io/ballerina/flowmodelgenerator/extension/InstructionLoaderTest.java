@@ -48,6 +48,16 @@ public class InstructionLoaderTest {
         Assert.assertTrue(instruction.isPresent(), "Library instruction for ballerina/test should exist");
     }
 
+    @Test
+    public void testLoadLibraryInstructionForSolace() {
+        // Bundled because the connector cannot create broker objects and Copilot generated consumers bound
+        // to queues that must be pre-provisioned without ever saying so.
+        Optional<String> instruction = InstructionLoader.loadLibraryInstruction("ballerinax/solace");
+        Assert.assertTrue(instruction.isPresent(), "Library instruction for ballerinax/solace should exist");
+        Assert.assertTrue(instruction.get().contains("endpointName"),
+                "ballerinax/solace instruction should name the durable endpoint field");
+    }
+
     @Test(dataProvider = "packagesWithMigratedInstructions")
     public void testMigratedPackagesHaveNoBundledInstruction(String packageName) {
         Assert.assertFalse(InstructionLoader.loadLibraryInstruction(packageName).isPresent(),

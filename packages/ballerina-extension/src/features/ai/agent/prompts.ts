@@ -27,6 +27,7 @@ import { getLanglibInstructions } from "../utils/libs/langlibs";
 import { formatCodebaseStructure, formatCodeContext } from "./utils";
 import { GenerateAgentCodeRequest, OperationType, ProjectSource } from "@wso2/ballerina-core";
 import { formatActiveFileReminder } from "./activeFileReminder";
+import { EXTERNAL_PREREQUISITES_RULE } from "./external-prerequisites";
 import { getRequirementAnalysisCodeGenPrefix, getRequirementAnalysisTestGenPrefix } from "./np/prompts";
 import { extractResourceDocumentContent, flattenProjectToFiles } from "../utils/ai-utils";
 import { BALLERINA_RUN_TOOL_NAME } from "./tools/ballerina-run";
@@ -139,6 +140,7 @@ This plan will be visible to the user and the execution will be guided on the ta
 - Using the ${TASK_WRITE_TOOL_NAME} tool will automatically show progress to the user via a task list
 - Keep language simple and non-technical when responding
 - No need to add manual progress indicators - the task list shows what you're working on
+- ${EXTERNAL_PREREQUISITES_RULE}
 
 ## Edit Mode
 In the <system-reminder> tags, you will see if Edit mode is enabled. When its enabled, you must follow the below instructions strictly.
@@ -159,6 +161,7 @@ Once compilation is clean and if the project contains test cases, run the tests.
 
 ### Step 5: Provide a consise summary
 Once the code is written and validated, provide a very concise summary of the overall changes made. Avoid adding detailed explanations and NEVER create documentations files via ${FILE_WRITE_TOOL_NAME}.
+${EXTERNAL_PREREQUISITES_RULE}
 
 # Clarifying Questions
 
@@ -182,7 +185,7 @@ When generating Ballerina code strictly follow these syntax and structure guidel
 - You should only generate tests if the user explicitly asks for them in the query. You must use the 'ballerina/test' and whatever services associated when writing tests. Respect the instructions field in ballerina/test library when writing tests.
 - For workflow-based requirements involving long-running processes, state management, or orchestration of multiple steps, use the 'ballerina/workflow' module.
 - When writing tests, use the 'ballerina/test' module and any service-specific test libraries. Respect the instructions field in ballerina/test library when writing tests.
-- Some libraries may contain Readme field. This is generic information about the library. Avoid following links from the readme contents.
+- Some libraries may contain a Readme field. Treat its setup and prerequisite statements — especially what the library does NOT create or manage on the user's behalf (queues, topics, tables, buckets, webhooks) — as binding and surface them to the user; treat the rest as background information. Avoid following links from the readme contents.
 ${getLanglibInstructions()}
 
 ### Local Connectors
