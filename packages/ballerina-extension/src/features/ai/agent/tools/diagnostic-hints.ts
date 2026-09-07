@@ -70,11 +70,14 @@ export const DIAGNOSTIC_HINTS: Readonly<Record<string, string>> = {
     // ---- Isolated functions ----
 
     // "invalid access of mutable storage in an 'isolated' function"
-    "BCE3943": "An `isolated` function may only access module-level state that is (a) `final` with an immutable " +
-        "(`readonly`) or isolated-object type, or (b) declared `isolated` and accessed only inside `lock { }`. " +
-        "Fix: if the variable is never mutated, declare it `final` (immutable type); if it is shared mutable state, declare it " +
-        "`isolated` (e.g. `isolated int[] stack = [];`) and wrap every access in `lock { }`. `configurable` variables are already safe. " +
-        "Do NOT simply drop the `isolated` qualifier from a resource/remote method — that disables concurrent dispatch.",
+    "BCE3943": "An `isolated` function may only read module-level state that is (a) `final` (or `configurable`) with a type "
+        + "that is immutable (`readonly`) OR an isolated object (a connector client, a listener, `ai:Agent`, an instance of an "
+        + "`isolated class`), or (b) declared `isolated` and accessed only inside `lock { }`. If the reported variable is already "
+        + "`final` and its type is an isolated object, the access is legal — the error comes from a DIFFERENT variable in the same "
+        + "function. Fix: if the variable is never mutated, declare it `final` (and give it an immutable type if it is a "
+        + "map/array/record); if it is shared mutable state, declare it `isolated` (e.g. `isolated int[] stack = [];`) and wrap "
+        + "every access in `lock { }`. Do NOT simply drop the `isolated` qualifier from a resource/remote method — that disables "
+        + "concurrent dispatch.",
 
     // "invalid access of mutable storage in the default value of a record field"
     "BCE3944": "A record field's default value must be an isolated expression. Replace the reference to mutable module " +
@@ -150,7 +153,8 @@ export const DIAGNOSTIC_HINTS: Readonly<Record<string, string>> = {
     "BCE3959": "A value leaving a lock that protects an isolated variable or `self` (via `return` or assignment to an outer " +
         "variable) must not alias the protected state. Return/assign a copy: `return m[k].clone();` (or `.cloneReadOnly()` " +
         "when an immutable result is acceptable). Alternatively declare the protected storage's member type as `T & readonly` " +
-        "so reads are already immutable.",
+        "so reads are already immutable. A single isolated object (a client, a caller) may leave as-is; an ARRAY or MAP of them " +
+        "may not — copy the keys (`m.keys().clone()`) and fetch one element per lock instead.",
 
     // "invalid attempt to transfer a value into a 'lock' statement with restricted variable usage"
     "BCE3960": "A mutable value defined outside this lock must not be referenced inside it in a non-isolated expression " +
