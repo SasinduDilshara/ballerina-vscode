@@ -27,6 +27,7 @@ import { getLanglibInstructions } from "../utils/libs/langlibs";
 import { formatCodebaseStructure, formatCodeContext } from "./utils";
 import { GenerateAgentCodeRequest, OperationType, ProjectSource } from "@wso2/ballerina-core";
 import { formatActiveFileReminder } from "./activeFileReminder";
+import { REPORTED_PROBLEM_RULES } from "./reported-problem-rules";
 import { getRequirementAnalysisCodeGenPrefix, getRequirementAnalysisTestGenPrefix } from "./np/prompts";
 import { extractResourceDocumentContent, flattenProjectToFiles } from "../utils/ai-utils";
 import { BALLERINA_RUN_TOOL_NAME } from "./tools/ballerina-run";
@@ -165,6 +166,8 @@ Once the code is written and validated, provide a very concise summary of the ov
 Before starting implementation, use ${CLARIFY_TOOL} to resolve genuine requirement gaps — apply smart defaults where reasonable, but do not silently assume a specific technology when the user's intent or infrastructure determines the right choice.
 
 Use ${CLARIFY_TOOL} AT MOST ONCE — batch all questions into a single call. In the case of plan mode, you need to call call this tool before first ${TASK_WRITE_TOOL_NAME} call if you have any clarifying questions.
+
+${REPORTED_PROBLEM_RULES}
 
 # Code Generation Guidelines
 When generating Ballerina code strictly follow these syntax and structure guidelines:

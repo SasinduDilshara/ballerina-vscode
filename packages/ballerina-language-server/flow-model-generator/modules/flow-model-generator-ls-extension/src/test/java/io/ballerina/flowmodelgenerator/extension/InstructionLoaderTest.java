@@ -48,6 +48,16 @@ public class InstructionLoaderTest {
         Assert.assertTrue(instruction.isPresent(), "Library instruction for ballerina/test should exist");
     }
 
+    @Test
+    public void testLoadLibraryInstructionForWebsocket() {
+        // Bundled because a websocket:Listener over a default (HTTP/2) http:Listener fails every upgrade with
+        // an unlogged 500, and nothing in the module documentation says the shared listener needs HTTP/1.1.
+        Optional<String> instruction = InstructionLoader.loadLibraryInstruction("ballerina/websocket");
+        Assert.assertTrue(instruction.isPresent(), "Library instruction for ballerina/websocket should exist");
+        Assert.assertTrue(instruction.get().contains("http:HTTP_1_1"),
+                "ballerina/websocket instruction should name the HTTP/1.1 requirement");
+    }
+
     @Test(dataProvider = "packagesWithMigratedInstructions")
     public void testMigratedPackagesHaveNoBundledInstruction(String packageName) {
         Assert.assertFalse(InstructionLoader.loadLibraryInstruction(packageName).isPresent(),
