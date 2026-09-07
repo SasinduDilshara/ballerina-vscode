@@ -1,7 +1,5 @@
-import { DiagnosticEntry, Diagnostics } from '@wso2/ballerina-core';
-import { checkProjectDiagnostics, isModuleNotFoundDiagsExist as resolveModuleNotFoundDiagnostics, PACKAGE_COMPILATION_FAILED_PREFIX } from '../../../../rpc-managers/ai-panel/repair-utils';
 import { Diagnostics } from '@wso2/ballerina-core';
-import { checkProjectDiagnostics, isModuleNotFoundDiagsExist as resolveModuleNotFoundDiagnostics } from '../../../../rpc-managers/ai-panel/repair-utils';
+import { checkProjectDiagnostics, isModuleNotFoundDiagsExist as resolveModuleNotFoundDiagnostics, PACKAGE_COMPILATION_FAILED_PREFIX } from '../../../../rpc-managers/ai-panel/repair-utils';
 import { StateMachine } from '../../../../stateMachine';
 import { Uri } from 'vscode';
 import { buildConcurrencyHintNote, EnrichedDiagnostic, transformDiagnostics } from './diagnostic-hints';

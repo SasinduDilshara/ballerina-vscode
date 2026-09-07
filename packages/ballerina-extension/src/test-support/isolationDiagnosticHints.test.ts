@@ -124,7 +124,7 @@ describe('DIAGNOSTIC_HINTS canonical fixes', () => {
         ['BCE4042', [/send/i, /outside the lock/i]],
         ['BCE4043', [/receive/i, /outside the lock/i]],
         // isolated function rules
-        ['BCE3943', [/final/, /isolated/, /lock \{ \}/, /configurable/]],
+        ['BCE3943', [/final/, /isolated/, /lock \{ \}/, /configurable/, /OR an isolated object/, /DIFFERENT variable/]],
         ['BCE3944', [/isolated expression/, /literal/i]],
         ['BCE3945', [/literal/i, /non-`isolated` `init\(\)`/, /clone\(\)/]],
         ['BCE3946', [/isolated/, /qualifier/i]],
@@ -145,7 +145,7 @@ describe('DIAGNOSTIC_HINTS canonical fixes', () => {
         // fires on isolated-variable initializers AND self-field assignments in isolated init
         ['BCE3958', [/literal/i, /clone\(\)/, /`self`/, /`init`/]],
         // transfer rules — the LS quick fixes are clone() / cloneReadOnly() / & readonly
-        ['BCE3959', [/clone\(\)/, /cloneReadOnly\(\)/, /& readonly/]],
+        ['BCE3959', [/clone\(\)/, /cloneReadOnly\(\)/, /& readonly/, /ARRAY or MAP of them/]],
         ['BCE3960', [/clone\(\)/, /readonly/, /referenced inside/]],
         ['BCE3961', [/isolated/, /lock/i]],
         ['BCE3962', [/lock \{ \.\.\. \}/, /ONE isolated variable/i]],
