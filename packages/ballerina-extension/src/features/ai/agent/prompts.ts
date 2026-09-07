@@ -28,6 +28,7 @@ import { MODULE_INIT_CODING_RULES } from "./module-init-rules";
 import { formatCodebaseStructure, formatCodeContext } from "./utils";
 import { GenerateAgentCodeRequest, OperationType, ProjectSource } from "@wso2/ballerina-core";
 import { formatActiveFileReminder } from "./activeFileReminder";
+import { EXTERNAL_PAYLOAD_RECORD_RULE } from "./external-payload-records";
 import { getRequirementAnalysisCodeGenPrefix, getRequirementAnalysisTestGenPrefix } from "./np/prompts";
 import { CONCURRENCY_CODING_RULES } from "./concurrency-rules";
 import { extractResourceDocumentContent, flattenProjectToFiles } from "../utils/ai-utils";
@@ -204,6 +205,7 @@ When a connector authenticates via an OAuth2 refresh-token grant that includes a
 
 ## Coding Rules
 - Use records as canonical representations of data structures. Always define records for data structures instead of using maps or json and navigate using the record fields.
+- ${EXTERNAL_PAYLOAD_RECORD_RULE}
 - Do not invoke methods on json access expressions. Always use separate statements.
 - Use dot notation to access a normal function. Use -> to access a remote function or resource function.
 - Do not use dynamic listener registrations.
