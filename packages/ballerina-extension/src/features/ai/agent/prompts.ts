@@ -29,6 +29,7 @@ import { formatCodebaseStructure, formatCodeContext } from "./utils";
 import { GenerateAgentCodeRequest, OperationType, ProjectSource } from "@wso2/ballerina-core";
 import { formatActiveFileReminder } from "./activeFileReminder";
 import { EXTERNAL_PAYLOAD_RECORD_RULE } from "./external-payload-records";
+import { TYPE_CAST_CODING_RULES } from "./type-cast-rules";
 import { IMMUTABLE_CLONE_RULE } from "./immutable-clone-rules";
 import { LOCK_IO_RULE } from "./lock-io-rules";
 import { REQUIREMENT_COVERAGE_RULE } from "./requirement-coverage";
@@ -216,13 +217,15 @@ ${CONFIGURABLE_CODING_RULES}
 - ALWAYS use two-word camel case all the identifiers (variables, function parameter, resource function parameter, and field names).
 - If a type paramter is specified as record {|anydata...;|} which means you can pass any record into that. In those scenarios, Use existing records or declare explict records and pass it to the paramter.
 - If the return type refers to a paramter with the type record {|anydata...;|} as the default value, it means it can be assigned to any records. You can decide the structured, declare and use it.
-- Whenever you have a Json variable, NEVER access or manipulate Json variables. ALWAYS define a record and convert the Json to that record and use it.
+- Whenever you have a Json variable, NEVER access or manipulate Json variables. ALWAYS define a record and convert the Json to that record and use it. Member access on a RECORD (see "Type casts and narrowing") is not json manipulation and is the one allowed way to read an undeclared field.
 - When invoking resource functions from a client, use the correct paths with accessor and parameters (e.g., exampleClient->/path1/["param"]/path2.get(key="value")).
 - When accessing a field of a record, always assign it to a new variable and use that variable in the next statement.
 - Avoid long comments in the code. Use // for single line comments.
 - Always use named arguments when providing values to any parameter (e.g., .get(key="value")).
 - Mention types EXPLICITLY in variable declarations and foreach statements. (Avoid var at all costs)
 - To narrow down a union type(or optional type), always declare a separate variable and then use that variable in the if condition.
+
+${TYPE_CAST_CODING_RULES}
 ${MODULE_INIT_CODING_RULES}
 
 ${CONCURRENCY_CODING_RULES}
