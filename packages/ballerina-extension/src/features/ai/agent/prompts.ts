@@ -27,6 +27,7 @@ import { getLanglibInstructions } from "../utils/libs/langlibs";
 import { formatCodebaseStructure, formatCodeContext } from "./utils";
 import { GenerateAgentCodeRequest, OperationType, ProjectSource } from "@wso2/ballerina-core";
 import { formatActiveFileReminder } from "./activeFileReminder";
+import { REQUIREMENT_COVERAGE_RULE } from "./requirement-coverage";
 import { getRequirementAnalysisCodeGenPrefix, getRequirementAnalysisTestGenPrefix } from "./np/prompts";
 import { extractResourceDocumentContent, flattenProjectToFiles } from "../utils/ai-utils";
 import { BALLERINA_RUN_TOOL_NAME } from "./tools/ballerina-run";
@@ -129,6 +130,7 @@ This plan will be visible to the user and the execution will be guided on the ta
      - If no skill applies, use ${LIBRARY_SEARCH_TOOL} with relevant keywords to discover available libraries, then use ${LIBRARY_GET_TOOL} to fetch full details for the discovered libraries.
      - If you think user is refering to an ambiguous API, or internal API, call ${CONNECTOR_GENERATOR_TOOL} to request for the API spec from the user and to generate a connector for it.
    - Before marking the task as completed, use ${DIAGNOSTICS_TOOL_NAME} to check for compilation errors and fix them.
+   - ${REQUIREMENT_COVERAGE_RULE} Repeat the check across the whole request before the final response.
    - Mark task as completed using ${TASK_WRITE_TOOL_NAME} (send ALL tasks, no approval flags) — the agent continues automatically. **IMPORTANT: When marking a task as completed in a message with other tool calls, ${TASK_WRITE_TOOL_NAME} MUST always be the LAST tool call in the message.**
    - After completing a logical unit of work (a set of related tasks), set **requestReview: true** on the ${TASK_WRITE_TOOL_NAME} call to let the user review before continuing. Do NOT set this after every single task.
    - Repeat until ALL tasks are done
@@ -155,6 +157,7 @@ Write/modify the Ballerina code to implement the user requirement. Use the ${FIL
 ### Step 4: Validate the code
 Once the code is written, always use ${DIAGNOSTICS_TOOL_NAME} to check for compilation errors and fix them. You may call it multiple times after making changes.
 If errors cannot be resolved after multiple attempts, bring the code to a good state and finish the task.
+${REQUIREMENT_COVERAGE_RULE}
 Once compilation is clean and if the project contains test cases, run the tests.
 
 ### Step 5: Provide a consise summary
