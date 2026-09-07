@@ -20,10 +20,12 @@ import * as vscode from 'vscode';
 import { CopilotEventHandler } from '../../utils/events';
 import { runningServicesManager } from './running-service-manager';
 import { solveRelativeTempPath } from '../utils';
+import { detectWebSocketUsage, websocketRejectionMessage } from './hurl-websocket-guard';
+import { WEBSOCKET_PROBE_TOOL_NAME } from './websocket-probe';
 
 export const HURL_TOOL_NAME = "hurlRunnerTool";
 const HURL_LM_TOOL_NAME = "run-hurl-test";
-const TOOL_DESCRIPTION = `The hurl script to execute. Hurl is a command-line tool for running HTTP requests written in a simple text format. A script can contain one or more requests.
+const TOOL_DESCRIPTION = `The hurl script to execute. Hurl is a command-line tool for running HTTP requests written in a simple text format. A script can contain one or more requests. HTTP only: a script targeting ws:// or wss://, or sending an Upgrade: websocket header, is rejected without running — use ${WEBSOCKET_PROBE_TOOL_NAME} for WebSocket endpoints.
 Example Script:
 GET http://example.com/api/resource
 Accept: application/json
@@ -121,7 +123,7 @@ function removeSummaryFromHurlOutput(response: RawHurlToolOutput): HurlToolOutpu
 
 export function createHurlTool(eventHandler: CopilotEventHandler) {
     return tool({
-        description: `A tool to execute Hurl scripts. The input is a Hurl script as a string. The output includes the execution results, including response details. Use this tool to try out HTTP endpoints. Prefer requests without assertions for simple try-it scenarios ( without including status code assertions such as HTTP 200 or other types of assertions)`,
+        description: `A tool to execute Hurl scripts. The input is a Hurl script as a string. The output includes the execution results, including response details. Use this tool to try out HTTP endpoints ONLY — Hurl cannot open WebSocket connections; use ${WEBSOCKET_PROBE_TOOL_NAME} for ws:// and wss:// endpoints. A request that times out or reports an error has FAILED; never read it as success. Prefer requests without assertions for simple try-it scenarios ( without including status code assertions such as HTTP 200 or other types of assertions)`,
         inputSchema: HURLInputSchema,
         execute: async (input): Promise<HurlToolOutput> => await executeHurlRequest(input, eventHandler)
     });
@@ -137,6 +139,28 @@ export const executeHurlRequest = async (input: HURLInput, eventHandler: Copilot
             toolInput: { hurlScript, scenario: input.tryItScenario },
             toolCallId
         });
+        const webSocketUsage = detectWebSocketUsage(hurlScript);
+        if (webSocketUsage) {
+            // Hurl drives curl, which cannot complete a WebSocket session; the run would only produce timeouts
+            // that have been misread as a working upgrade. Refuse up front and point at the right tool.
+            const rejection: HurlToolOutput = {
+                input: { requests: [] },
+                output: {
+                    status: "error",
+                    durationMs: 0,
+                    entries: [],
+                    warnings: [websocketRejectionMessage(webSocketUsage, WEBSOCKET_PROBE_TOOL_NAME)],
+                },
+            };
+            eventHandler({
+                type: "tool_result",
+                toolName: HURL_TOOL_NAME,
+                toolOutput: { hurlScript: input.hurlScript, scenario: input.tryItScenario, runResult: rejection },
+                toolCallId,
+                failed: true,
+            });
+            return rejection;
+        }
         const runningServices = runningServicesManager.getAll().filter(service => !service.exited);
         const runningServiceTargets = runningServices.flatMap(service => {
             const target = solveRelativeTempPath(service.packagePath);

@@ -31,6 +31,9 @@ import { getRequirementAnalysisCodeGenPrefix, getRequirementAnalysisTestGenPrefi
 import { extractResourceDocumentContent, flattenProjectToFiles } from "../utils/ai-utils";
 import { BALLERINA_RUN_TOOL_NAME } from "./tools/ballerina-run";
 import { BALLERINA_STOP_TOOL_NAME } from "./tools/ballerina-stop";
+import { BALLERINA_GET_LOGS_TOOL_NAME } from "./tools/ballerina-get-logs";
+import { HURL_TOOL_NAME } from "./tools/hurl-tool";
+import { WEBSOCKET_PROBE_TOOL_NAME } from "./tools/websocket-probe";
 import { getBuiltInSkillsSection, getProjectSkillsSection, getUserSkillsSection, getDisabledSkillsSection, ProjectSkillMeta } from "./skills";
 import { WEB_SEARCH_TOOL_NAME, WEB_FETCH_TOOL_NAME } from "./tools/web-tools";
 // TODO(auto-memory): temporarily disabled for this release — restore once the memory feature is refined.
@@ -258,6 +261,11 @@ In WSO2 Integrator, a Ballerina workspace is called a **project** and a Ballerin
 - You do NOT decide which (library, shape) combinations are actually managed — the tool verifies each against the managed registry and silently downgrades unsupported ones to manual entry. So emit a group for ANY connector credential that fits one of the two shapes; grouping a candidate that turns out to be unsupported is harmless. That tolerance covers the library and shape only — every mapped name must be a configurable that already exists in source, spelled exactly as declared. Only leave TRULY non-connector secrets (e.g. a database password, or a standalone API key not tied to any connector) in \`variables\`.
 - Use one managedConnections entry per connector instance (repeat the same library for two clients of it), and put each configurable in EXACTLY ONE place — never list the same name in both a group and \`variables\`.
 - You can call ${BALLERINA_STOP_TOOL_NAME} when you need to restart a service (e.g. after code changes) or when the user explicitly asks to stop it.
+
+## Trying out endpoints
+- Use ${HURL_TOOL_NAME} for HTTP endpoints ONLY. Hurl cannot open WebSocket connections: a script against ws:// or wss://, or one sending an Upgrade: websocket header, is rejected, and a request that times out or errors has FAILED — never read a timeout or a missing HTTP 101 as a successful upgrade.
+- Use ${WEBSOCKET_PROBE_TOOL_NAME} to verify a WebSocket service running on this machine. It performs the upgrade, reports the HTTP status when the upgrade is refused (400 = returned websocket:UpgradeError, 401/403 = auth, 500 = a panic in the upgrade resource or an incompatible http:Listener), sends the given messages in order and returns the frames the server pushed. \`upgraded: false\`, an \`error\`, or zero received frames from a service that is expected to push data means the service is NOT working: read its output with ${BALLERINA_GET_LOGS_TOOL_NAME} and fix the code.
+- When the user has asked you to run or try out the integration, exercise EACH requested trigger at least once (e.g. both the create and the update path of an event) and report every trigger you could not exercise as unverified.
 
 ## Test Runner
 When running tests:

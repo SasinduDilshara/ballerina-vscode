@@ -53,6 +53,7 @@ import { createBallerinaGetLogsTool, BALLERINA_GET_LOGS_TOOL_NAME } from './tool
 import { createBallerinaStopTool, BALLERINA_STOP_TOOL_NAME } from './tools/ballerina-stop';
 import { RunningServicesManager } from './tools/running-service-manager';
 import { createHurlTool, HURL_TOOL_NAME } from './tools/hurl-tool';
+import { createWebSocketProbeTool, WEBSOCKET_PROBE_TOOL_NAME } from './tools/websocket-probe';
 import { createWebSearchTool, WEB_SEARCH_TOOL_NAME, createWebFetchTool, WEB_FETCH_TOOL_NAME } from './tools/web-tools';
 import { createClarifyTool, CLARIFY_TOOL } from './tools/clarify';
 import { createSkillTool, SKILL_TOOL_NAME } from './tools/skill-tool';
@@ -141,6 +142,7 @@ export function createToolRegistry(opts: ToolRegistryOptions) {
             [MIGRATION_SOURCE_READ_TOOL]: createMigrationSourceReadTool(eventHandler, migrationSourcePath),
         } : {}),
         [HURL_TOOL_NAME]: createHurlTool(eventHandler),
+        [WEBSOCKET_PROBE_TOOL_NAME]: createWebSocketProbeTool(eventHandler),
         [BALLERINA_RUN_TOOL_NAME]: createBallerinaRunTool(tempProjectPath, opts.runningServices, eventHandler),
         [BALLERINA_GET_LOGS_TOOL_NAME]: createBallerinaGetLogsTool(opts.runningServices, eventHandler),
         [BALLERINA_STOP_TOOL_NAME]: createBallerinaStopTool(opts.runningServices, eventHandler),

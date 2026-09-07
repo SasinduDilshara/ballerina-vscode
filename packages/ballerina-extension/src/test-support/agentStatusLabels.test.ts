@@ -74,6 +74,8 @@ describe('describeToolCall', () => {
     it('labels non-file tools without touching the path logic', () => {
         expect(describeToolCall('getCompilationErrors')).toBe('Checking for errors');
         expect(describeToolCall('runTests')).toBe('Running tests');
+        expect(describeToolCall('hurlRunnerTool')).toBe('Testing HTTP endpoints');
+        expect(describeToolCall('websocketProbeTool')).toBe('Testing a WebSocket endpoint');
     });
 
     it('names the tool behind an MCP call, and falls back for unknown tools', () => {

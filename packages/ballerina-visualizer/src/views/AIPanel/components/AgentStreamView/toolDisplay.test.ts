@@ -118,6 +118,12 @@ describe("getToolCallDisplay", () => {
         expect(() => getToolCallDisplay("file_read", null)).not.toThrow();
         expect(getToolCallDisplay("file_read", null).detail).toBe("file...");
     });
+
+    it("shows the probed WebSocket URL", () => {
+        expect(getToolCallDisplay("websocketProbeTool", { url: "ws://localhost:9090/orders/track" }))
+            .toEqual({ label: "Probing WebSocket:", detail: "ws://localhost:9090/orders/track" });
+        expect(getToolCallDisplay("websocketProbeTool", {}).label).toBe("Probing WebSocket...");
+    });
 });
 
 describe("getToolResultDisplay", () => {
@@ -129,6 +135,17 @@ describe("getToolResultDisplay", () => {
     it("summarises diagnostics by count", () => {
         expect(getToolResultDisplay("getCompilationErrors", { diagnostics: [1, 2] }).label).toBe("Found 2 error(s)");
         expect(getToolResultDisplay("getCompilationErrors", { diagnostics: [] }).label).toBe("No issues found");
+    });
+
+    it("distinguishes a WebSocket upgrade from a refusal and a transport failure", () => {
+        expect(getToolResultDisplay("websocketProbeTool", { upgraded: true, framesReceived: [{}, {}] }).label)
+            .toBe("WebSocket connected, 2 frames received");
+        expect(getToolResultDisplay("websocketProbeTool", { upgraded: true, framesReceived: [{}] }).label)
+            .toBe("WebSocket connected, 1 frame received");
+        expect(getToolResultDisplay("websocketProbeTool", { upgraded: false, statusCode: 500 }).label)
+            .toBe("WebSocket upgrade refused (HTTP 500)");
+        expect(getToolResultDisplay("websocketProbeTool", { upgraded: false, error: "Connection refused at localhost:9090" }))
+            .toEqual({ label: "WebSocket probe failed", detail: "Connection refused at localhost:9090" });
     });
 
     it("degrades to the generic label for an unknown tool", () => {

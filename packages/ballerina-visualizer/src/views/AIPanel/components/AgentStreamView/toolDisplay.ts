@@ -126,6 +126,7 @@ export function getToolCallDisplay(toolName: string | undefined, toolInput: any)
         case "ConnectorGeneratorTool": return { label: "Generating connector..." };
         case "runTests": return { label: "Running tests..." };
         case "hurlRunnerTool": return { label: "Sending HTTP request..." };
+        case "websocketProbeTool": return { label: toolInput?.url ? "Probing WebSocket:" : "Probing WebSocket...", detail: toolInput?.url };
         case "runBallerinaPackage": return { label: `Running ${toolInput?.runType === "service" ? "service" : "program"}...` };
         case "getServiceLogs": return { label: "Fetching logs..." };
         case "stopBallerinaService": return { label: "Stopping service..." };
@@ -174,6 +175,16 @@ export function getToolResultDisplay(toolName: string | undefined, toolOutput: a
         case "ConnectorGeneratorTool": return { label: "Connector ready" };
         case "runTests": return { label: toolOutput?.summary ?? "Tests completed" };
         case "hurlRunnerTool": return { label: "HTTP request completed" };
+        case "websocketProbeTool": {
+            if (toolOutput?.upgraded) {
+                const count = Array.isArray(toolOutput?.framesReceived) ? toolOutput.framesReceived.length : 0;
+                return { label: `WebSocket connected, ${count} frame${count === 1 ? "" : "s"} received` };
+            }
+            if (typeof toolOutput?.statusCode === "number") {
+                return { label: `WebSocket upgrade refused (HTTP ${toolOutput.statusCode})` };
+            }
+            return { label: "WebSocket probe failed", detail: toolOutput?.error };
+        }
         case "runBallerinaPackage": {
             const status = toolOutput?.status ?? "completed";
             return { label: status === "started" ? "Service started" : status === "completed" ? "Program completed" : status === "timeout" ? "Program timed out" : "Run failed" };

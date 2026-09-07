@@ -62,6 +62,8 @@ export function describeToolCall(toolName: string, toolInput?: any): string {
             return 'Stopping a service';
         case 'hurlRunnerTool':
             return 'Testing HTTP endpoints';
+        case 'websocketProbeTool':
+            return 'Testing a WebSocket endpoint';
         case 'LibrarySearchTool':
         case 'LibraryGetTool':
             return 'Looking up libraries';
