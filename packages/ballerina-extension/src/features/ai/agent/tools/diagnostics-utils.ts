@@ -3,6 +3,7 @@ import { checkProjectDiagnostics, isModuleNotFoundDiagsExist as resolveModuleNot
 import { StateMachine } from '../../../../stateMachine';
 import * as path from 'path';
 import { Uri } from 'vscode';
+import { DIAGNOSTIC_HINTS } from './diagnostic-hints';
 
 export const DIAGNOSTICS_TOOL_NAME = "getCompilationErrors";
 
@@ -21,24 +22,6 @@ export interface DiagnosticsCheckResult {
     message: string;
 }
 
-/**
- * Map of Ballerina diagnostic codes to resolving hints
- *
- * Each entry maps a diagnostic code (e.g., "BCE2000") to a helpful hint on how to resolve it.
- * These hints are shown alongside the diagnostic message to help developers fix issues quickly.
- *
- * TODO: Populate this map with actual Ballerina diagnostic codes and their corresponding hints.
- * Example structure:
- * {
- *   "BCE2000": "Add missing import statement for the module",
- *   "BCE2001": "Check variable type compatibility",
- *   "BCE2002": "Ensure function return type matches declaration",
- * }
- */
-const DIAGNOSTIC_HINTS: Record<string, string> = {
-    // Diagnostic code mappings to be populated
-    "BCE2000": "This usually indicates a missing import statement. Please ensure that all necessary modules are imported in each file where they are used.",
-};
 
 /**
  * Converts language server Diagnostics to EnrichedDiagnostic entries with hints
