@@ -22,6 +22,7 @@ import { CopilotEventHandler } from '../../utils/events';
 import { approvalManager } from '../../state/ApprovalManager';
 import { getAnthropicClient, getProviderModelOptions, ANTHROPIC_SONNET } from '../../utils/ai-client';
 import { sendWebToolToggleNotification } from '../../utils/ai-utils';
+import { resolveBallerinaByExampleSource, withByExampleSourceHost } from './ballerina-by-example';
 
 const WEB_TOOL_NOTIFICATION_TYPE = "webtool";
 
@@ -191,13 +192,53 @@ export function createWebFetchTool(eventHandler: CopilotEventHandler, webSearchE
     });
 }
 
+/** Whether a fetch result is the failure sentinel `extractToolOutput` produces, or nothing at all. */
+function isFailedFetch(content: string | undefined): boolean {
+    return !content || content.trim().length === 0 || content.startsWith('Web fetch failed:');
+}
+
+async function fetchUrlContent(
+    url: string,
+    fetchFactory: (args: Record<string, unknown>) => Tool<unknown, unknown>,
+    allowedDomains: string[] | undefined,
+    blockedDomains: string[] | undefined,
+): Promise<string> {
+    console.log(`[WebTools] fetch | url: ${url}`);
+    const result = await generateText({
+        model: await getAnthropicClient(ANTHROPIC_SONNET),
+        providerOptions: await getProviderModelOptions(),
+        system: 'You are a web fetcher. Your only job is to invoke the web_fetch tool with the given URL. STRICT RULES: (1) Do NOT write any text before the tool call. (2) Do NOT write any text after the tool call. (3) Do NOT summarize, describe, or explain the result. The tool result is consumed programmatically — any text you emit is ignored and wastes tokens.',
+        prompt: `URL: ${url}`,
+        tools: {
+            web_fetch: fetchFactory({
+                maxUses: 3,
+                ...(allowedDomains ? { allowedDomains } : {}),
+                ...(blockedDomains ? { blockedDomains } : {}),
+            }),
+        },
+        toolChoice: { type: 'tool', toolName: 'web_fetch' },
+        stopWhen: hasToolCall('web_fetch'),
+    });
+
+    const content = extractToolOutput(result);
+    console.log(`[WebTools] fetch | done | length: ${content?.length ?? 0}`);
+    return content;
+}
+
 async function executeWebFetch(
     input: WebFetchInput,
     webSearchEnabled: boolean,
     eventHandler: CopilotEventHandler,
     toolCallId: string
 ): Promise<string> {
-    const displayContent = `Fetch content from: ${input.url}`;
+    // A Ballerina By Example page renders client-side, so fetching it yields only the site navigation.
+    // Fetch the example's source from the distribution repository instead; the page URL stays as the
+    // fallback, and the approval prompt shows what is actually about to be fetched.
+    const byExample = resolveBallerinaByExampleSource(input.url);
+    const fetchUrl = byExample?.sourceUrl ?? input.url;
+    const displayContent = byExample
+        ? `Fetch content from: ${input.url} (source: ${fetchUrl})`
+        : `Fetch content from: ${input.url}`;
 
     const approved = await requestApprovalIfNeeded(WEB_FETCH_TOOL_NAME, displayContent, webSearchEnabled, eventHandler);
     if (!approved) {
@@ -220,25 +261,19 @@ async function executeWebFetch(
         const allowedDomains = sanitizeDomainList(input.allowed_domains);
         const blockedDomains = sanitizeDomainList(input.blocked_domains);
 
-        console.log(`[WebTools] fetch | url: ${input.url}`);
-        const result = await generateText({
-            model: await getAnthropicClient(ANTHROPIC_SONNET),
-            providerOptions: await getProviderModelOptions(),
-            system: 'You are a web fetcher. Your only job is to invoke the web_fetch tool with the given URL. STRICT RULES: (1) Do NOT write any text before the tool call. (2) Do NOT write any text after the tool call. (3) Do NOT summarize, describe, or explain the result. The tool result is consumed programmatically — any text you emit is ignored and wastes tokens.',
-            prompt: `URL: ${input.url}`,
-            tools: {
-                web_fetch: fetchFactory({
-                    maxUses: 3,
-                    ...(allowedDomains ? { allowedDomains } : {}),
-                    ...(blockedDomains ? { blockedDomains } : {}),
-                }),
-            },
-            toolChoice: { type: 'tool', toolName: 'web_fetch' },
-            stopWhen: hasToolCall('web_fetch'),
-        });
-
-        const content = extractToolOutput(result);
-        console.log(`[WebTools] fetch | done | length: ${content?.length ?? 0}`);
+        let content: string;
+        if (byExample) {
+            content = await fetchUrlContent(fetchUrl, fetchFactory, withByExampleSourceHost(allowedDomains), blockedDomains);
+            if (isFailedFetch(content)) {
+                // The slug-to-file mapping is a convention, not a guarantee: fall back to the page itself.
+                console.warn(`[WebTools] fetch | by-example source unavailable for ${byExample.slug}, falling back to ${input.url}`);
+                content = await fetchUrlContent(input.url, fetchFactory, allowedDomains, blockedDomains);
+            } else {
+                content = `// Source of ${input.url}\n// (${fetchUrl})\n${content}`;
+            }
+        } else {
+            content = await fetchUrlContent(input.url, fetchFactory, allowedDomains, blockedDomains);
+        }
 
         eventHandler({ type: "tool_result", toolName: WEB_FETCH_TOOL_NAME, toolOutput: { url: input.url }, toolCallId });
         return content || 'Web fetch completed.';

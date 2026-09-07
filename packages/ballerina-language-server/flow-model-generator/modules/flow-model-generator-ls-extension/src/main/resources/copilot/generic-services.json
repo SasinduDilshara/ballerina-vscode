@@ -65,6 +65,31 @@
           }
         ]
       }
+    },
+    {
+      "libraryName": "ballerina/email",
+      "type": "generic",
+      "name": "Service",
+      "instructions": "The `ballerina/email` module receives mail through a polling listener, not a client loop. Two listener classes exist and both attach the same `email:Service`:\n- `email:ImapListener` for IMAP4, configured with an `email:ImapListenerConfiguration` record (`host`, `username`, `password`, optional `pollingInterval` in seconds (default 30), `port` (default 993), `security`, `secureSocket`).\n- `email:PopListener` for POP3, configured with an `email:PopListenerConfiguration` record carrying the same fields (`port` default 995).\nThe listener polls the mailbox every `pollingInterval` seconds and dispatches each new mail to `onMessage`. Declare the listener at module level from configurables and attach a named service:\n```ballerina\nimport ballerina/email;\nimport ballerina/log;\n\nlistener email:ImapListener emailListener = check new ({\n    host: imapHost,\n    username: imapUsername,\n    password: imapPassword,\n    pollingInterval: imapPollingIntervalSeconds,\n    port: imapPort\n});\n\nservice \"emailObserver\" on emailListener {\n    // Called once for every newly received email.\n    remote function onMessage(email:Message emailMessage) {\n        log:printInfo(\"Received an email\", subject = emailMessage.subject);\n    }\n\n    // Called when polling the mailbox fails; the listener keeps polling.\n    remote function onError(email:Error emailError) {\n        log:printError(\"Email polling failed\", 'error = emailError);\n    }\n\n    // Called when the listener is closed.\n    remote function onClose(email:Error? closeError) {\n    }\n}\n```\n`onMessage` is required; `onError` and `onClose` are optional. Read `emailMessage.subject`, `emailMessage?.'from`, `emailMessage?.body` and `emailMessage?.htmlBody` from the received `email:Message`. Do not poll with `email:ImapClient`/`email:PopClient` `receiveMessage()` in a loop when the requirement is to react to mail as it arrives — use the listener.",
+      "listener": {
+        "name": "email:ImapListener",
+        "description": "Polls an IMAP mailbox on a fixed interval and dispatches every newly received email to the attached service. Use email:PopListener for POP3 mailboxes.",
+        "parameters": [
+          {
+            "name": "listenerConfig",
+            "description": "IMAP server host, credentials, port, polling interval and security settings",
+            "type": {
+              "name": "ImapListenerConfiguration",
+              "links": [
+                {
+                  "category": "internal",
+                  "recordName": "ImapListenerConfiguration"
+                }
+              ]
+            }
+          }
+        ]
+      }
     }
   ]
 }
