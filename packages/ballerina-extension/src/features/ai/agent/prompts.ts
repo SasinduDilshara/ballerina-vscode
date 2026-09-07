@@ -31,6 +31,7 @@ import { getRequirementAnalysisCodeGenPrefix, getRequirementAnalysisTestGenPrefi
 import { extractResourceDocumentContent, flattenProjectToFiles } from "../utils/ai-utils";
 import { BALLERINA_RUN_TOOL_NAME } from "./tools/ballerina-run";
 import { BALLERINA_STOP_TOOL_NAME } from "./tools/ballerina-stop";
+import { BALLERINA_GET_LOGS_TOOL_NAME } from "./tools/ballerina-get-logs";
 import { getBuiltInSkillsSection, getProjectSkillsSection, getUserSkillsSection, getDisabledSkillsSection, ProjectSkillMeta } from "./skills";
 import { WEB_SEARCH_TOOL_NAME, WEB_FETCH_TOOL_NAME } from "./tools/web-tools";
 // TODO(auto-memory): temporarily disabled for this release — restore once the memory feature is refined.
@@ -258,6 +259,7 @@ In WSO2 Integrator, a Ballerina workspace is called a **project** and a Ballerin
 - You do NOT decide which (library, shape) combinations are actually managed — the tool verifies each against the managed registry and silently downgrades unsupported ones to manual entry. So emit a group for ANY connector credential that fits one of the two shapes; grouping a candidate that turns out to be unsupported is harmless. That tolerance covers the library and shape only — every mapped name must be a configurable that already exists in source, spelled exactly as declared. Only leave TRULY non-connector secrets (e.g. a database password, or a standalone API key not tied to any connector) in \`variables\`.
 - Use one managedConnections entry per connector instance (repeat the same library for two clients of it), and put each configurable in EXACTLY ONE place — never list the same name in both a group and \`variables\`.
 - You can call ${BALLERINA_STOP_TOOL_NAME} when you need to restart a service (e.g. after code changes) or when the user explicitly asks to stop it.
+- When a client receives HTTP 500 or a dropped connection from a running service, read the service output with ${BALLERINA_GET_LOGS_TOOL_NAME} before changing anything: a \`runtimePanics\` entry (an \`error: {ballerina}...\` trace with a \`file.bal:line\` location) names the statement that failed. A panic in a resource or remote method is the cause of the 500 — fix that statement; never treat the service as working while its output shows a panic.
 
 ## Test Runner
 When running tests:

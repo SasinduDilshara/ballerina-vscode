@@ -26,6 +26,7 @@ import { BALLERINA_GET_LOGS_TOOL_NAME } from './ballerina-get-logs';
 import { BALLERINA_STOP_TOOL_NAME } from './ballerina-stop';
 import { resolvePackageBasePath } from './path-utils';
 import { getRunCommand } from '../../../project/cmds/cmd-runner';
+import { buildRuntimePanicNote, detectRuntimePanics } from './runtime-panics';
 
 export const BALLERINA_RUN_TOOL_NAME = "runBallerinaPackage";
 
@@ -168,13 +169,15 @@ export async function executeRun(
     }
 
     runningServices.remove(taskId);
+    const runtimePanics = detectRuntimePanics(completionResult.logs);
     return {
         status: service.exitCode === 0 ? "completed" : "error",
         exitCode: service.exitCode,
         output: completionResult.logs,
-        message: service.exitCode === 0
+        ...(runtimePanics.length > 0 ? { runtimePanics } : {}),
+        message: (service.exitCode === 0
             ? "Program completed successfully."
-            : "Build or runtime error. Check output for details.",
+            : "Build or runtime error. Check output for details.") + buildRuntimePanicNote(runtimePanics),
     };
 }
 

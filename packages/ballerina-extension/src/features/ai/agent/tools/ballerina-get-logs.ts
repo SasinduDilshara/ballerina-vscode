@@ -19,6 +19,7 @@ import { z } from 'zod';
 import { CopilotEventHandler } from '../../utils/events';
 import { RunningServicesManager } from './running-service-manager';
 import { BALLERINA_RUN_TOOL_NAME } from './ballerina-run';
+import { buildRuntimePanicNote, detectRuntimePanics } from './runtime-panics';
 
 export const BALLERINA_GET_LOGS_TOOL_NAME = "getServiceLogs";
 
@@ -77,13 +78,19 @@ async function getLogs(
 
     const newLogs = service.logs.slice(service.logCursor).join('');
     service.logCursor = service.logs.length;
+    // A panic trace in the output is the reason clients saw a 500 or a dropped connection; surface it so the
+    // model reads the failing location instead of passing over a page of logs.
+    const runtimePanics = detectRuntimePanics(newLogs);
+    const panicFields = runtimePanics.length > 0 ? { runtimePanics } : {};
+    const panicNote = buildRuntimePanicNote(runtimePanics);
 
     if (service.exited) {
         return {
             status: "exited",
             exitCode: service.exitCode,
             logs: newLogs,
-            message: `Service has exited with code ${service.exitCode}.`,
+            ...panicFields,
+            message: `Service has exited with code ${service.exitCode}.${panicNote}`,
         };
     }
 
@@ -98,6 +105,7 @@ async function getLogs(
     return {
         status: "running",
         logs: newLogs,
-        message: `${newLogs.split('\n').length} new log lines.`,
+        ...panicFields,
+        message: `${newLogs.split('\n').length} new log lines.${panicNote}`,
     };
 }
