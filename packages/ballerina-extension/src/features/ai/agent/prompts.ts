@@ -30,6 +30,7 @@ import { GenerateAgentCodeRequest, OperationType, ProjectSource } from "@wso2/ba
 import { formatActiveFileReminder } from "./activeFileReminder";
 import { EXTERNAL_PAYLOAD_RECORD_RULE } from "./external-payload-records";
 import { IMMUTABLE_CLONE_RULE } from "./immutable-clone-rules";
+import { LOCK_IO_RULE } from "./lock-io-rules";
 import { getRequirementAnalysisCodeGenPrefix, getRequirementAnalysisTestGenPrefix } from "./np/prompts";
 import { CONCURRENCY_CODING_RULES } from "./concurrency-rules";
 import { extractResourceDocumentContent, flattenProjectToFiles } from "../utils/ai-utils";
@@ -225,6 +226,7 @@ ${MODULE_INIT_CODING_RULES}
 
 ${CONCURRENCY_CODING_RULES}
 - ${IMMUTABLE_CLONE_RULE}
+- ${LOCK_IO_RULE}
 
 ## File modifications
 - You must apply changes to the existing source code using the provided ${[
