@@ -32,6 +32,22 @@ describe('CONCURRENCY_CODING_RULES content', () => {
         expect(CONCURRENCY_CODING_RULES).toMatch(/final int\[\] & readonly/);
     });
 
+    test('teaches that a final variable of an isolated-object type is readable without a lock', () => {
+        expect(CONCURRENCY_CODING_RULES).toMatch(/WITHOUT a lock when its static type is immutable \(`readonly`/);
+        expect(CONCURRENCY_CODING_RULES).toMatch(/OR an isolated object/);
+        expect(CONCURRENCY_CODING_RULES).toMatch(/most connector clients and listeners/);
+        expect(CONCURRENCY_CODING_RULES).toMatch(/`ai:Agent`/);
+        expect(CONCURRENCY_CODING_RULES).toMatch(/instances of a class you declared `isolated class`/);
+        expect(CONCURRENCY_CODING_RULES).toMatch(/Do NOT declare such a variable `isolated`/);
+        expect(CONCURRENCY_CODING_RULES).toMatch(/do NOT add `& readonly` to it/);
+    });
+
+    test('scopes the transfer rule to mutable values and warns against readonly-for-lock values stored as mutable state', () => {
+        expect(CONCURRENCY_CODING_RULES).toMatch(/a MUTABLE value leaving the lock/);
+        expect(CONCURRENCY_CODING_RULES).toMatch(/single isolated objects \(a client, a caller\) may cross the boundary freely/);
+        expect(CONCURRENCY_CODING_RULES).toMatch(/Do NOT make a value `readonly` merely to bring it into a lock/);
+    });
+
     test('teaches the isolated-object rules for service state, including the method side', () => {
         expect(CONCURRENCY_CODING_RULES).toMatch(/mutable field `private`/);
         // concurrent dispatch needs BOTH the service and its methods isolated
