@@ -32,6 +32,7 @@ import { EXTERNAL_PAYLOAD_RECORD_RULE } from "./external-payload-records";
 import { IMMUTABLE_CLONE_RULE } from "./immutable-clone-rules";
 import { LOCK_IO_RULE } from "./lock-io-rules";
 import { REQUIREMENT_COVERAGE_RULE } from "./requirement-coverage";
+import { CONFIGURABLE_CODING_RULES } from "./configurable-rules";
 import { getRequirementAnalysisCodeGenPrefix, getRequirementAnalysisTestGenPrefix } from "./np/prompts";
 import { CONCURRENCY_CODING_RULES } from "./concurrency-rules";
 import { extractResourceDocumentContent, flattenProjectToFiles } from "../utils/ai-utils";
@@ -203,10 +204,7 @@ ${getLanglibInstructions()}
 - Initialize any necessary clients with the correct configuration based on the retrieved libraries at the module level (before any function or service declarations).
 - Implement the main function OR service to address the query requirements.
 
-## OAuth refreshUrl configurable
-When a connector authenticates via an OAuth2 refresh-token grant that includes a refreshUrl:
-- Declare a \`configurable string\` for the refreshUrl and reference it in the auth config (e.g. \`refreshUrl: refreshUrl\`).
-- refreshUrl is the one configurable that MAY carry a default: if the library's type definition provides a default refreshUrl (the provider token endpoint), use it (\`configurable string refreshUrl = "<provider-token-endpoint-url>";\`); otherwise use \`configurable string refreshUrl = ?;\`.
+${CONFIGURABLE_CODING_RULES}
 
 ## Coding Rules
 - Use records as canonical representations of data structures. Always define records for data structures instead of using maps or json and navigate using the record fields.
