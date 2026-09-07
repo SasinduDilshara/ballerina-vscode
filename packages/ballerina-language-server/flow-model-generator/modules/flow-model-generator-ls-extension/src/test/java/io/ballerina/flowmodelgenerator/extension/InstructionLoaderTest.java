@@ -48,6 +48,16 @@ public class InstructionLoaderTest {
         Assert.assertTrue(instruction.isPresent(), "Library instruction for ballerina/test should exist");
     }
 
+    @Test
+    public void testLoadLibraryInstructionForGithub() {
+        // Bundled because the connector documentation says nothing about the uploads.github.com host that
+        // release-asset uploads require, and Copilot generated uploads against api.github.com without it.
+        Optional<String> instruction = InstructionLoader.loadLibraryInstruction("ballerinax/github");
+        Assert.assertTrue(instruction.isPresent(), "Library instruction for ballerinax/github should exist");
+        Assert.assertTrue(instruction.get().contains("https://uploads.github.com"),
+                "ballerinax/github instruction should name the uploads host");
+    }
+
     @Test(dataProvider = "packagesWithMigratedInstructions")
     public void testMigratedPackagesHaveNoBundledInstruction(String packageName) {
         Assert.assertFalse(InstructionLoader.loadLibraryInstruction(packageName).isPresent(),
