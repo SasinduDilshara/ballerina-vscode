@@ -48,6 +48,16 @@ public class InstructionLoaderTest {
         Assert.assertTrue(instruction.isPresent(), "Library instruction for ballerina/test should exist");
     }
 
+    @Test
+    public void testLoadLibraryInstructionForJwt() {
+        // Bundled because Copilot cast jwt:Payload (an open record) to map<json>, which compiles and panics at
+        // run time, and the module README shows no custom-claim access at all.
+        Optional<String> instruction = InstructionLoader.loadLibraryInstruction("ballerina/jwt");
+        Assert.assertTrue(instruction.isPresent(), "Library instruction for ballerina/jwt should exist");
+        Assert.assertTrue(instruction.get().contains("payload[\"orderId\"]"),
+                "ballerina/jwt instruction should show member access for custom claims");
+    }
+
     @Test(dataProvider = "packagesWithMigratedInstructions")
     public void testMigratedPackagesHaveNoBundledInstruction(String packageName) {
         Assert.assertFalse(InstructionLoader.loadLibraryInstruction(packageName).isPresent(),

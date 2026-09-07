@@ -27,6 +27,7 @@ import { getLanglibInstructions } from "../utils/libs/langlibs";
 import { formatCodebaseStructure, formatCodeContext } from "./utils";
 import { GenerateAgentCodeRequest, OperationType, ProjectSource } from "@wso2/ballerina-core";
 import { formatActiveFileReminder } from "./activeFileReminder";
+import { OPEN_RECORD_ACCESS_RULE } from "./open-record-access";
 import { getRequirementAnalysisCodeGenPrefix, getRequirementAnalysisTestGenPrefix } from "./np/prompts";
 import { extractResourceDocumentContent, flattenProjectToFiles } from "../utils/ai-utils";
 import { BALLERINA_RUN_TOOL_NAME } from "./tools/ballerina-run";
@@ -210,6 +211,7 @@ When a connector authenticates via an OAuth2 refresh-token grant that includes a
 - If a type paramter is specified as record {|anydata...;|} which means you can pass any record into that. In those scenarios, Use existing records or declare explict records and pass it to the paramter.
 - If the return type refers to a paramter with the type record {|anydata...;|} as the default value, it means it can be assigned to any records. You can decide the structured, declare and use it.
 - Whenever you have a Json variable, NEVER access or manipulate Json variables. ALWAYS define a record and convert the Json to that record and use it.
+- ${OPEN_RECORD_ACCESS_RULE}
 - When invoking resource functions from a client, use the correct paths with accessor and parameters (e.g., exampleClient->/path1/["param"]/path2.get(key="value")).
 - When accessing a field of a record, always assign it to a new variable and use that variable in the next statement.
 - Avoid long comments in the code. Use // for single line comments.

@@ -100,6 +100,19 @@ json student = {name: "Jo", subjects: ["CS1212"]};
 json[] subjects = check student.subjects.ensureType();
 \`\`\`
 
+## Reading undeclared or dynamically named record fields
+
+An open record (\`record { ... }\`) can carry fields its type does not declare — \`jwt:Payload\` holds custom claims this way. Read such a field with member access on the record and narrow the result; member access yields \`()\` when the field is absent:
+\`\`\`ballerina
+// jwt:Payload declares only the registered claims; custom claims are undeclared fields.
+string claimName = "orderId";
+anydata claimValue = payload[claimName]; // () if the field is absent
+if claimValue is string {
+    // use claimValue
+}
+\`\`\`
+Never cast a record to \`map<json>\` to reach undeclared fields: an open record's rest field type is \`anydata\`, so \`<map<json>>payload\` compiles but panics at runtime with \`{ballerina}TypeCastError\`. \`payload.get(claimName)\` panics with \`{ballerina/lang.map}KeyNotFound\` when the field is absent. If you need a \`json\` view of the whole value, use \`json j = payload.toJson();\`.
+
 ## Working with Arrays
 
 Counting elements in an array:
