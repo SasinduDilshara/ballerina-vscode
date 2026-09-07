@@ -27,6 +27,7 @@ import { getLanglibInstructions } from "../utils/libs/langlibs";
 import { formatCodebaseStructure, formatCodeContext } from "./utils";
 import { GenerateAgentCodeRequest, OperationType, ProjectSource } from "@wso2/ballerina-core";
 import { formatActiveFileReminder } from "./activeFileReminder";
+import { CONFIGURABLE_CODING_RULES } from "./configurable-rules";
 import { getRequirementAnalysisCodeGenPrefix, getRequirementAnalysisTestGenPrefix } from "./np/prompts";
 import { extractResourceDocumentContent, flattenProjectToFiles } from "../utils/ai-utils";
 import { BALLERINA_RUN_TOOL_NAME } from "./tools/ballerina-run";
@@ -191,14 +192,11 @@ ${getLanglibInstructions()}
 
 ## Code Structure
 - In WSO2 Integrator, Automation is simply an app with a main method unless user specifically mentions a service. Cron Job kind of requirements are handled in the deployment level for Kubernetes or Integration platform level.
-- Define required configurables for the query. Use only string, int, decimal, boolean types in configurable variables. Never assign hardcoded default values to configurables.
+- Define required configurables for the query following the "Configurable variables" rules below.
 - Initialize any necessary clients with the correct configuration based on the retrieved libraries at the module level (before any function or service declarations).
 - Implement the main function OR service to address the query requirements.
 
-## OAuth refreshUrl configurable
-When a connector authenticates via an OAuth2 refresh-token grant that includes a refreshUrl:
-- Declare a \`configurable string\` for the refreshUrl and reference it in the auth config (e.g. \`refreshUrl: refreshUrl\`).
-- refreshUrl is the one configurable that MAY carry a default: if the library's type definition provides a default refreshUrl (the provider token endpoint), use it (\`configurable string refreshUrl = "<provider-token-endpoint-url>";\`); otherwise use \`configurable string refreshUrl = ?;\`.
+${CONFIGURABLE_CODING_RULES}
 
 ## Coding Rules
 - Use records as canonical representations of data structures. Always define records for data structures instead of using maps or json and navigate using the record fields.
