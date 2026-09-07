@@ -22,6 +22,17 @@ export interface GetFunctionsRequest {
     clients: MinifiedClient[];
     functions?: MinifiedRemoteFunction[];
     services?: MinifiedService[];
+    /**
+     * The library's non-client classes and object types that declare methods (`ai:Agent`,
+     * `ai:VectorKnowledgeBase`, `email:ImapListener`, `http:Request`), minified exactly like a client.
+     *
+     * Before this, a class reached the generating model only when some selected function, client, service
+     * or annotation *named* it in a signature. `ai:Agent` is named by nothing — it is constructed with
+     * `new` and driven through its own methods — so `Agent.run`, `KnowledgeBase.ingest/retrieve` and the
+     * human-in-the-loop types their signatures pull in were never rendered, and the model worked from
+     * README prose alone. Sending the classes lets the selection model keep the ones the query needs.
+     */
+    classes?: MinifiedClient[];
 }
 
 export interface MinifiedClient {
@@ -125,6 +136,8 @@ export interface GetFunctionResponse {
     clients?: MinifiedClient[];
     functions?: MinifiedRemoteFunction[];
     services?: SelectedService[];
+    /** The classes the model kept, each with only the methods it kept — see {@link GetFunctionsRequest.classes}. */
+    classes?: MinifiedClient[];
 }
 
 export interface PathParameter {
@@ -173,6 +186,7 @@ const libraryResponseSchema = z.object({
     clients: z.array(clientSchema).optional(),
     functions: z.array(remoteFunctionSchema).optional(),
     services: z.array(selectedServiceSchema).optional(),
+    classes: z.array(clientSchema).optional(),
 });
 
 export const getFunctionsResponseSchema = z.object({

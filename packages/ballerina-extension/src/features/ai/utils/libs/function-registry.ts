@@ -21,16 +21,18 @@ import {
     GetFunctionsRequest,
     GetFunctionsResponse,
     getFunctionsResponseSchema,
-    MinifiedClient,
-    MinifiedRemoteFunction,
-    MinifiedResourceFunction,
-    PathParameter,
 } from "./function-types";
 import { Client, GetTypeResponse, GetTypesRequest, GetTypesResponse, getTypesResponseSchema, Library, MiniType, RemoteFunction, ResourceFunction, Service, FixedService, Annotation } from "./library-types";
 import { TypeDefinition, AbstractFunction, Type, RecordTypeDefinition, UnionTypeDefinition } from "./library-types";
 import {
+    collectClassFunctions,
+    getClassFunctionCount,
     getClientFunctionCount,
+    getCompleteFuncForMiniFunc,
+    getConstructor,
     hasNothingToSelect,
+    mergeClassTypeDefs,
+    selectClasses,
     selectServices,
     toSelectionRequest,
     withRestoredServiceLibraries,
@@ -185,7 +187,7 @@ async function getRequiredFunctions(
     const selectableLibs = libraryList.filter((lib) => !passthroughLibs.includes(lib));
     const passthroughResp: GetFunctionResponse[] = passthroughLibs.map((lib) => ({ name: lib.name }));
 
-    const largeLibs = selectableLibs.filter((lib) => getClientFunctionCount(lib.clients) >= 100);
+    const largeLibs = selectableLibs.filter((lib) => getClientFunctionCount(lib.clients) + getClassFunctionCount(lib.classes) >= 100);
     const smallLibs = selectableLibs.filter((lib) => !largeLibs.includes(lib));
 
     console.log(
@@ -254,7 +256,7 @@ async function getSuggestedFunctions(
     const startTime = Date.now();
     const libraryNames = libraryList.map((lib) => lib.name).join(", ");
     const functionCount = libraryList.reduce(
-        (total, lib) => total + getClientFunctionCount(lib.clients) + (lib.functions?.length || 0),
+        (total, lib) => total + getClientFunctionCount(lib.clients) + getClassFunctionCount(lib.classes) + (lib.functions?.length || 0),
         0
     );
 
@@ -268,7 +270,8 @@ CRITICAL RULES:
 3. Copy all field values EXACTLY as provided - preserve every character including backslashes and special characters.
 4. For resource functions: "accessor" and "paths" are SEPARATE fields - NEVER combine them.
 5. A library is relevant if ANY of its clients, functions, or services match the query. A service matches when its "doc" (what the service is for), its "listenerDoc" (how it is triggered), its name, or ANY ONE of its handlers under "methods", is what the query needs. List each matching service under the library's "services" field, copying its "listener" and "name" verbatim; omit the services that do not match. If a library matches ONLY via its services, still include the library in the output with empty/omitted clients and functions.
-6. "doc", "listenerDoc" and a handler's "doc" are evidence to reason over, never fields to copy: the response carries only "listener" and "name" for a service.`;
+6. "doc", "listenerDoc" and a handler's "doc" are evidence to reason over, never fields to copy: the response carries only "listener" and "name" for a service.
+7. A library may list "classes": object types the code constructs with \`new\` and drives through their own methods (an agent, a knowledge base, a listener, a request/response object). A class is relevant when the query needs ANY of its methods. List each matching class under the library's "classes" field, copying its "name" and only the matching "functions" verbatim, exactly as you would for a client. A library that matches ONLY via a class is still relevant.`;
 
     const getLibUserPrompt = `You will be provided with a list of libraries, clients, and their functions, and a user query.
 
@@ -283,9 +286,9 @@ ${JSON.stringify(libraryList)}
 To process the user query and filter the libraries, clients, services and functions, follow these steps:
 
 1. Analyze the user query to understand the specific requirements or needs.
-2. Review the provided libraries, clients, services and functions in Library_Context_JSON.
-3. Select only the libraries, clients, services and functions that directly match the query's needs.
-4. Exclude any irrelevant libraries, clients, services or functions.
+2. Review the provided libraries, clients, classes, services and functions in Library_Context_JSON.
+3. Select only the libraries, clients, classes, services and functions that directly match the query's needs.
+4. Exclude any irrelevant libraries, clients, classes, services or functions.
 5. If no relevant functions and services are found, return an empty array for libraries.
 6. Organize the remaining relevant information.
 
@@ -389,6 +392,9 @@ export async function toMaximizedLibrariesFromLibJson(
         const filteredClients = selectClients(originalLib.clients, funcResponse);
         const filteredFunctions = selectFunctions(originalLib.functions, funcResponse);
         const filteredServices = selectServices(originalLib.services, funcResponse);
+        // The classes the model kept. They are rendered with only the methods it kept, and their method
+        // signatures take part in the type closure below so the records they name are defined too.
+        const selectedClasses = selectClasses(originalLib.typeDefs, funcResponse);
 
         const maximizedLib: Library = {
             name: funcResponse.name,
@@ -399,7 +405,9 @@ export async function toMaximizedLibrariesFromLibJson(
             // The SELECTED services, not the library's whole set: the closure is what pulls a service's
             // parameter, return, annotation and binding types into `typeDefs`, so walking dropped services
             // would keep paying the larger half of their cost after dropping the services themselves.
-            typeDefs: getOwnTypeDefsForLib(filteredClients, filteredFunctions, originalLib.typeDefs, filteredServices ? filteredServices : undefined, originalLib.annotations),
+            typeDefs: mergeClassTypeDefs(
+                getOwnTypeDefsForLib(filteredClients, filteredFunctions, originalLib.typeDefs, filteredServices ? filteredServices : undefined, originalLib.annotations, selectedClasses),
+                selectedClasses),
             services: filteredServices,
             annotations: originalLib.annotations ? originalLib.annotations : null,
             instructions: originalLib.instructions ? originalLib.instructions : null,
@@ -502,48 +510,16 @@ function selectFunctions(
     return output.length > 0 ? output : undefined;
 }
 
-function getConstructor(functions: (RemoteFunction | ResourceFunction)[]): RemoteFunction | null {
-    for (const func of functions) {
-        if ('type' in func && func.type === TYPE_CONSTRUCTOR) {
-            return func as RemoteFunction;
-        }
-    }
-    return null;
-}
 
-function normalizePaths(paths: (PathParameter | string)[]): string[] {
-    return paths.map((path) => {
-        const pathStr = typeof path === "string" ? path : path.name;
-        return pathStr.replace(/\\./g, ".");
-    });
-}
 
-function getCompleteFuncForMiniFunc(
-    minFunc: MinifiedRemoteFunction | MinifiedResourceFunction,
-    fullFunctions: (RemoteFunction | ResourceFunction)[]
-): (RemoteFunction | ResourceFunction) | null {
-    if ("name" in minFunc) {
-        // MinifiedRemoteFunction
-        return fullFunctions.find((f) => "name" in f && f.name === minFunc.name) || null;
-    } else {
-        // MinifiedResourceFunction
-        return (
-            fullFunctions.find(
-                (f) =>
-                    "accessor" in f &&
-                    f.accessor === minFunc.accessor &&
-                    JSON.stringify(normalizePaths(f.paths)) === JSON.stringify(normalizePaths(minFunc.paths))
-            ) || null
-        );
-    }
-}
 
 function getOwnTypeDefsForLib(
     clients: Client[],
     functions: RemoteFunction[] | undefined,
     allTypeDefs: TypeDefinition[],
     services?: Service[],
-    annotations?: Annotation[]
+    annotations?: Annotation[],
+    selectedClasses?: TypeDefinition[]
 ): TypeDefinition[] {
     const allFunctions: AbstractFunction[] = [];
 
@@ -556,6 +532,11 @@ function getOwnTypeDefsForLib(
     if (functions) {
         allFunctions.push(...functions);
     }
+
+    // Add the methods of the selected classes: `Agent.run(string|Prompt|Resume ...)` is the only place the
+    // human-in-the-loop records are named, so without this the class would render against types the
+    // prompt never defines.
+    allFunctions.push(...collectClassFunctions(selectedClasses));
 
     return getOwnRecordRefs(allFunctions, allTypeDefs, services, annotations);
 }
@@ -833,6 +814,10 @@ function getExternalTypeDefsRefs(libraries: Library[]): Map<string, string[]> {
         if (lib.functions) {
             allFunctions.push(...lib.functions);
         }
+
+        // Add the methods of every rendered class, selected or reference-pulled: a method signature can
+        // name a foreign type just as a client's can, and the renderer writes it either way.
+        allFunctions.push(...collectClassFunctions(lib.typeDefs));
 
         getExternalTypeDefRefs(externalRecords, allFunctions, lib.typeDefs, lib.services, lib.annotations);
     }

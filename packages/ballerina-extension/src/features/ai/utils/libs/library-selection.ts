@@ -33,10 +33,22 @@ import {
     MinifiedResourceFunction,
     MinifiedService,
 } from "./function-types";
-import { Client, FixedService, Library, RemoteFunction, ResourceFunction, Service } from "./library-types";
+import {
+    Client,
+    ClassTypeDefinition,
+    FixedService,
+    Library,
+    PathParameter,
+    RemoteFunction,
+    ResourceFunction,
+    Service,
+    TypeDefinition,
+} from "./library-types";
 
 /** The `type` a client's constructor carries; it is re-attached by `selectClients`, never selected. */
 const TYPE_CONSTRUCTOR = "Constructor";
+/** The `type` of a class or object type definition — the only kind of type definition that has methods to select. */
+const TYPE_CLASS = "Class";
 
 /**
  * A library with fewer services than this never has them filtered.
@@ -49,6 +61,15 @@ export const MIN_SERVICES_TO_FILTER = 3;
 
 export function getClientFunctionCount(clients: MinifiedClient[]): number {
     return clients.reduce((count, client) => count + client.functions.length, 0);
+}
+
+/**
+ * How many class methods a request asks the model to judge. A class entry is shaped like a client entry, so
+ * the count is the same shape too; it is kept separate so a class-only library reads as a decision in
+ * {@link hasNothingToSelect} and weighs in the large/small split alongside the client functions.
+ */
+export function getClassFunctionCount(classes?: MinifiedClient[]): number {
+    return classes ? getClientFunctionCount(classes) : 0;
 }
 
 /**
@@ -71,6 +92,7 @@ export function getClientFunctionCount(clients: MinifiedClient[]): number {
  */
 export function hasNothingToSelect(lib: GetFunctionsRequest): boolean {
     return getClientFunctionCount(lib.clients) === 0
+        && getClassFunctionCount(lib.classes) === 0
         && (lib.functions?.length ?? 0) === 0
         && (lib.services?.length ?? 0) < MIN_SERVICES_TO_FILTER;
 }
@@ -291,13 +313,162 @@ export function selectServices(
  *                                    here would give this module the VS Code dependency it exists without
  */
 export function toSelectionRequest(lib: Library, includeFunctionDescriptions: boolean): GetFunctionsRequest {
+    const classes = toRequestClasses(lib.typeDefs);
     return {
         name: lib.name,
         description: lib.description,
         clients: toRequestClients(lib.clients),
         functions: toRequestFunctions(lib.functions, includeFunctionDescriptions),
         services: toServiceRequestEntries(lib.services),
+        ...(classes ? { classes } : {}),
     };
+}
+
+/**
+ * Whether a type definition is a class or object type that declares at least one method other than its
+ * constructor — the only kind of type definition the selection model has a decision to make about.
+ */
+export function isSelectableClass(typeDef: TypeDefinition): typeDef is ClassTypeDefinition {
+    if (typeDef.type !== TYPE_CLASS) {
+        return false;
+    }
+    const functions = (typeDef as ClassTypeDefinition).functions ?? [];
+    return functions.some((func) => !isConstructor(func));
+}
+
+/**
+ * The library's selectable classes, each minified exactly like a client: its name, its doc, and its
+ * methods reduced to identity, parameter names and return type name. The constructor is omitted here for
+ * the same reason it is omitted for clients — it is not a choice — and `selectClasses` re-attaches it.
+ *
+ * `undefined` rather than `[]` when there is nothing to send, so a library without classes serialises
+ * exactly as it did before this field existed.
+ */
+export function toRequestClasses(typeDefs: TypeDefinition[] | undefined): MinifiedClient[] | undefined {
+    const classes = (typeDefs ?? []).filter(isSelectableClass).map((typeDef) => ({
+        name: typeDef.name,
+        description: typeDef.description,
+        functions: toRequestClientFunctions(typeDef.functions ?? []),
+    }));
+    return classes.length > 0 ? classes : undefined;
+}
+
+/**
+ * Re-inflates the classes the model kept from the library's own type definitions: the constructor (if the
+ * class has one) followed by the kept methods, resolved back to their complete declarations. A class the
+ * model named that the library does not declare, or a method it named that the class does not have, is
+ * dropped rather than invented — the response is only ever a selection over what was sent.
+ */
+export function selectClasses(
+    originalTypeDefs: TypeDefinition[] | undefined,
+    funcResponse: GetFunctionResponse
+): ClassTypeDefinition[] {
+    const selected = funcResponse.classes ?? [];
+    if (selected.length === 0 || !originalTypeDefs) {
+        return [];
+    }
+
+    const result: ClassTypeDefinition[] = [];
+    for (const minClass of selected) {
+        const original = originalTypeDefs.find(
+            (typeDef): typeDef is ClassTypeDefinition => typeDef.type === TYPE_CLASS && typeDef.name === minClass.name
+        );
+        if (!original) {
+            continue;
+        }
+        const originalFunctions: (RemoteFunction | ResourceFunction)[] = original.functions ?? [];
+        const functions: (RemoteFunction | ResourceFunction)[] = [];
+        for (const minFunc of minClass.functions ?? []) {
+            const complete = getCompleteFuncForMiniFunc(minFunc, originalFunctions);
+            if (complete && !functions.includes(complete)) {
+                functions.push(complete);
+            }
+        }
+        if (functions.length === 0) {
+            continue;
+        }
+        const constructor = getConstructor(originalFunctions);
+        result.push({
+            ...original,
+            functions: constructor ? [constructor, ...functions] : functions,
+        });
+    }
+    return result;
+}
+
+/**
+ * The type definitions to render for a library: the ones its selected functions, clients and services
+ * reference, plus the classes the model kept. A class that is both referenced and kept is rendered once,
+ * from the referenced copy — that copy carries every method, and a signature that names the class is a
+ * stronger reason to show all of it than the model's per-method pick.
+ */
+export function mergeClassTypeDefs(
+    referenced: TypeDefinition[],
+    selectedClasses: ClassTypeDefinition[]
+): TypeDefinition[] {
+    const known = new Set(referenced.map((typeDef) => typeDef.name));
+    const merged = [...referenced];
+    for (const selected of selectedClasses) {
+        if (!known.has(selected.name)) {
+            known.add(selected.name);
+            merged.push(selected);
+        }
+    }
+    return merged;
+}
+
+/** Every method of every class type definition in the list — what the type-reference scanners walk. */
+export function collectClassFunctions(typeDefs: TypeDefinition[] | undefined): (RemoteFunction | ResourceFunction)[] {
+    const functions: (RemoteFunction | ResourceFunction)[] = [];
+    for (const typeDef of typeDefs ?? []) {
+        if (typeDef.type === TYPE_CLASS) {
+            functions.push(...((typeDef as ClassTypeDefinition).functions ?? []));
+        }
+    }
+    return functions;
+}
+
+function isConstructor(func: RemoteFunction | ResourceFunction): boolean {
+    return "type" in func && func.type === TYPE_CONSTRUCTOR;
+}
+
+/** The class's or client's constructor, if it declares one. */
+export function getConstructor(functions: (RemoteFunction | ResourceFunction)[]): RemoteFunction | null {
+    for (const func of functions) {
+        if (isConstructor(func)) {
+            return func as RemoteFunction;
+        }
+    }
+    return null;
+}
+
+function normalizePaths(paths: (PathParameter | string)[]): string[] {
+    return paths.map((path) => {
+        const pathStr = typeof path === "string" ? path : path.name;
+        return pathStr.replace(/\\./g, ".");
+    });
+}
+
+/**
+ * Resolves a minified function from the response back to its complete declaration: a remote/plain method
+ * by name, a resource method by accessor plus path (dots un-escaped on both sides so the comparison does not
+ * depend on how either side quoted them).
+ */
+export function getCompleteFuncForMiniFunc(
+    minFunc: MinifiedRemoteFunction | MinifiedResourceFunction,
+    fullFunctions: (RemoteFunction | ResourceFunction)[]
+): (RemoteFunction | ResourceFunction) | null {
+    if ("name" in minFunc) {
+        return fullFunctions.find((f) => "name" in f && f.name === minFunc.name) || null;
+    }
+    return (
+        fullFunctions.find(
+            (f) =>
+                "accessor" in f &&
+                f.accessor === minFunc.accessor &&
+                JSON.stringify(normalizePaths(f.paths)) === JSON.stringify(normalizePaths(minFunc.paths))
+        ) || null
+    );
 }
 
 /** Each client as the request states it: its name, its doc, and its functions minified. */
