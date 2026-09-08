@@ -2395,14 +2395,17 @@ public class CodeAnalyzer extends NodeVisitor {
 
     /** Rebuilds Email-specific form properties from source values, preserving template shapes. */
     private void populateEmailProperties(Map<String, String> src, Map<String, String> opts) {
-        addRequiredExpressionProperty(src, EmailActivityStrategy.TO_KEY,
-                "To", "Recipient email address (or list of addresses)", "string|string[]");
-        addRequiredExpressionProperty(src, EmailActivityStrategy.SUBJECT_KEY,
-                "Subject", "Email subject line", "string");
-        addRequiredExpressionProperty(src, EmailActivityStrategy.FROM_KEY,
-                "From", "Sender address", "string");
-        addRequiredExpressionProperty(src, EmailActivityStrategy.BODY_KEY,
-                "Body", "Plain-text body of the email", "string");
+        // to/subject/from/body are TEXT/EXPRESSION dual-typed: a string literal in source reopens the
+        // form in text mode, anything else in expression mode.
+        addDualTypeProperty(src, EmailActivityStrategy.TO_KEY,
+                "To", "Recipient email address (or list of addresses)", "", "string|string[]",
+                false, true);
+        addDualTypeProperty(src, EmailActivityStrategy.SUBJECT_KEY,
+                "Subject", "Email subject line", "", "string", false, true);
+        addDualTypeProperty(src, EmailActivityStrategy.FROM_KEY,
+                "From", "Sender address", "", "string", false, true);
+        addDualTypeProperty(src, EmailActivityStrategy.BODY_KEY,
+                "Body", "Plain-text body of the email", "", "string", false, true);
 
         // EmailOptions fields — all optional, advanced
         addOptionalAdvancedExpression(opts, "cc",
@@ -2448,33 +2451,39 @@ public class CodeAnalyzer extends NodeVisitor {
     private void addDualTypePathProperty(Map<String, String> src, String key,
                                           String label, String description,
                                           String placeholder, boolean advanced) {
+        addDualTypeProperty(src, key, label, description, placeholder, "string", advanced, false);
+    }
+
+    /**
+     * Adds a dual TEXT/EXPRESSION property. The TEXT type is selected when the source value is a
+     * Ballerina double-quoted string literal (the quotes are stripped for display); EXPRESSION
+     * otherwise. Mirrors the node template built by the builtin activity strategies, so a saved
+     * node reopens in the mode it was entered in.
+     *
+     * @param expressionType the ballerinaType advertised by the EXPRESSION type (the TEXT type is
+     *                       always {@code string})
+     * @param advanced       {@code true} to mark the property as advanced (for SOAP path/action)
+     * @param required       {@code true} for a REQUIRED, non-optional parameter (the email fields)
+     */
+    private void addDualTypeProperty(Map<String, String> src, String key, String label,
+                                     String description, String placeholder, String expressionType,
+                                     boolean advanced, boolean required) {
         String value = src.getOrDefault(key, "");
         boolean isStringLit = value.length() >= 2 && value.startsWith("\"") && value.endsWith("\"");
         String displayValue = isStringLit ? value.substring(1, value.length() - 1) : value;
 
-        nodeBuilder.properties().custom()
+        Property.Builder<FormBuilder<NodeBuilder>> builder = nodeBuilder.properties().custom()
                 .metadata().label(label).description(description).stepOut()
                 .type().fieldType(Property.ValueType.TEXT).ballerinaType("string")
                     .selected(isStringLit).stepOut()
-                .type().fieldType(Property.ValueType.EXPRESSION).ballerinaType("string")
+                .type().fieldType(Property.ValueType.EXPRESSION).ballerinaType(expressionType)
                     .selected(!isStringLit).stepOut()
                 .value(displayValue).placeholder(placeholder)
-                .editable(true).optional(true).advanced(advanced)
-                .stepOut().addProperty(key);
-    }
-
-    /** Adds a REQUIRED EXPRESSION property for simple string/string[] fields. */
-    private void addRequiredExpressionProperty(Map<String, String> src,
-                                                String key, String label,
-                                                String description, String ballerinaType) {
-        String value = src.getOrDefault(key, "");
-        nodeBuilder.properties().custom()
-                .metadata().label(label).description(description).stepOut()
-                .type().fieldType(Property.ValueType.EXPRESSION)
-                    .ballerinaType(ballerinaType).selected(true).stepOut()
-                .codedata().kind(ParameterData.Kind.REQUIRED.name()).stepOut()
-                .value(value).editable(true)
-                .stepOut().addProperty(key);
+                .editable(true).optional(!required).advanced(advanced);
+        if (required) {
+            builder.codedata().kind(ParameterData.Kind.REQUIRED.name()).stepOut();
+        }
+        builder.stepOut().addProperty(key);
     }
 
     /**
