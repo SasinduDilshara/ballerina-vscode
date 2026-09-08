@@ -553,7 +553,12 @@ export function NewActivityFromConnection(props: NewActivityFromConnectionProps)
                     parameterDescription: param.description,
                 });
             }
-            const property = newProperties[param.name];
+            // The LS escapes a keyword parameter name ('from); the action node template keys the
+            // matching property the same way when it comes from the connector index, but by the bare
+            // symbol name when it is resolved from the project's own semantic model. Try both so the
+            // argument is always wired up.
+            const propertyKey = param.name in newProperties ? param.name : param.name.replace(/^'/, "");
+            const property = newProperties[propertyKey];
             if (!property) {
                 continue;
             }
@@ -562,7 +567,7 @@ export function NewActivityFromConnection(props: NewActivityFromConnectionProps)
                 : param.required
                   ? String(data[`${param.name}${DEFAULT_VALUE_SUFFIX}`] ?? "")
                   : "";
-            newProperties[param.name] = { ...property, value };
+            newProperties[propertyKey] = { ...property, value };
         }
 
         // Return type: for dependently-typed actions the user-provided T (activity returns T|error),

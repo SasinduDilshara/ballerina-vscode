@@ -35,6 +35,7 @@ import io.ballerina.compiler.api.symbols.UnionTypeSymbol;
 import io.ballerina.flowmodelgenerator.core.utils.ParamUtils;
 import io.ballerina.modelgenerator.commons.CommonUtils;
 import io.ballerina.modelgenerator.commons.ParameterData;
+import org.ballerinalang.langserver.common.utils.CommonUtil;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -65,7 +66,10 @@ public final class ActionSignatureAnalyzer {
     /**
      * A derived activity parameter.
      *
-     * @param name        the parameter name (matches the action parameter / record field)
+     * @param name        the parameter name (matches the action parameter / record field), escaped
+     *                    with a leading {@code '} when it is a Ballerina keyword (e.g. {@code 'from})
+     *                    so it can be used verbatim as the generated activity's parameter name and
+     *                    matches the action node template's property key
      * @param type        the derived (anydata) type signature
      * @param required    whether the parameter is required (always included, not toggleable)
      * @param description the action's documentation for the parameter (empty when undocumented);
@@ -114,7 +118,8 @@ public final class ActionSignatureAnalyzer {
                     pathReasons.add("Path parameter '" + pathParam.name() + "' is not a data type");
                     continue;
                 }
-                pathParams.add(new DerivedParam(pathParam.name(), pathParam.type(), true,
+                pathParams.add(new DerivedParam(CommonUtil.escapeReservedKeyword(pathParam.name()),
+                        pathParam.type(), true,
                         pathParam.description() == null ? "" : pathParam.description()));
             }
         }
@@ -167,10 +172,13 @@ public final class ActionSignatureAnalyzer {
             } else if (kind == ParameterKind.INCLUDED_RECORD) {
                 expandIncludedRecord(param.typeDescriptor(), params, reasons, anydata, semanticModel);
             } else {
-                // REQUIRED or DEFAULTABLE
+                // REQUIRED or DEFAULTABLE. The doc map is keyed by the name as written in the doc
+                // comment, which for a keyword parameter may carry the quote ('from) while the symbol
+                // name does not — look the description up under both spellings.
                 boolean required = kind == ParameterKind.REQUIRED;
+                String docKey = paramDocs.containsKey(name) ? name : CommonUtil.escapeReservedKeyword(name);
                 addParam(params, reasons, name, param.typeDescriptor(), required, anydata, semanticModel,
-                        paramDocs.getOrDefault(name, ""));
+                        paramDocs.getOrDefault(docKey, ""));
             }
         }
 
@@ -198,17 +206,26 @@ public final class ActionSignatureAnalyzer {
         return new Analysis(supported, reasons, params, returnType, streamElementType, dependentReturn);
     }
 
+    /**
+     * Adds a derived parameter. {@code name} is the raw symbol/field name; it is escaped with
+     * {@link CommonUtil#escapeReservedKeyword} so a keyword name (e.g. {@code from}) is carried into
+     * the generated activity signature — and matched against the action node template's property
+     * key — in its quoted form ({@code 'from}). Escaping is idempotent, so an already-escaped name
+     * coming from the connector index is left alone.
+     */
     private static void addParam(List<DerivedParam> params, List<String> reasons, String name,
                                  TypeSymbol type, boolean required, TypeSymbol anydata,
                                  SemanticModel semanticModel, String description) {
+        String escapedName = CommonUtil.escapeReservedKeyword(name);
         String derived = deriveDataType(type, anydata, semanticModel);
         if (derived == null) {
-            reasons.add("Parameter '" + name + "' of type '"
+            reasons.add("Parameter '" + escapedName + "' of type '"
                     + CommonUtils.getTypeSignature(semanticModel, type, true)
                     + "' is not a data type (it must be, or contain, anydata)");
             return;
         }
-        params.add(new DerivedParam(name, derived, required, description == null ? "" : description));
+        params.add(new DerivedParam(escapedName, derived, required,
+                description == null ? "" : description));
     }
 
     private static void expandIncludedRecord(TypeSymbol type, List<DerivedParam> params, List<String> reasons,

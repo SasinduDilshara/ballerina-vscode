@@ -101,6 +101,25 @@ public class AnalyzeActivityActionTest extends AbstractLSTest {
     }
 
     @Test
+    public void testKeywordParamNameIsEscaped() throws IOException {
+        JsonObject analysis = analyze("convert");
+        Assert.assertTrue(analysis.get("supported").getAsBoolean(), "Expected convert to be supported");
+        JsonArray params = analysis.getAsJsonArray("params");
+        Assert.assertEquals(params.size(), 2);
+
+        // 'from is a Ballerina keyword: the derived name must keep the quote so it can be used
+        // verbatim as the generated activity's parameter name and matches the action's property key.
+        JsonObject fromParam = params.get(0).getAsJsonObject();
+        Assert.assertEquals(fromParam.get("name").getAsString(), "'from");
+        Assert.assertEquals(fromParam.get("type").getAsString(), "string");
+        Assert.assertTrue(fromParam.get("required").getAsBoolean());
+        Assert.assertEquals(fromParam.get("description").getAsString(), "The source unit");
+
+        // A non-keyword name is left alone.
+        Assert.assertEquals(params.get(1).getAsJsonObject().get("name").getAsString(), "to");
+    }
+
+    @Test
     public void testStreamReturnCollected() throws IOException {
         JsonObject analysis = analyze("fetchLines");
         Assert.assertTrue(analysis.get("supported").getAsBoolean(), "Expected fetchLines to be supported");
