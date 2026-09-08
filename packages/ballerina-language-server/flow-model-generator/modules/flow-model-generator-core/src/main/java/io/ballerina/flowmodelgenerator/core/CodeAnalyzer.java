@@ -2481,7 +2481,9 @@ public class CodeAnalyzer extends NodeVisitor {
                 .value(displayValue).placeholder(placeholder)
                 .editable(true).optional(!required).advanced(advanced);
         if (required) {
-            builder.codedata().kind(ParameterData.Kind.REQUIRED.name()).stepOut();
+            // Reassign rather than discard: stepOut() only hands back the parent builder, so
+            // dropping its result trips SpotBugs' RV_RETURN_VALUE_IGNORED_NO_SIDE_EFFECT.
+            builder = builder.codedata().kind(ParameterData.Kind.REQUIRED.name()).stepOut();
         }
         builder.stepOut().addProperty(key);
     }
