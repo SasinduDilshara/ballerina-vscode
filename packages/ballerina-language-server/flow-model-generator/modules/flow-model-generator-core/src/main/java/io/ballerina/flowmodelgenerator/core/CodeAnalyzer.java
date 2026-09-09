@@ -2495,8 +2495,8 @@ public class CodeAnalyzer extends NodeVisitor {
 
     /** Rebuilds Email-specific form properties from source values, preserving template shapes. */
     private void populateEmailProperties(Map<String, String> src, Map<String, String> opts) {
-        // to/subject/from/body are TEXT/EXPRESSION dual-typed: a string literal in source reopens the
-        // form in text mode, anything else in expression mode.
+        // to/subject/from/body are TEXT/EXPRESSION dual-typed: a string literal (or an absent
+        // argument) reopens the form in text mode, anything else in expression mode.
         addDualTypeProperty(src, EmailActivityStrategy.TO_KEY,
                 "To", "Recipient email address (or list of addresses)", "", "string|string[]",
                 false, true);
@@ -2556,9 +2556,10 @@ public class CodeAnalyzer extends NodeVisitor {
 
     /**
      * Adds a dual TEXT/EXPRESSION property. The TEXT type is selected when the source value is a
-     * Ballerina double-quoted string literal (the quotes are stripped for display); EXPRESSION
-     * otherwise. Mirrors the node template built by the builtin activity strategies, so a saved
-     * node reopens in the mode it was entered in.
+     * Ballerina double-quoted string literal (the quotes are stripped for display), or when the
+     * argument is absent altogether; EXPRESSION otherwise. Mirrors the node template built by the
+     * builtin activity strategies, so a saved node reopens in the mode it was entered in and an
+     * untouched field opens in the same mode a fresh node would.
      *
      * @param expressionType the ballerinaType advertised by the EXPRESSION type (the TEXT type is
      *                       always {@code string})
@@ -2571,13 +2572,16 @@ public class CodeAnalyzer extends NodeVisitor {
         String value = src.getOrDefault(key, "");
         boolean isStringLit = value.length() >= 2 && value.startsWith("\"") && value.endsWith("\"");
         String displayValue = isStringLit ? value.substring(1, value.length() - 1) : value;
+        // An absent argument carries no evidence of the entry mode, so fall back to the strategies'
+        // template default (TEXT) rather than reopening the field in the expression editor.
+        boolean textSelected = isStringLit || value.isEmpty();
 
         Property.Builder<FormBuilder<NodeBuilder>> builder = nodeBuilder.properties().custom()
                 .metadata().label(label).description(description).stepOut()
                 .type().fieldType(Property.ValueType.TEXT).ballerinaType("string")
-                    .selected(isStringLit).stepOut()
+                    .selected(textSelected).stepOut()
                 .type().fieldType(Property.ValueType.EXPRESSION).ballerinaType(expressionType)
-                    .selected(!isStringLit).stepOut()
+                    .selected(!textSelected).stepOut()
                 .value(displayValue).placeholder(placeholder)
                 .editable(true).optional(!required).advanced(advanced);
         if (required) {
