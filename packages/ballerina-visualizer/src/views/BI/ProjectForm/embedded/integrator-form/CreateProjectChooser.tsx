@@ -90,7 +90,7 @@ export function CreateProjectChooser({
     return (
         <CreateFlowShell
             title="Create a Project"
-            subtitle="Organize everything that you build with WSO2 Integrator."
+            subtitle="Organize everything you build with WSO2 Integrator."
             onBack={onBack}
         >
             <ProjectDestinationForm

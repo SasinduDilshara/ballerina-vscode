@@ -439,7 +439,7 @@ export function AdvancedConfigurationSection({
                 <>
                     <SubSectionLabel>Ballerina Package</SubSectionLabel>
                     <Note style={{ marginBottom: "16px" }}>
-                        {`This will be generated as a Ballerina package. Specify the organization, package name and version to be assigned.`}
+                        {`This will be generated as a Ballerina package. Specify the organization, package name, and version.`}
                     </Note>
                     <FieldGroup>
                         <TextField

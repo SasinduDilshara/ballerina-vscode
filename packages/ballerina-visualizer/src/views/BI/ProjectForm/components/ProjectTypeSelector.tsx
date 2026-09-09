@@ -46,7 +46,7 @@ export interface ProjectTypeSelectorProps {
     onChange: (isLibrary: boolean) => void;
     /** Optional note to display below the options */
     note?: ReactNode;
-    /** Section label above the options. Defaults to "Type". */
+    /** Section label above the options. Defaults to "What do you want to add?". */
     label?: string;
 }
 

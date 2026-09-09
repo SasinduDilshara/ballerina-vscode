@@ -373,8 +373,8 @@ export function AdvancedConfigurationSection({
                 {hidePackageName
                     ? `Each ${isLibrary ? "library" : "integration"} is generated as a Ballerina package. Specify the organization and version to be assigned.`
                     : createWithinProject
-                        ? `This will be generated as a Ballerina package. Specify the package name and version to be assigned.`
-                        : `This will be generated as a Ballerina package. Specify the organization, package name and version to be assigned.`}
+                        ? `This will be generated as a Ballerina package. Specify the package name and version.`
+                        : `This will be generated as a Ballerina package. Specify the organization, package name, and version.`}
             </Note>
             {!hidePackageName && (
                 <FieldGroup>
