@@ -65,14 +65,14 @@ export const DIAGNOSTIC_HINTS: Readonly<Record<string, string>> = {
     // ---- Isolated functions ----
 
     // "invalid access of mutable storage in an 'isolated' function"
-    "BCE3943": "An `isolated` function may only read module-level state that is (a) `final` (or `configurable`) with a type "
-        + "that is immutable (`readonly`) OR an isolated object (a connector client, a listener, `ai:Agent`, an instance of an "
-        + "`isolated class`), or (b) declared `isolated` and accessed only inside `lock { }`. If the reported variable is already "
-        + "`final` and its type is an isolated object, the access is legal — the error comes from a DIFFERENT variable in the same "
-        + "function. Fix: if the variable is never mutated, declare it `final` (and give it an immutable type if it is a "
-        + "map/array/record); if it is shared mutable state, declare it `isolated` (e.g. `isolated int[] stack = [];`) and wrap "
-        + "every access in `lock { }`. Do NOT simply drop the `isolated` qualifier from a resource/remote method — that disables "
-        + "concurrent dispatch.",
+    "BCE3943": "An `isolated` function may only access module-level state that is either "
+        + "(a) `final`/`configurable` with an immutable (`readonly`) or isolated-object type (client, listener, `ai:Agent`, `isolated class`), or "
+        + "(b) declared `isolated` and accessed only inside `lock { }`. "
+        + "Fix: never mutated -> declare it `final` (with an immutable type for map/array/record). "
+        + "Shared mutable module variable -> declare it `isolated` (e.g. `isolated int[] stack = [];`) and wrap every access in `lock { }`. "
+        + "Shared mutable service/class field -> declare it `private` (class/servuce fields cannot be `isolated`) and access it via `self` inside `lock { }`. "
+        + "If the reported variable is already `final` with an isolated-object type, the error comes from another variable in the same function. "
+        + "Do NOT drop the `isolated` qualifier from a resource/remote method; that disables concurrent dispatch.",
 
     // "invalid access of mutable storage in the default value of a record field"
     "BCE3944": "A record field's default value must be an isolated expression. Replace the reference to mutable module " +
