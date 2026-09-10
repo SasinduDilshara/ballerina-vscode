@@ -28,11 +28,7 @@ import { MODULE_INIT_CODING_RULES } from "./module-init-rules";
 import { formatCodebaseStructure, formatCodeContext } from "./utils";
 import { GenerateAgentCodeRequest, OperationType, ProjectSource } from "@wso2/ballerina-core";
 import { formatActiveFileReminder } from "./activeFileReminder";
-import { EXTERNAL_PAYLOAD_RECORD_RULE } from "./external-payload-records";
-import { TYPE_CAST_CODING_RULES } from "./type-cast-rules";
-import { IMMUTABLE_CLONE_RULE } from "./immutable-clone-rules";
-import { LOCK_IO_RULE } from "./lock-io-rules";
-import { REQUIREMENT_COVERAGE_RULE } from "./requirement-coverage";
+import { DATA_BINDING_CODING_RULES } from "./data-binding-rules";
 import { CONFIGURABLE_CODING_RULES } from "./configurable-rules";
 import { getRequirementAnalysisCodeGenPrefix, getRequirementAnalysisTestGenPrefix } from "./np/prompts";
 import { CONCURRENCY_CODING_RULES } from "./concurrency-rules";
@@ -137,7 +133,6 @@ This plan will be visible to the user and the execution will be guided on the ta
      - If no skill applies, use ${LIBRARY_SEARCH_TOOL} with relevant keywords to discover available libraries, then use ${LIBRARY_GET_TOOL} to fetch full details for the discovered libraries.
      - If you think user is refering to an ambiguous API, or internal API, call ${CONNECTOR_GENERATOR_TOOL} to request for the API spec from the user and to generate a connector for it.
    - Before marking the task as completed, use ${DIAGNOSTICS_TOOL_NAME} to check for compilation errors and fix them.
-   - ${REQUIREMENT_COVERAGE_RULE} Repeat the check across the whole request before the final response.
    - Mark task as completed using ${TASK_WRITE_TOOL_NAME} (send ALL tasks, no approval flags) — the agent continues automatically. **IMPORTANT: When marking a task as completed in a message with other tool calls, ${TASK_WRITE_TOOL_NAME} MUST always be the LAST tool call in the message.**
    - After completing a logical unit of work (a set of related tasks), set **requestReview: true** on the ${TASK_WRITE_TOOL_NAME} call to let the user review before continuing. Do NOT set this after every single task.
    - Repeat until ALL tasks are done
@@ -164,7 +159,6 @@ Write/modify the Ballerina code to implement the user requirement. Use the ${FIL
 ### Step 4: Validate the code
 Once the code is written, always use ${DIAGNOSTICS_TOOL_NAME} to check for compilation errors and fix them. You may call it multiple times after making changes.
 If errors cannot be resolved after multiple attempts, bring the code to a good state and finish the task.
-${REQUIREMENT_COVERAGE_RULE}
 Once compilation is clean and if the project contains test cases, run the tests.
 
 ### Step 5: Provide a consise summary
@@ -209,7 +203,6 @@ ${CONFIGURABLE_CODING_RULES}
 
 ## Coding Rules
 - Use records as canonical representations of data structures. Always define records for data structures instead of using maps or json and navigate using the record fields.
-- ${EXTERNAL_PAYLOAD_RECORD_RULE}
 - Do not invoke methods on json access expressions. Always use separate statements.
 - Use dot notation to access a normal function. Use -> to access a remote function or resource function.
 - Do not use dynamic listener registrations.
@@ -217,7 +210,7 @@ ${CONFIGURABLE_CODING_RULES}
 - ALWAYS use two-word camel case all the identifiers (variables, function parameter, resource function parameter, and field names).
 - If a type paramter is specified as record {|anydata...;|} which means you can pass any record into that. In those scenarios, Use existing records or declare explict records and pass it to the paramter.
 - If the return type refers to a paramter with the type record {|anydata...;|} as the default value, it means it can be assigned to any records. You can decide the structured, declare and use it.
-- Whenever you have a Json variable, NEVER access or manipulate Json variables. ALWAYS define a record and convert the Json to that record and use it. Member access on a RECORD (see "Type casts and narrowing") is not json manipulation and is the one allowed way to read an undeclared field.
+- Whenever you have a Json variable, NEVER access or manipulate Json variables. ALWAYS define a record and convert the Json to that record and use it. Member access on a RECORD (see "Data binding, type casts and narrowing") is not json manipulation and is the one allowed way to read an undeclared field.
 - When invoking resource functions from a client, use the correct paths with accessor and parameters (e.g., exampleClient->/path1/["param"]/path2.get(key="value")).
 - When accessing a field of a record, always assign it to a new variable and use that variable in the next statement.
 - Avoid long comments in the code. Use // for single line comments.
@@ -225,12 +218,10 @@ ${CONFIGURABLE_CODING_RULES}
 - Mention types EXPLICITLY in variable declarations and foreach statements. (Avoid var at all costs)
 - To narrow down a union type(or optional type), always declare a separate variable and then use that variable in the if condition.
 
-${TYPE_CAST_CODING_RULES}
+${DATA_BINDING_CODING_RULES}
 ${MODULE_INIT_CODING_RULES}
 
 ${CONCURRENCY_CODING_RULES}
-- ${IMMUTABLE_CLONE_RULE}
-- ${LOCK_IO_RULE}
 
 ## File modifications
 - You must apply changes to the existing source code using the provided ${[
