@@ -34,7 +34,7 @@
 export const DATA_BINDING_CODING_RULES = `## Data binding, type casts and narrowing
 
 ### Records for external data
-- Records that bind data from an EXTERNAL system Prefer to be OPEN records (\`record { ... }\`); an open record implicitly accepts extra \`anydata\` fields. If an library defines a record for an external schema, use that record type. If the code defines its own record for an external schema, declare it open.
+- Records that bind data from an EXTERNAL system should preferably be OPEN records (\`record { ... }\`) because their exact shape is not known; an open record implicitly accepts extra \`anydata\` fields. If a library defines a record for an external schema, use that record type. If the code defines its own record for an external schema, declare it open.
 - In such records, declare only the fields the code uses and mark any field that may be absent optional (\`string eventVersion?;\`).
 
 ### Type casts
