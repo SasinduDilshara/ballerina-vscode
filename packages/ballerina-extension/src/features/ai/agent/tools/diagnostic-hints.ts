@@ -9,29 +9,6 @@ export interface EnrichedDiagnostic extends DiagnosticEntry {
 }
 
 /**
- * Service-concurrency hint codes (severity: Hint, not Error).
- *
- * These are emitted by the compiler's IsolationAnalyzer when a service's
- * resource/remote methods cannot be dispatched concurrently because the
- * service and/or the method could not be declared or inferred `isolated`.
- * The code still compiles, so they must never be counted as compilation
- * errors — they are surfaced separately as `concurrencyHints`.
- */
-export const CONCURRENCY_HINT_CODES: ReadonlySet<string> = new Set([
-    "BCH2003", // concurrent calls will not be made to this method since the service and the method are not 'isolated'
-    "BCH2004", // concurrent calls will not be made to this method since the service is not an 'isolated' service
-    "BCH2005", // concurrent calls will not be made to this method since the method is not an 'isolated' method
-]);
-
-const SERVICE_ISOLATION_FIX =
-    "To enable concurrent dispatch, make the service isolated: (1) declare every mutable service field `private` " +
-    "and access it via `self` only inside `lock { }` blocks (clone values crossing the lock boundary with " +
-    "`.clone()`/`.cloneReadOnly()`); (2) ensure field initializers are isolated expressions (fresh literals/constructors); " +
-    "(3) ensure each resource/remote method only calls `isolated` functions and accesses no non-final module-level mutable state. " +
-    "Isolation is then inferred automatically — explicit `isolated` qualifiers on the service and methods also work. " +
-    "Only make this change if the user's request involves concurrency, throughput, or shared state.";
-
-/**
  * Map of Ballerina diagnostic codes to resolving hints.
  *
  * Each entry maps a diagnostic code (e.g., "BCE3943") to a directive hint on how to
@@ -39,7 +16,7 @@ const SERVICE_ISOLATION_FIX =
  * getCompilationErrors tool so the agent can apply the canonical fix instead of
  * guessing at the compiler's isolation/lock terminology.
  *
- * The isolation/lock/concurrency entries were derived from the ballerina-lang
+ * The isolation/lock entries were derived from the ballerina-lang
  * compiler sources (IsolationAnalyzer.java, DiagnosticErrorCode.java,
  * compiler.properties) and the language server's quick-fix code actions
  * (AddIsolatedQualifierCodeAction, AddLockCodeAction, AddReadonlyCodeAction,
@@ -203,76 +180,23 @@ export const DIAGNOSTIC_HINTS: Readonly<Record<string, string>> = {
     "BCE4025": "A record field's default value cannot reference an `isolated` variable directly. Use a literal default, or " +
         "keep the default by calling an `isolated` function that reads the variable inside `lock { }` (e.g. " +
         "`type R record {| int f = readCount(); |};` where `isolated function readCount() returns int { lock { return count; } }`).",
-
-    // ---- Service concurrency hints (not errors; surfaced as concurrencyHints) ----
-
-    // "concurrent calls will not be made to this method since the service and the method are not 'isolated'"
-    "BCH2003": "Neither the service nor this method is `isolated`, so the listener serializes calls to it. " + SERVICE_ISOLATION_FIX,
-
-    // "concurrent calls will not be made to this method since the service is not an 'isolated' service"
-    "BCH2004": "This method is `isolated` but the service is not, so the listener serializes calls to it. The blocker is the " +
-        "service's state: make every mutable service field `private`, initialized with an isolated expression, and accessed via " +
-        "`self` only inside `lock { }`. " + SERVICE_ISOLATION_FIX,
-
-    // "concurrent calls will not be made to this method since the method is not an 'isolated' method"
-    "BCH2005": "The service is isolated but this method is not, so the listener serializes calls to it. The blocker is the " +
-        "method body: it must only call `isolated` functions and must not access non-final module-level mutable state (use " +
-        "`isolated` variables with `lock { }` where shared state is needed). " + SERVICE_ISOLATION_FIX,
 };
 
 /**
- * Builds the note appended to the diagnostics tool message when
- * service-concurrency hints (BCH2003–BCH2005) are present. Explicitly framed as
- * non-blocking so the agent does not loop trying to drive the diagnostic count
- * to zero, and does not refactor services the user never asked about.
- */
-export function buildConcurrencyHintNote(hintCount: number): string {
-    if (hintCount === 0) {
-        return "";
-    }
-    return ` Additionally, ${hintCount} service-concurrency hint(s) were reported (see concurrencyHints). ` +
-        `These are NOT compilation errors — the code compiles — but the listed resource/remote methods will NOT ` +
-        `be dispatched concurrently because the service and/or method is not 'isolated'. Address them ONLY if the ` +
-        `user's request involves concurrency, throughput, or shared mutable state; otherwise leave the code as is ` +
-        `(you may briefly mention the limitation to the user).`;
-}
-
-/**
- * Result of transforming raw language-server diagnostics for the agent.
- */
-export interface TransformedDiagnostics {
-    /** Compilation errors (severity === 1), enriched with resolving hints. */
-    errors: EnrichedDiagnostic[];
-    /**
-     * Service-concurrency hints (BCH2003–BCH2005), any severity. The code
-     * compiles — these indicate that requests will be dispatched serially.
-     */
-    concurrencyHints: EnrichedDiagnostic[];
-}
-
-/**
  * Converts language server Diagnostics to EnrichedDiagnostic entries with hints.
- *
- * Routing: non-error-severity concurrency hint codes (BCH2003–BCH2005) go to
- * `concurrencyHints`; everything else is included in `errors` only when it is
- * an error-level diagnostic (severity === 1). A BCH code at error severity
- * (unreachable today — the compiler hardcodes HINT — but defensive) stays in
- * `errors` so a real error can never be downgraded to an ignorable hint.
+ * Filters for error-level diagnostics (severity === 1) only.
  */
-export function transformDiagnostics(diagnostics: Diagnostics[]): TransformedDiagnostics {
+export function transformDiagnostics(diagnostics: Diagnostics[]): EnrichedDiagnostic[] {
     const errors: EnrichedDiagnostic[] = [];
-    const concurrencyHints: EnrichedDiagnostic[] = [];
 
     for (const diagParam of diagnostics) {
         for (const diag of diagParam.diagnostics) {
-            const code = diag.code === undefined || diag.code === null ? "" : diag.code.toString();
-            const isConcurrencyHint = CONCURRENCY_HINT_CODES.has(code) && diag.severity !== 1;
-
-            // Only include error-level diagnostics (plus the concurrency hints)
-            if (diag.severity !== 1 && !isConcurrencyHint) {
+            // Only include error-level diagnostics
+            if (diag.severity !== 1) {
                 continue;
             }
 
+            const code = diag.code === undefined || diag.code === null ? "" : diag.code.toString();
             const fileName = path.basename(diagParam.uri);
             const msgPrefix = `[${fileName}:${diag.range.start.line},${diag.range.start.character}:${diag.range.end.line},${diag.range.end.character}] `;
 
@@ -289,13 +213,9 @@ export function transformDiagnostics(diagnostics: Diagnostics[]): TransformedDia
                 diagnosticEntry.hint = hint;
             }
 
-            if (isConcurrencyHint) {
-                concurrencyHints.push(diagnosticEntry);
-            } else {
-                errors.push(diagnosticEntry);
-            }
+            errors.push(diagnosticEntry);
         }
     }
 
-    return { errors, concurrencyHints };
+    return errors;
 }
