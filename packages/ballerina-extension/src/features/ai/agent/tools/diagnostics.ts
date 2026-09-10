@@ -45,7 +45,7 @@ For single-package projects, omit the packagePath parameter.
 
 The tool analyzes the entire Ballerina package and returns:
 - Compilation errors with file location, error message, and diagnostic code
-- Resolving hints for common error codes (including isolation/lock errors like BCE3943-BCE3966) to help fix issues quickly
+- Resolving hints for common error codes to help fix issues quickly
 - Empty list if no errors are found
 `,
         inputSchema: DiagnosticsInputSchema,
