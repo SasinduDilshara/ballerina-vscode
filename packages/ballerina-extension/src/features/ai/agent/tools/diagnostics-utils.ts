@@ -2,7 +2,7 @@ import { Diagnostics } from '@wso2/ballerina-core';
 import { checkProjectDiagnostics, isModuleNotFoundDiagsExist as resolveModuleNotFoundDiagnostics, PACKAGE_COMPILATION_FAILED_PREFIX } from '../../../../rpc-managers/ai-panel/repair-utils';
 import { StateMachine } from '../../../../stateMachine';
 import { Uri } from 'vscode';
-import { buildConcurrencyHintNote, EnrichedDiagnostic, transformDiagnostics } from './diagnostic-hints';
+import { EnrichedDiagnostic, transformDiagnostics } from './diagnostic-hints';
 
 export type { EnrichedDiagnostic } from './diagnostic-hints';
 
@@ -13,12 +13,6 @@ export const DIAGNOSTICS_TOOL_NAME = "getCompilationErrors";
  */
 export interface DiagnosticsCheckResult {
     diagnostics: EnrichedDiagnostic[];
-    /**
-     * Service-concurrency hints (BCH2003–BCH2005). Present only when the compiler
-     * reports that resource/remote methods will not be dispatched concurrently.
-     * These are NOT compilation errors — the code compiles.
-     */
-    concurrencyHints?: EnrichedDiagnostic[];
     message: string;
 }
 
@@ -60,7 +54,7 @@ export async function checkCompilationErrors(
             // `ballerinax/.config` — omitting "client". As a workaround, we detect this and
             // instruct the agent to use the correct quoted form `import ballerinax/'client.config;`
             // instead of attempting to resolve the dependency automatically.
-            const enrichedDiagnosticsTry = transformDiagnostics(diagnostics).errors;
+            const enrichedDiagnosticsTry = transformDiagnostics(diagnostics);
             const hasInvalidClientModuleImport = enrichedDiagnosticsTry.some(
                 d => d.code === "BCE2003" && d.message.includes("ballerinax/.config")
             );
@@ -92,26 +86,23 @@ export async function checkCompilationErrors(
         }
 
         // Transform and enrich diagnostics with hints
-        const { errors: enrichedDiagnostics, concurrencyHints } = transformDiagnostics(diagnostics);
+        const enrichedDiagnostics = transformDiagnostics(diagnostics);
 
         const errorCount = enrichedDiagnostics.length;
-        const hintNote = buildConcurrencyHintNote(concurrencyHints.length);
-        console.log(`[DiagnosticsUtils] Found ${errorCount} compilation error(s) and ${concurrencyHints.length} concurrency hint(s).`);
+        console.log(`[DiagnosticsUtils] Found ${errorCount} compilation error(s).`);
 
         if (errorCount === 0) {
             console.log(`[DiagnosticsUtils] No compilation errors found.`);
             return {
                 diagnostics: [],
-                ...(concurrencyHints.length > 0 ? { concurrencyHints } : {}),
-                message: "No compilation errors found. Code compiles successfully." + hintNote,
+                message: "No compilation errors found. Code compiles successfully.",
             };
         }
 
         console.log(`[DiagnosticsUtils] Enriched Diagnostics:`, enrichedDiagnostics);
         return {
             diagnostics: enrichedDiagnostics,
-            ...(concurrencyHints.length > 0 ? { concurrencyHints } : {}),
-            message: `Found ${errorCount} compilation error(s). Review and fix the errors before proceeding.` + hintNote
+            message: `Found ${errorCount} compilation error(s). Review and fix the errors before proceeding.`
         };
     } catch (error) {
         console.error("[DiagnosticsUtils] Error checking compilation errors:", error);
