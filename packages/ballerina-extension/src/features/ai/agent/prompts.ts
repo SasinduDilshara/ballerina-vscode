@@ -29,7 +29,6 @@ import { formatCodebaseStructure, formatCodeContext } from "./utils";
 import { GenerateAgentCodeRequest, OperationType, ProjectSource } from "@wso2/ballerina-core";
 import { formatActiveFileReminder } from "./activeFileReminder";
 import { DATA_BINDING_CODING_RULES } from "./data-binding-rules";
-import { CONFIGURABLE_CODING_RULES } from "./configurable-rules";
 import { getRequirementAnalysisCodeGenPrefix, getRequirementAnalysisTestGenPrefix } from "./np/prompts";
 import { CONCURRENCY_CODING_RULES } from "./concurrency-rules";
 import { extractResourceDocumentContent, flattenProjectToFiles } from "../utils/ai-utils";
@@ -198,8 +197,6 @@ ${getLanglibInstructions()}
 - Define required configurables for the query. Use only string, int, byte, float, decimal, boolean types (or arrays of them) in configurable variables — never a langlib-qualified numeric subtype, even if a connector's client method parameter uses one; those are not supported as configurable types and fail at runtime. Widen to the base type and cast when calling the client. Never assign hardcoded default values to configurables.
 - Initialize any necessary clients with the correct configuration based on the retrieved libraries at the module level (before any function or service declarations).
 - Implement the main function OR service to address the query requirements.
-
-${CONFIGURABLE_CODING_RULES}
 
 ## Coding Rules
 - Use records as canonical representations of data structures. Always define records for data structures instead of using maps or json and navigate using the record fields.
