@@ -252,7 +252,8 @@ final ai:VectorKnowledgeBase <agent>KnowledgeBase =
 
 `ingest` accepts `Document`, `Document[]` or `Chunk[]` — pass the loader's result straight through
 without unwrapping it. `retrieve(query, <limit>)` returns `ai:QueryMatch[]`, each carrying its text
-at `chunk.content`.
+at `chunk.content`. That field is typed `anydata` on the generic `ai:Chunk` — convert it
+(`chunk.content.toString()`) or narrow to `ai:TextChunk` before treating it as a `string`.
 
 The retrieval tool returns those excerpts as text and stops there. Do not have it answer the
 question itself — the agent's own instructions decide how the excerpts are used.
@@ -372,6 +373,11 @@ An event source is not a webhook: there is no acknowledgement, so blocking slows
 past the poll deadline, rebalances the group and reprocesses the events. Keep the `start` and the
 error handling, drop the session id (events are not conversations), and end the reply method with a
 `// TODO:` comment above a `log:printInfo` of the result so the unfinished step shows in the diagram.
+
+Dropping the session id is only safe when the agent is constructed with `memory = ()`. Omitting
+`sessionId` from `run` does not disable memory — it defaults to a fixed id, so every event this
+listener processes would otherwise append to and read from the same shared history. If the agent
+does have memory, generate a per-event id instead of dropping it.
 
 ### HTTP endpoints are the exception
 

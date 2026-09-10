@@ -94,7 +94,7 @@ export const agentBuilderSkill: Skill = {
     name: agentBuilder.name,
     trigger: agentBuilder.description,
     content: agentBuilder.body,
-    optional: false,
+    optional: true,
     default: true,
 };
 
