@@ -23,6 +23,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
 import io.ballerina.flowmodelgenerator.extension.request.FlowModelGeneratorRequest;
+import io.ballerina.flowmodelgenerator.extension.request.FlowModelNodeTemplateRequest;
 import io.ballerina.flowmodelgenerator.extension.request.FlowModelSourceGeneratorRequest;
 import io.ballerina.modelgenerator.commons.AbstractLSTest;
 import io.ballerina.tools.text.LinePosition;
@@ -49,7 +50,10 @@ import java.util.Map;
  * in source: as a quoted string literal (TEXT), as any other expression (EXPRESSION), and as an
  * argument that is absent altogether (TEXT, matching the fresh node template).
  *
- * @since 1.5.0
+ * <p>Field <em>order</em> is asserted too, against the node template: properties are held in
+ * insertion order, so the two builders disagreeing means the form reshuffles itself on save.
+ *
+ * @since 1.8.0
  */
 public class BuiltinEmailFieldModeTest extends AbstractLSTest {
 
@@ -114,6 +118,18 @@ public class BuiltinEmailFieldModeTest extends AbstractLSTest {
             Assert.assertEquals(codedata.get("kind").getAsString(), "REQUIRED",
                     field + " must be a REQUIRED parameter: " + codedata);
         }
+    }
+
+    @Test(description = "A fresh node and a reopened one order the email fields the same way.")
+    public void testFieldOrderMatchesTheNodeTemplate() throws IOException {
+        List<String> fresh = emailFieldOrder(emailNodeTemplate());
+        List<String> reopened = emailFieldOrder(emailNode(0));
+        // Pinned, not just cross-checked: the two builders agreeing on a wrong order would still
+        // reorder the form against the sendEmail signature and the generated argument list.
+        Assert.assertEquals(fresh, EMAIL_FIELDS, "The node template's email field order changed");
+        Assert.assertEquals(reopened, fresh,
+                "A reopened node orders the email fields differently from a fresh one, so the form "
+                        + "reshuffles when a node is saved and opened again");
     }
 
     @Test(description = "Text-mode fields are re-quoted on save, so a read-save cycle is a no-op.")
@@ -224,6 +240,29 @@ public class BuiltinEmailFieldModeTest extends AbstractLSTest {
             }
         }
         return null;
+    }
+
+    /** The email field keys of {@code node}, in the order the form renders them. */
+    private static List<String> emailFieldOrder(JsonObject node) {
+        List<String> order = new ArrayList<>();
+        for (String key : node.getAsJsonObject("properties").keySet()) {
+            if (EMAIL_FIELDS.contains(key)) {
+                order.add(key);
+            }
+        }
+        return order;
+    }
+
+    /** The form a fresh Send Email node opens with. */
+    private JsonObject emailNodeTemplate() {
+        JsonObject codedata = new JsonObject();
+        codedata.addProperty("node", "BUILTIN_ACTIVITY");
+        codedata.addProperty("org", "ballerina");
+        codedata.addProperty("module", "workflow.activity");
+        codedata.addProperty("symbol", EMAIL_SYMBOL);
+        FlowModelNodeTemplateRequest request = new FlowModelNodeTemplateRequest(getSourcePath(SOURCE),
+                LinePosition.from(14, 0), codedata);
+        return getResponse(request, getServiceName() + "/getNodeTemplate").getAsJsonObject("flowNode");
     }
 
     /** The {@code index}-th sendEmail node of {@code notifyCustomer}, in source order. */

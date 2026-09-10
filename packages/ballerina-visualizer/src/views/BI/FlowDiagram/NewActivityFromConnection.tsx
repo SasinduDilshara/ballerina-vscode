@@ -547,27 +547,26 @@ export function NewActivityFromConnection(props: NewActivityFromConnectionProps)
             const isChecked = checked[param.name] === true;
             if (isChecked) {
                 parametersValue[param.name] = createDefaultParameterValue({
-                    value: param.name,
+                    // Becomes the generated activity's parameter name, so it must carry the quote
+                    // for a keyword ('from) to be valid source.
+                    value: param.escapedName,
                     type: param.type,
                     // Carried into the generated activity's parameter doc line.
                     parameterDescription: param.description,
                 });
             }
-            // The LS escapes a keyword parameter name ('from); the action node template keys the
-            // matching property the same way when it comes from the connector index, but by the bare
-            // symbol name when it is resolved from the project's own semantic model. Try both so the
-            // argument is always wired up.
-            const propertyKey = param.name in newProperties ? param.name : param.name.replace(/^'/, "");
-            const property = newProperties[propertyKey];
+            const property = newProperties[param.name];
             if (!property) {
                 continue;
             }
+            // The argument passed to the action inside the activity — source text, so the escaped
+            // spelling; the property it is stored under is keyed by the bare name.
             const value = isChecked
-                ? param.name
+                ? param.escapedName
                 : param.required
                   ? String(data[`${param.name}${DEFAULT_VALUE_SUFFIX}`] ?? "")
                   : "";
-            newProperties[propertyKey] = { ...property, value };
+            newProperties[param.name] = { ...property, value };
         }
 
         // Return type: for dependently-typed actions the user-provided T (activity returns T|error),

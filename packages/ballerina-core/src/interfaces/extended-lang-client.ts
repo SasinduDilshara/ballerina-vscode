@@ -1074,8 +1074,12 @@ export interface ActivityActionAnalysis {
     supported: boolean;
     /** When unsupported, the human-readable reasons. */
     reasons: string[];
-    /** The derived activity parameters. */
-    params: { name: string; type: string; required: boolean; description?: string }[];
+    /**
+     * The derived activity parameters. `name` is the bare parameter name — it matches the action
+     * node template's property key and is what the form shows; `escapedName` carries the leading
+     * quote for a Ballerina keyword (`'from`) and belongs only in text emitted as source.
+     */
+    params: { name: string; escapedName: string; type: string; required: boolean; description?: string }[];
     /** The derived activity return type (success type, without |error). */
     returnType: string;
     /** When the action returns a stream, its element type T (the activity returns T[]); else absent. */

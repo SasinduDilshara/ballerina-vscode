@@ -112,10 +112,10 @@
           "kind": "REQUIRED"
         }
       },
-      "body": {
+      "from": {
         "metadata": {
-          "label": "Body",
-          "description": "Plain-text body of the email"
+          "label": "From",
+          "description": "Sender address"
         },
         "types": [
           {
@@ -138,10 +138,10 @@
           "kind": "REQUIRED"
         }
       },
-      "from": {
+      "body": {
         "metadata": {
-          "label": "From",
-          "description": "Sender address"
+          "label": "Body",
+          "description": "Plain-text body of the email"
         },
         "types": [
           {
