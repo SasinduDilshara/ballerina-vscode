@@ -198,6 +198,11 @@ ${getLanglibInstructions()}
 - Initialize any necessary clients with the correct configuration based on the retrieved libraries at the module level (before any function or service declarations).
 - Implement the main function OR service to address the query requirements.
 
+## OAuth refreshUrl configurable
+When a connector authenticates via an OAuth2 refresh-token grant that includes a refreshUrl:
+- Declare a \`configurable string\` for the refreshUrl and reference it in the auth config (e.g. \`refreshUrl: refreshUrl\`).
+- refreshUrl is the one configurable that MAY carry a default: if the library's type definition provides a default refreshUrl (the provider token endpoint), use it (\`configurable string refreshUrl = "<provider-token-endpoint-url>";\`); otherwise use \`configurable string refreshUrl = ?;\`.
+
 ## Coding Rules
 - Use records as canonical representations of data structures. Always define records for data structures instead of using maps or json and navigate using the record fields.
 - Do not invoke methods on json access expressions. Always use separate statements.
@@ -207,7 +212,7 @@ ${getLanglibInstructions()}
 - ALWAYS use two-word camel case all the identifiers (variables, function parameter, resource function parameter, and field names).
 - If a type paramter is specified as record {|anydata...;|} which means you can pass any record into that. In those scenarios, Use existing records or declare explict records and pass it to the paramter.
 - If the return type refers to a paramter with the type record {|anydata...;|} as the default value, it means it can be assigned to any records. You can decide the structured, declare and use it.
-- Whenever you have a Json variable, NEVER access or manipulate Json variables. ALWAYS define a record and convert the Json to that record and use it. Member access on a RECORD (see "Data binding, type casts and narrowing") is not json manipulation and is the one allowed way to read an undeclared field.
+- Whenever you have a Json variable, NEVER access or manipulate Json variables. ALWAYS define a record and convert the Json to that record and use it. Member access on a RECORD (see the following section "Data binding, type casts and narrowing") is not json manipulation and is the one allowed way to read an undeclared field.
 - When invoking resource functions from a client, use the correct paths with accessor and parameters (e.g., exampleClient->/path1/["param"]/path2.get(key="value")).
 - When accessing a field of a record, always assign it to a new variable and use that variable in the next statement.
 - Avoid long comments in the code. Use // for single line comments.
@@ -216,6 +221,7 @@ ${getLanglibInstructions()}
 - To narrow down a union type(or optional type), always declare a separate variable and then use that variable in the if condition.
 
 ${DATA_BINDING_CODING_RULES}
+
 ${MODULE_INIT_CODING_RULES}
 
 ${CONCURRENCY_CODING_RULES}
