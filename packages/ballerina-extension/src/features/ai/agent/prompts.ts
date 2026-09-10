@@ -191,7 +191,7 @@ ${getLanglibInstructions()}
 
 ## Code Structure
 - In WSO2 Integrator, Automation is simply an app with a main method unless user specifically mentions a service. Cron Job kind of requirements are handled in the deployment level for Kubernetes or Integration platform level.
-- Define required configurables for the query. Use only string, int, decimal, boolean types in configurable variables. Never assign hardcoded default values to configurables.
+- Define required configurables for the query. Use only string, int, byte, float, decimal, boolean types (or arrays of them) in configurable variables — never a langlib-qualified numeric subtype, even if a connector's client method parameter uses one; those are not supported as configurable types and fail at runtime. Widen to the base type and cast when calling the client. Never assign hardcoded default values to configurables.
 - Initialize any necessary clients with the correct configuration based on the retrieved libraries at the module level (before any function or service declarations).
 - Implement the main function OR service to address the query requirements.
 
