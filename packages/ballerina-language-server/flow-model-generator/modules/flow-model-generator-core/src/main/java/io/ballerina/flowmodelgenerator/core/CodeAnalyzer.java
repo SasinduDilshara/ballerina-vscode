@@ -2405,8 +2405,8 @@ public class CodeAnalyzer extends NodeVisitor {
                     dropdownValue = ActivityCallBuilder.MANUAL_RETRY_VALUE;
                     review = new ActivityCallBuilder.ReviewFormValues(
                             fields.getOrDefault(USER_ROLES_FIELD, ""),
-                            unquoted(fields.get("title")),
-                            unquoted(fields.get("description")),
+                            reviewText(fields.get("title")),
+                            reviewText(fields.get("description")),
                             fields.getOrDefault("timeout", ""));
                 } else {
                     dropdownValue = ActivityCallBuilder.AUTO_RETRY_VALUE;
@@ -2451,13 +2451,28 @@ public class CodeAnalyzer extends NodeVisitor {
     private static final String USER_ROLES_FIELD = "userRoles";
 
     /**
-     * A string literal as the form shows it: the quotes and the escapes belong to the source, not to
-     * the value. The one inverse of the encoder the form writes with
-     * ({@link WorkflowUtil#stringLiteral}), so a title carrying a quote or a line break survives a
-     * read and a save unchanged instead of gaining a backslash on each edit.
+     * A review's title or description as the form holds it, and in which mode.
+     *
+     * <p>A string literal is shown as the text it denotes: the quotes and the escapes belong to the
+     * source, not to the value. {@link WorkflowUtil#stringLiteralText} is the one inverse of the
+     * encoder the form writes with ({@link WorkflowUtil#stringLiteral}), so a title carrying a quote
+     * or a line break survives a read and a save unchanged instead of gaining a backslash on each
+     * edit.
+     *
+     * <p>Decoding is also what settles the mode, since that method returns anything which is not a
+     * string literal unchanged: a value it altered was a literal — text mode — and one it left alone
+     * is the form's own source. Recording that here is the only chance to; once the quotes are off,
+     * {@code reviewTitle} could equally be a literal's text or a variable of that name.
      */
-    private static String unquoted(String literal) {
-        return WorkflowUtil.stringLiteralText(literal);
+    private static ActivityCallBuilder.ReviewText reviewText(String literal) {
+        if (literal == null || literal.isBlank()) {
+            return ActivityCallBuilder.ReviewText.empty();
+        }
+        String source = literal.trim();
+        String text = WorkflowUtil.stringLiteralText(source);
+        return text.equals(source)
+                ? ActivityCallBuilder.ReviewText.expression(source)
+                : ActivityCallBuilder.ReviewText.text(text);
     }
 
     // Whether the expression IS one of the named policy sentinels, bare or module-qualified.
