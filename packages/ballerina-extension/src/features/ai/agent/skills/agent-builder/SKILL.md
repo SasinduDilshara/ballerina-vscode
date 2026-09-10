@@ -9,10 +9,6 @@ The agent diagram is not generated from a model — it is parsed directly out of
 write. Code that compiles but does not match the shapes below still renders as an incomplete or
 empty agent, and the user cannot then edit it from the low-code side. Follow every rule.
 
-**Never import `ballerinax/ai` or `ballerinax/ai.agent`.** Both are deprecated. Every construct in
-this skill — `ai:Agent`, `ai:AgentTool`, `ai:Wso2ModelProvider`, `ai:Listener`, and the rest —
-comes from `ballerina/ai`; that is the only agent module to import or generate code against.
-
 `<...>` marks a placeholder to substitute from the user's request. Never emit it literally.
 
 Derive identifiers from the agent's purpose in camelCase, and keep the family consistent:
@@ -384,3 +380,5 @@ the Agent Call node disappears from the diagram and the user is left with a bare
 `run` is dependently typed, so `<ResponseType>` may be a record and the agent will derive a JSON
 schema and bind the answer to it. The type MUST be a subtype of `json`; a violation is a runtime
 error, not a compile error.
+
+Note: `ballerinax/ai` and `ballerinax/ai.agent` are deprecated — everything above is `ballerina/ai`.
