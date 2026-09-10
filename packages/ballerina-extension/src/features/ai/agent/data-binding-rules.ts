@@ -51,4 +51,4 @@ export const DATA_BINDING_CODING_RULES = `## Data binding, type casts and narrow
 ### Reading fields
 - Access record fields with member access (\`.\`) for the field name known at compile time.
 - Never cast to reach a field. To read a field the record type does not declare, or a field whose name is only known at run time, use member access on the record and check the result: \`anydata claim = payload[claimName]; if claim is string { ... }\`, Member access gives \`()\` when the field is absent..
-- To access members of a JSON, convert it to a record first: \`record { string sub; } payload = check jsonValue.cloneWithType();\`, and then read the field: \`string sub = payload.sub;\`.`;
+- To access members of a JSON, Always convert it to a record first: \`record { string sub; } payload = check jsonValue.cloneWithType();\`, and then read the field: \`string sub = payload.sub;\`.`;
