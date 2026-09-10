@@ -57,8 +57,7 @@ json data = check jsonText.fromJsonString();
 string jsonArray = "[1, 2, 3]";
 int[] numbers = check jsonArray.fromJsonStringWithType();
 
-// Converting JSON to a record type. Config is OPEN (record { ... }) because the payload's exact
-// shape is not known; the extra "region" field still converts. A closed record {| ... |} would fail.
+// Converting JSON to a record type. Config is OPEN (record { ... }) because the payload's exact shape is not known; the extra "region" field still converts. A closed record {| ... |} would fail.
 string configText = "{\"port\":8080,\"timeout\":60,\"region\":\"eu\"}";
 type Config record { int port; int timeout; };
 Config config = check configText.fromJsonStringWithType(Config);
